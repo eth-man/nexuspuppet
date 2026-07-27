@@ -16,6 +16,11 @@ import { EnterpriseLoader } from './enterprise/enterprise.loader';
 import { HealthController } from './health/health.controller';
 import { NodesController } from './inventory/nodes.controller';
 import { ReportsController } from './reports/reports.controller';
+import {
+  MaterializationController,
+  NodeGroupsController,
+} from './classification/node-groups.controller';
+import { ClassificationService } from './classification/classification.service';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
 import { EncFileWriter } from './materialization/enc-file-writer';
 import { MaterializerService } from './materialization/materializer.service';
@@ -81,7 +86,14 @@ export class AppModule {
           validate: loadEnv,
         }),
       ],
-      controllers: [HealthController, AuthController, NodesController, ReportsController],
+      controllers: [
+        HealthController,
+        AuthController,
+        NodesController,
+        ReportsController,
+        NodeGroupsController,
+        MaterializationController,
+      ],
       providers: [
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
@@ -126,6 +138,7 @@ export class AppModule {
           },
         },
         MaterializationService,
+        ClassificationService,
         {
           provide: MaterializerService,
           inject: [PrismaService, EncFileWriter],

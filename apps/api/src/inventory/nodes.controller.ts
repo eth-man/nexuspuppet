@@ -8,10 +8,12 @@ import {
   type Page,
   type PageRequest,
   type PuppetNode,
+  type NodeClassificationExplanation,
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission } from '../auth/auth.guard';
+import { ClassificationService } from '../classification/classification.service';
 
 /**
  * Node inventory (ADR-0004).
@@ -71,7 +73,23 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 @RequirePermission('inventory:read')
 @Controller('nodes')
 export class NodesController {
-  constructor(@Inject(PUPPETDB_CLIENT) private readonly puppetdb: IPuppetDbClient) {}
+  constructor(
+    @Inject(PUPPETDB_CLIENT) private readonly puppetdb: IPuppetDbClient,
+    private readonly classification: ClassificationService,
+  ) {}
+
+  /**
+   * Why this node is classified the way it is: applied groups in merge order,
+   * conflicts, and whether a change is still queued.
+   *
+   * Served from local state, so it keeps working during a PuppetDB outage —
+   * classification does not depend on PuppetDB (ADR-0003).
+   */
+  @RequirePermission('classification:read')
+  @Get(':certname/classification')
+  explain(@Param('certname') certname: string): Promise<NodeClassificationExplanation> {
+    return this.classification.explain(certname);
+  }
 
   /** Server-driven pagination: a 10,000-row estate is never shipped whole. */
   @Get()

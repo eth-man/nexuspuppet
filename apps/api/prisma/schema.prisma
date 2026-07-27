@@ -101,7 +101,6 @@ model ManagedNode {
   /// "facts as of <t>" so operators can see staleness rather than guess at it.
   projectedAt     DateTime  @default(now())
 
-  pins            NodeGroupPin[]
   materialization EncMaterialization?
 
   @@index([environment])
@@ -186,10 +185,13 @@ model NodeGroupRule {
 model NodeGroupPin {
   groupId   String      @db.Uuid
   group     NodeGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Deliberately a PLAIN COLUMN with no foreign key to ManagedNode.
+  ///
+  /// Pinning a node that has not yet checked in is a legitimate operation — it
+  /// may be provisioned tomorrow — and ManagedNode is an explicitly disposable
+  /// cache (ADR-0004) that must be truncatable without dropping operator
+  /// intent. A foreign key here would forbid both.
   certname  String      @db.VarChar(255)
-  /// Intentionally NOT a foreign key to ManagedNode: an operator may pin a node
-  /// that has not yet checked in, and truncating the cache must not drop pins.
-  node      ManagedNode? @relation(fields: [certname], references: [certname], onDelete: SetNull, map: "node_group_pins_certname_soft_fkey")
   createdAt DateTime    @default(now())
 
   @@id([groupId, certname])
