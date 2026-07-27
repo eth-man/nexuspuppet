@@ -37,8 +37,22 @@ boot. The only file permitted to reference enterprise code is
 **3. `apps/web` never touches data directly.** (C4 L2, ADR-0008)
 
 No `@prisma/client`, no database URL, no PuppetDB certificate in the web tier.
-It fetches from `apps/api`. Authorization is decided in `api` only — hiding UI
-is a usability affordance, never a security control.
+The browser calls same-origin `/api/*`, which `app/api/[...path]/route.ts`
+relays server-side; `API_INTERNAL_URL` is deliberately not `NEXT_PUBLIC_`.
+Authorization is decided in `api` only — `can()` in the UI hides what a user
+cannot use, and is never a security control.
+
+## Writing UI
+
+- **Never colour a Puppet state ad hoc.** `lib/status.ts` is the single mapping
+  from state to appearance; use `<StateBadge>` or `stateStyle()`. A second
+  mapping is how "failed" ends up amber on one screen and red on another.
+- Monospace is mandatory for facts, YAML, and run logs — proportional type
+  destroys the column alignment that makes nested data legible.
+- Density is the point: 32px controls and tight rows. An operator wants the
+  estate on one screen.
+- The main content area is fluid-width, never boxed. Wide tables scroll inside
+  their own container so the page body never scrolls horizontally.
 
 ## Writing classification code
 

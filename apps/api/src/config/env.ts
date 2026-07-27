@@ -44,7 +44,13 @@ export const envSchema = z.object({
         .map((f) => f.trim())
         .filter((f) => f.length > 0),
     ),
-  PUPPETDB_PROJECTION_INTERVAL_MS: durationMs(300_000),
+  /**
+   * 0 disables the projector for this process — useful for a replica that only
+   * serves HTTP, or a deployment where PuppetDB is not yet wired up.
+   * NodeProjectionService already treats a non-positive interval as disabled;
+   * rejecting 0 here made that path unreachable.
+   */
+  PUPPETDB_PROJECTION_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
 
   // ADR-0003
   ENC_OUTPUT_DIR: z.string().min(1),

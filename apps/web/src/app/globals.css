@@ -1,11 +1,81 @@
 @import 'tailwindcss';
 
-/* Dense ops-console defaults. Dark-first per the intake's design inputs. */
+/**
+ * NexusPuppet console theme.
+ *
+ * Dense, dark, ops-first. The reference points are Grafana and a terminal, not
+ * a marketing site: an operator triaging a failed run wants the whole estate on
+ * one screen, not generous whitespace.
+ *
+ * STATUS COLOURS ARE TOKENS, NOT CHOICES. A Puppet state must look identical in
+ * a table cell, a badge, a chart, and a detail header. Anyone reaching for
+ * `text-rose-500` directly is inventing a second vocabulary for "failed", so
+ * the semantic names below are the only supported way to colour a state.
+ */
+
 @theme {
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+  /* Surfaces — two levels only. More would blur the panel/background line
+     that gives a dense layout its structure. */
+  --color-surface: oklch(0.13 0.028 261.7); /* slate-950 */
+  --color-panel: oklch(0.21 0.034 264.7); /* slate-900 */
+  --color-panel-raised: oklch(0.28 0.037 259.6); /* slate-800 */
+  --color-line: oklch(0.37 0.034 259.7); /* slate-700 */
+  --color-line-soft: oklch(0.28 0.037 259.6); /* slate-800 */
+
+  /* Text */
+  --color-ink: oklch(0.97 0.014 254.6); /* slate-100 */
+  --color-ink-muted: oklch(0.71 0.035 256.8); /* slate-400 */
+  --color-ink-faint: oklch(0.55 0.041 257.4); /* slate-500 */
+
+  /* Puppet run states. Fixed by the UI guidelines; do not add shades. */
+  --color-state-failed: oklch(0.64 0.208 25.3); /* rose-500 */
+  --color-state-changed: oklch(0.62 0.214 259.8); /* blue-500 */
+  --color-state-unchanged: oklch(0.7 0.15 162.5); /* emerald-500 */
+  --color-state-pending: oklch(0.77 0.16 70.1); /* amber-500 */
+  --color-state-unknown: oklch(0.55 0.041 257.4); /* slate-500 */
+
+  --color-accent: oklch(0.62 0.214 259.8);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Facts, YAML, and run logs are read as data. Proportional type destroys the
+     column alignment that makes a nested structure or a diff legible. */
+  --font-mono:
+    ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
 :root {
   color-scheme: dark;
+}
+
+html,
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+
+/* Dense scrollbars: default widths eat horizontal space in a wide inventory. */
+@supports (scrollbar-width: thin) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+}
+
+@layer base {
+  /* Focus is never removed — keyboard navigation through a long table is a
+     primary interaction, not an accessibility afterthought. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+}
+
+@layer components {
+  /* Wide content scrolls inside its own container so the page body never
+     scrolls horizontally. */
+  .scroll-x {
+    overflow-x: auto;
+    max-width: 100%;
+  }
 }

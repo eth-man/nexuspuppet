@@ -80,6 +80,18 @@ describe('loadEnv', () => {
     });
   });
 
+  // The service treats a non-positive interval as "disabled"; rejecting 0 here
+  // would make that path unreachable.
+  it('accepts 0 for PUPPETDB_PROJECTION_INTERVAL_MS, meaning disabled', () => {
+    expect(
+      loadEnv({ ...minimal, PUPPETDB_PROJECTION_INTERVAL_MS: '0' }).PUPPETDB_PROJECTION_INTERVAL_MS,
+    ).toBe(0);
+  });
+
+  it('still rejects a negative projection interval', () => {
+    expect(() => loadEnv({ ...minimal, PUPPETDB_PROJECTION_INTERVAL_MS: '-1' })).toThrow();
+  });
+
   it('rejects a malformed PUPPETDB_URL', () => {
     expect(() => loadEnv({ ...minimal, PUPPETDB_URL: 'not-a-url' })).toThrow(/PUPPETDB_URL/);
   });
