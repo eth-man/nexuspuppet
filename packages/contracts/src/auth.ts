@@ -134,10 +134,23 @@ export interface IAuthorizationPolicy {
   ): boolean;
 }
 
+/**
+ * A user as the DIRECTORY sees them, which is not the same as a principal.
+ *
+ * `AuthenticatedPrincipal` answers "who is this?" and only ever describes
+ * someone who has already authenticated — it flows into the JWT. A directory
+ * entry also has to answer "may they?", which is why account status appears
+ * here and not there. An auth provider that cannot see `isActive` cannot
+ * enforce a deactivation, and a suspended employee keeps their access.
+ */
+export interface DirectoryUser extends AuthenticatedPrincipal {
+  isActive: boolean;
+}
+
 /** User lifecycle. Core backs this with Postgres; enterprise may back it with a directory. */
 export interface IUserDirectory {
   readonly readOnly: boolean;
-  findByEmail(email: string): Promise<AuthenticatedPrincipal | null>;
+  findByEmail(email: string): Promise<DirectoryUser | null>;
 
   /**
    * Look up by the identifier carried in a session.
@@ -149,7 +162,7 @@ export interface IUserDirectory {
    * principal on token refresh, and a deactivation would not take effect until
    * the refresh window expired.
    */
-  findById(userId: string): Promise<AuthenticatedPrincipal | null>;
+  findById(userId: string): Promise<DirectoryUser | null>;
 
   /**
    * Record what an external authority asserted at a successful login: the role
@@ -168,7 +181,7 @@ export interface IUserDirectory {
   recordLogin(userId: string, update: { role: UserRole; displayName: string }): Promise<void>;
 
   list(options: { limit: number; offset: number }): Promise<{
-    users: AuthenticatedPrincipal[];
+    users: DirectoryUser[];
     total: number;
   }>;
 }
