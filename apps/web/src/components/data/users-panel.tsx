@@ -50,7 +50,7 @@ export function UsersPanel() {
     setError(caught instanceof ApiError ? caught.message : String(caught));
 
   return (
-    <Card className="xl:col-span-2">
+    <Card>
       <CardHeader>
         <CardTitle>Users</CardTitle>
         <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>

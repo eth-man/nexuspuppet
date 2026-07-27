@@ -8,19 +8,30 @@ import { QueryError, Spinner } from '@/components/states';
 import { UsersPanel } from '@/components/data/users-panel';
 import { ChangePasswordCard } from '@/components/data/change-password';
 
-/** Deployment facts an operator needs when filing a bug or planning an upgrade. */
+/**
+ * Deployment, session, and user administration.
+ *
+ * LAYOUT: three short cards as a context strip, then the users table at full
+ * width. A two-column grid left the right-hand column empty below "Your
+ * session", because the cards are all short and the table is the only thing
+ * with real content — the page read as half-finished.
+ *
+ * `items-start` keeps each card at its natural height. Stretching them to match
+ * the tallest would pad Deployment with empty space to align with a password
+ * form, which is the opposite of dense.
+ */
 export default function SettingsPage() {
   const capabilities = useCapabilities();
   const { principal, permissions } = useAuth();
 
   return (
-    <div className="p-3">
-      <header className="mb-3">
+    <div className="space-y-3 p-3">
+      <header>
         <h1 className="text-sm font-semibold tracking-tight">Settings</h1>
-        <p className="text-xs text-ink-muted">Deployment and session</p>
+        <p className="text-xs text-ink-muted">Deployment, session, and users</p>
       </header>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>Deployment</CardTitle>
@@ -31,7 +42,7 @@ export default function SettingsPage() {
             ) : capabilities.isPending ? (
               <Spinner />
             ) : (
-              <dl className="grid grid-cols-[8rem_1fr] gap-y-1 text-xs">
+              <dl className="grid grid-cols-[7rem_1fr] gap-y-1 text-xs">
                 <dt className="text-ink-faint">Edition</dt>
                 <dd className="text-ink">{capabilities.data.edition}</dd>
                 <dt className="text-ink-faint">Enterprise</dt>
@@ -54,15 +65,20 @@ export default function SettingsPage() {
             <CardTitle>Your session</CardTitle>
           </CardHeader>
           <CardContent>
-            <dl className="grid grid-cols-[8rem_1fr] gap-y-1 text-xs">
+            <dl className="grid grid-cols-[7rem_1fr] gap-y-1 text-xs">
               <dt className="text-ink-faint">Email</dt>
-              <dd className="font-mono text-ink">{principal?.email}</dd>
+              <dd className="truncate font-mono text-ink">{principal?.email}</dd>
               <dt className="text-ink-faint">Role</dt>
               <dd className="text-ink">{principal?.role}</dd>
               <dt className="text-ink-faint">Auth source</dt>
               <dd className="text-ink">{principal?.authSource}</dd>
             </dl>
-            <div className="mt-2 flex flex-wrap gap-1">
+
+            <p className="mt-2 text-[11px] text-ink-faint">
+              What your role permits. The API enforces these independently — hidden controls are a
+              convenience, not a boundary.
+            </p>
+            <div className="mt-1 flex flex-wrap gap-1">
               {permissions.map((permission) => (
                 <Badge key={permission} className="font-mono">
                   {permission}
@@ -71,9 +87,12 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
         <ChangePasswordCard />
-        <UsersPanel />
       </div>
+
+      {/* Full width: the only panel on this page with substantial content. */}
+      <UsersPanel />
     </div>
   );
 }
