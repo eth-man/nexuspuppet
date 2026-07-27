@@ -57,6 +57,14 @@ npm run db:generate                              # after any schema.prisma chang
 npm run db:migrate                               # apply migrations locally
 ```
 
+Integration tests use a **separate** database and truncate tables, so they can
+never disturb a running stack:
+
+```bash
+npm run db:test:setup --workspace @nexuspuppet/api   # once
+npm run test:int --workspace @nexuspuppet/api
+```
+
 `docker-compose.yml` is the full stack and builds both app images — use it for
 deployment, not for the edit-run loop.
 

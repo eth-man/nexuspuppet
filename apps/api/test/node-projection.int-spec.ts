@@ -24,10 +24,15 @@ import { mapNode, mapFactsetToFacts } from '../src/puppetdb/puppetdb.mapper';
  * The client itself is covered separately, including a live mTLS handshake.
  */
 
+/**
+ * These tests TRUNCATE tables. They must never point at a database anyone is
+ * using: a leftover fixture row once blocked admin bootstrap on the dev stack
+ * and made login impossible. `npm run test:int` supplies TEST_DATABASE_URL;
+ * the fallback is the dedicated test database, never the dev one.
+ */
 const DATABASE_URL =
   process.env['TEST_DATABASE_URL'] ??
-  process.env['DATABASE_URL'] ??
-  'postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet?schema=public';
+  'postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public';
 
 const fixtures = join(__dirname, '../../../fixtures');
 const load = <T>(name: string): T => JSON.parse(readFileSync(join(fixtures, name), 'utf8')) as T;

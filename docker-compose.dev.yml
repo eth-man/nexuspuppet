@@ -31,6 +31,10 @@ services:
       - '${DEV_DB_PORT:-5432}:5432'
     volumes:
       - dev-db-data:/var/lib/postgresql/data
+      # Integration tests truncate tables and must never share a database with
+      # a running stack — a leftover test row once blocked admin bootstrap and
+      # made login impossible. nexuspuppet_shadow is for `prisma migrate diff`.
+      - ./scripts/init-dev-databases.sh:/docker-entrypoint-initdb.d/10-databases.sh:ro
     healthcheck:
       # `pg_isready` alone reports ready during init; the SELECT confirms the
       # database actually accepts queries, which is what migrations need.

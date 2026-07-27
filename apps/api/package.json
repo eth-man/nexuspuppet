@@ -16,7 +16,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "clean": "rm -rf dist coverage src/generated *.tsbuildinfo",
-    "test:int": "jest --config jest.int.config.js --runInBand"
+    "test:int": "TEST_DATABASE_URL=\"${TEST_DATABASE_URL:-postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public}\" jest --config jest.int.config.js --runInBand",
+    "db:test:setup": "DATABASE_URL=\"${TEST_DATABASE_URL:-postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public}\" prisma migrate deploy"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",
