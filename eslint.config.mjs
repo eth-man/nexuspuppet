@@ -174,6 +174,10 @@ export default tseslint.config(
         clearTimeout: 'readonly',
         TextEncoder: 'readonly',
         TextDecoder: 'readonly',
+        fetch: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
       },
     },
     rules: {

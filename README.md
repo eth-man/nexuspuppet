@@ -69,6 +69,31 @@ npm run test:int --workspace @nexuspuppet/api
 `docker-compose.yml` is the full stack and builds both app images — use it for
 deployment, not for the edit-run loop.
 
+### Rotating the admin password
+
+`BOOTSTRAP_ADMIN_PASSWORD` seeds the first administrator and only applies while
+the users table is empty. To change the password afterwards:
+
+```bash
+node scripts/dev/rotate-admin-password.mjs
+cat ~/.nexuspuppet/admin-password
+```
+
+It generates 192 bits of entropy, changes the password through
+`POST /account/password` — which verifies the old one, writes the audit row and
+revokes every other session in one transaction — verifies the new password works
+*before* storing it, then writes it to a `0600` file and updates `.env` so the
+dev stack and the E2E suite keep working.
+
+The password is never printed, never passed as an argument, and never exported.
+Command lines are readable by any other process on the machine via `ps`, and
+they land in shell history. To supply the current password when `.env` has none,
+pipe it in:
+
+```bash
+read -rs CUR && printf %s "$CUR" | node scripts/dev/rotate-admin-password.mjs
+```
+
 ## Running it without Puppet
 
 The console can be driven end to end against the synthetic fixtures, with no

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
@@ -13,6 +14,26 @@ import { defineConfig, devices } from '@playwright/test';
  * replaces the fixtures: does login work, does the inventory render rows, does a
  * classification write actually answer 202 and queue materialization.
  */
+
+/**
+ * Load .env if it is there, WITHOUT overriding anything already set.
+ *
+ * Credentials are rotated by scripts/dev/rotate-admin-password.mjs, which
+ * writes E2E_ADMIN_PASSWORD into .env. Playwright does not read .env on its
+ * own, so without this a rotation silently breaks every test that logs in.
+ * Real environment variables still win, which is what CI relies on.
+ */
+function loadDotEnv(path = '.env'): void {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+    if (match?.[1] === undefined) continue;
+    if (process.env[match[1]] !== undefined) continue;
+    process.env[match[1]] = (match[2] ?? '').trim().replace(/^["']|["']$/g, '');
+  }
+}
+
+loadDotEnv();
 
 const baseURL = process.env['E2E_BASE_URL'] ?? 'http://127.0.0.1:3000';
 

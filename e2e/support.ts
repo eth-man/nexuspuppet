@@ -4,22 +4,26 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
  * Shared helpers.
  *
  * Credentials come from the environment so the suite can run against any
- * deployment, defaulting to what `scripts/dev/stack.sh` bootstraps.
+ * deployment. There is no default password — see below.
  */
 
 export const ADMIN_EMAIL = process.env['E2E_ADMIN_EMAIL'] ?? 'admin@example.com';
+
 /**
  * No default.
  *
- * A hardcoded fallback is a credential in the repository, and it goes stale the
- * moment the password is rotated — after which every test fails at the login
- * step with an error about a button never becoming enabled, nowhere near the
- * actual cause.
+ * A hardcoded fallback goes stale the moment the password is rotated, and then
+ * every test fails at the login step with an error about a button never
+ * becoming enabled — nowhere near the actual cause. playwright.config.ts loads
+ * .env, so a local rotation is picked up automatically; CI sets this directly.
  */
 export const ADMIN_PASSWORD = (() => {
   const password = process.env['E2E_ADMIN_PASSWORD'];
   if (password === undefined || password === '') {
-    throw new Error('E2E_ADMIN_PASSWORD is not set. Export it before running the suite.');
+    throw new Error(
+      'E2E_ADMIN_PASSWORD is not set. Set it in .env (rotate-admin-password.mjs does ' +
+        'this for you) or export it before running the suite.',
+    );
   }
   return password;
 })();
