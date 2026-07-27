@@ -117,6 +117,9 @@ ensureCertificates();
 
 import { createServer } from 'node:https';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+
+const sha1 = (value) => createHash('sha1').update(value).digest('hex');
 
 const nodes = JSON.parse(readFileSync(`${F}/nodes-query.sample.json`, 'utf8'));
 
@@ -132,6 +135,8 @@ for (const n of nodes) {
   n.catalog_timestamp = reslide(n.catalog_timestamp);
 }
 const factset = JSON.parse(readFileSync(`${F}/factset-single-node.sample.json`, 'utf8'))[0];
+const successReport = JSON.parse(readFileSync(`${F}/report-success.sample.json`, 'utf8'))[0];
+const failureReport = JSON.parse(readFileSync(`${F}/report-failure.sample.json`, 'utf8'))[0];
 
 // Vary facts per node. A real estate is heterogeneous, and identical facts
 // across every node would make the rule-authoring value picker useless.
@@ -146,6 +151,7 @@ const OS_VARIANTS = [
 ];
 
 const factRows = [];
+const factsByNode = new Map();
 let index = 0;
 for (const n of nodes) {
   if (n.deactivated || n.expired) continue;
@@ -159,9 +165,17 @@ for (const n of nodes) {
   // node's own facter config or a role/profile module.
   const role = n.certname.replace(/[0-9].*$/, '');
 
+  const hostname = n.certname.split('.')[0];
+
   const facts = {
     ...base,
     role,
+    // Identity facts follow the node. Without these, every node in the estate
+    // reported the fixture donor's hostname, which reads as a data bug on any
+    // page showing facts.
+    clientcert: n.certname,
+    fqdn: n.certname,
+    hostname,
     is_virtual: virtual,
     virtual: virtual ? 'kvm' : 'physical',
     os: {
@@ -170,9 +184,10 @@ for (const n of nodes) {
       name: os.name,
       release: { ...base.os.release, major: os.major },
     },
-    networking: { ...base.networking, fqdn: n.certname, hostname: n.certname.split('.')[0] },
+    networking: { ...base.networking, fqdn: n.certname, hostname },
   };
 
+  factsByNode.set(n.certname, facts);
   for (const [name, value] of Object.entries(facts)) {
     factRows.push({ certname: n.certname, name, value });
   }
@@ -233,6 +248,90 @@ function sortNodes(rows, orderBy) {
   });
 }
 
+/**
+ * A factset per node, in the documented /pdb/query/v4/factsets shape.
+ * Built from the same per-node facts the projector consumes, so the Facts tab
+ * and rule matching cannot disagree about what a node reports.
+ */
+const factsets = nodes
+  .filter((n) => !n.deactivated && !n.expired)
+  .map((n) => ({
+    certname: n.certname,
+    environment: n.report_environment,
+    timestamp: n.facts_timestamp,
+    producer_timestamp: n.facts_timestamp,
+    producer: 'puppetserver01.example.com',
+    hash: `factset-${n.certname}`,
+    facts: {
+      href: `/pdb/query/v4/factsets/${n.certname}/facts`,
+      data: Object.entries(factsByNode.get(n.certname) ?? {}).map(([name, value]) => ({
+        name,
+        value,
+      })),
+    },
+  }));
+
+/**
+ * A short run history per node.
+ *
+ * The NEWEST run reuses the node's advertised latest_report_hash and status, so
+ * the inventory's "view report" link resolves and the two views agree. Older
+ * runs get synthetic hashes. Events come from the fixture reports, attached to
+ * runs whose status warrants them.
+ */
+const successEvents = successReport.resource_events.data;
+const failureEvents = failureReport.resource_events.data;
+
+const reports = [];
+const eventsByReport = new Map();
+
+for (const n of nodes) {
+  if (n.deactivated || n.expired) continue;
+
+  const base = Date.parse(n.report_timestamp);
+  const statuses = [n.latest_report_status, 'unchanged', 'changed', 'unchanged', 'failed'];
+
+  statuses.forEach((status, index) => {
+    // Index 0 reuses the hash the node advertises, so the inventory's report
+    // link resolves. The rest are independently hashed — sharing a prefix made
+    // every run render as the same report, since the UI shows 12 characters.
+    const hash = index === 0 ? n.latest_report_hash : sha1(`${n.certname}:run:${index}`);
+    const start = new Date(base - index * 1800_000);
+    const duration = status === 'failed' ? 47 : 12;
+
+    reports.push({
+      hash,
+      certname: n.certname,
+      environment: n.report_environment,
+      status,
+      noop: false,
+      noop_pending: false,
+      puppet_version: '8.10.0',
+      report_format: 12,
+      configuration_version: String(1753000000 + index),
+      transaction_uuid: `txn-${hash}`,
+      catalog_uuid: `cat-${hash}`,
+      cached_catalog_status: 'not_used',
+      start_time: start.toISOString(),
+      end_time: new Date(start.getTime() + duration * 1000).toISOString(),
+      receive_time: new Date(start.getTime() + (duration + 2) * 1000).toISOString(),
+      producer_timestamp: new Date(start.getTime() + (duration + 1) * 1000).toISOString(),
+      producer: 'puppetserver01.example.com',
+      metrics: { href: '', data: failureReport.metrics.data },
+      logs: { href: '', data: [] },
+    });
+
+    eventsByReport.set(
+      hash,
+      status === 'failed' ? failureEvents : status === 'changed' ? successEvents : [],
+    );
+  });
+}
+
+const environments = [
+  ...new Set(nodes.map((n) => n.report_environment).filter((e) => e !== null)),
+].sort();
+
 const srv = createServer(
   {
     key: readFileSync(`${C}/server.key`),
@@ -271,6 +370,37 @@ const srv = createServer(
           isCount ? [{ count: factRows.length }] : factRows.slice(offset, offset + limit),
         ),
       );
+
+    if (url.pathname.endsWith('/factsets')) {
+      const inner = isCount ? ast[2] : ast;
+      const visible = inner ? factsets.filter((f) => evaluate(inner, f)) : factsets;
+      return res.end(
+        JSON.stringify(
+          isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit),
+        ),
+      );
+    }
+
+    if (url.pathname.endsWith('/reports')) {
+      const inner = isCount ? ast[2] : ast;
+      let visible = inner ? reports.filter((r) => evaluate(inner, r)) : reports;
+      visible = sortNodes(visible, url.searchParams.get('order_by'));
+      return res.end(
+        JSON.stringify(
+          isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit),
+        ),
+      );
+    }
+
+    if (url.pathname.endsWith('/events')) {
+      // Queried as ["=", "report", <hash>].
+      const hash = Array.isArray(ast) && ast[0] === '=' ? ast[2] : null;
+      return res.end(JSON.stringify(eventsByReport.get(hash) ?? []));
+    }
+
+    if (url.pathname.endsWith('/environments'))
+      return res.end(JSON.stringify(environments.map((name) => ({ name }))));
+
     res.end('[]');
   },
 );

@@ -8,7 +8,7 @@ import type { NodeStatus } from '@nexuspuppet/contracts';
  * "failed" node ends up amber on one screen and red on another, which in an
  * ops tool is a correctness problem rather than an inconsistency.
  */
-export type DisplayState = NodeStatus | 'pending' | 'noop';
+export type DisplayState = NodeStatus | 'pending' | 'noop' | 'skipped';
 
 interface StateStyle {
   label: string;
@@ -51,6 +51,22 @@ export const STATE_STYLES: Record<DisplayState, StateStyle> = {
     text: 'text-state-pending',
     dot: 'bg-state-pending',
   },
+  /**
+   * Skipped is a KNOWN outcome — the resource was not applied because
+   * something it depends on failed. Rendering it as "Unknown" told an operator
+   * triaging a failure that the system had no idea what happened, when in fact
+   * it knows precisely.
+   *
+   * The colour stays neutral: a skipped resource is a consequence of a failure,
+   * not a failure in itself, and the palette reserves rose for the actual
+   * cause. The label carries the meaning.
+   */
+  skipped: {
+    label: 'Skipped',
+    badge: 'border-state-unknown/40 bg-state-unknown/10 text-state-unknown',
+    text: 'text-state-unknown',
+    dot: 'bg-state-unknown',
+  },
   unknown: {
     label: 'Unknown',
     badge: 'border-state-unknown/40 bg-state-unknown/10 text-state-unknown',
@@ -73,6 +89,6 @@ export function eventState(status: 'success' | 'failure' | 'noop' | 'skipped'): 
     case 'noop':
       return 'noop';
     case 'skipped':
-      return 'unknown';
+      return 'skipped';
   }
 }
