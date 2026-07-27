@@ -92,7 +92,9 @@ export default function DashboardPage() {
                   <TD
                     className={cn(
                       'text-xs tabular-nums',
-                      isStale(node.reportTimestamp) ? 'text-state-pending' : 'text-ink-muted',
+                      node.isActive && isStale(node.reportTimestamp)
+                        ? 'text-state-pending'
+                        : 'text-ink-muted',
                     )}
                     title={absolute(node.reportTimestamp)}
                   >

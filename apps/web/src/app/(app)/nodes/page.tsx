@@ -282,7 +282,11 @@ function SortableTH({
 }
 
 function NodeRow({ node }: { node: PuppetNode }) {
-  const stale = isStale(node.reportTimestamp);
+  // A deactivated or expired node is not stale — it is decommissioned, and
+  // correctly not reporting. "Stale" means "should be reporting and isn't",
+  // which is an alarm; flagging a retired node as one is noise that trains
+  // operators to ignore the marker where it matters.
+  const stale = node.isActive && isStale(node.reportTimestamp);
 
   return (
     <TR>
