@@ -69,6 +69,28 @@ npm run test:int --workspace @nexuspuppet/api
 `docker-compose.yml` is the full stack and builds both app images — use it for
 deployment, not for the edit-run loop.
 
+## Running it without Puppet
+
+The console can be driven end to end against the synthetic fixtures, with no
+Puppet infrastructure at all:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d   # Postgres
+cp .env.example .env                             # set JWT_SECRET, DATABASE_URL
+npm run build
+npm run db:migrate
+npm run dev:stack
+```
+
+That starts a PuppetDB stand-in on `:8081` serving `/fixtures` over **real
+mTLS**, the API on `:3001`, and the console on `:3000`. Throwaway certificates
+are generated on first run into `scripts/dev/certs/` (gitignored).
+
+The stand-in evaluates the same query AST the API emits, so filtering, sorting,
+and pagination behave as a real PuppetDB would. It is a development harness, not
+a PuppetDB implementation — see [`fixtures/README.md`](fixtures/README.md) for
+what synthetic data cannot tell you.
+
 ## Connecting it to Puppet
 
 1. Mount the ENC volume **read-only** on your puppetserver.
