@@ -150,9 +150,10 @@ and uploads traces and screenshots.
 
 ## Deploying it
 
-[`docs/operations/production-deployment.md`](docs/operations/production-deployment.md)
-covers a fresh on-prem VM end to end: certificates, `.env`, migrations, wiring
-puppetserver, backups, and what to expect on first contact with a real estate.
+[`DEPLOYMENT.md`](DEPLOYMENT.md) covers a fresh on-prem VM end to end:
+issuing and injecting the PuppetDB mTLS certificates, `.env`, migrations,
+fetching the private enterprise layer, wiring puppetserver, TLS, backups,
+upgrades, and what to expect on first contact with a real estate.
 
 ## Connecting it to Puppet
 

@@ -1,7 +1,7 @@
 # Production deployment — fresh on-prem VM
 
 Deploying NexusPuppet onto a clean host and connecting it to a live Puppet
-estate. Read [`docs/architecture/README.md`](../architecture/README.md) first if
+estate. Read [`docs/architecture/README.md`](docs/architecture/README.md) first if
 you have not; the constraints below come from the ADRs and are not stylistic.
 
 > **Status.** Every component has been exercised end to end against synthetic
@@ -258,7 +258,7 @@ NexusPuppet writes YAML to a directory; puppetserver reads it with a
 dependency-free `cat`. No HTTP call, no interpreter beyond `/bin/sh`, no
 NexusPuppet process involved. If this console is down, agent runs continue
 unaffected. Do not "improve"
-[`scripts/nexuspuppet-enc.sh`](../../scripts/nexuspuppet-enc.sh) into an API
+[`scripts/nexuspuppet-enc.sh`](scripts/nexuspuppet-enc.sh) into an API
 client.
 
 ### Getting the directory to puppetserver
@@ -349,7 +349,7 @@ count. If it is short, the projection is filtering something it should not.
 actually emits, deactivated/expired node handling, and environments beyond
 `production`/`staging`/`development`. These are exactly the places the synthetic
 data was constructed from documentation rather than observation — see
-[`fixtures/README.md`](../../fixtures/README.md).
+[`fixtures/README.md`](fixtures/README.md).
 
 **Do not classify anything on day one.** Let it project and observe read-only for
 a full agent run cycle. Confirm the inventory, run history, and reports match
