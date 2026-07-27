@@ -167,6 +167,13 @@ export default tseslint.config(
         module: 'writable',
         require: 'readonly',
         __dirname: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
       },
     },
     rules: {
