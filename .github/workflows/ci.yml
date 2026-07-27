@@ -82,8 +82,9 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_ci?schema=public
-      # `migrate diff --from-migrations` requires a separate database that
-      # Prisma may drop and recreate. It must already exist.
+      # `migrate diff --from-migrations` replays migrations into a throwaway
+      # database. Prisma creates and drops it itself, so it must NOT be a
+      # database anything else uses. Read via prisma.config.ts.
       SHADOW_DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_shadow?schema=public
     steps:
       - uses: actions/checkout@v4
@@ -96,13 +97,15 @@ jobs:
 
       # A committed schema with no matching migration means `migrate deploy`
       # would silently no-op during an operator's upgrade.
+      # Prisma 7 dropped --shadow-database-url and renamed --to-schema-datamodel
+      # to --to-schema. The shadow database now comes from prisma.config.ts,
+      # which reads SHADOW_DATABASE_URL; Prisma creates and drops it itself.
       - name: Migrations match the schema
         working-directory: apps/api
         run: >-
           npx prisma migrate diff
           --from-migrations prisma/migrations
-          --to-schema-datamodel prisma/schema.prisma
-          --shadow-database-url "$DATABASE_URL"
+          --to-schema prisma/schema.prisma
           --exit-code
 
       - run: npm run db:deploy
