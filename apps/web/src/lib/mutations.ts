@@ -3,6 +3,10 @@
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
   AssignClass,
+  ChangePassword,
+  CreateUser,
+  ManagedUser,
+  UpdateUser,
   ClassificationWriteResult,
   CreateNodeGroup,
   ReplaceRules,
@@ -176,5 +180,47 @@ export function useForceReconcile(): UseMutationResult<{ queued: true }, Error, 
   return useMutation({
     mutationFn: () => api.post<{ queued: true }>('/materialization/reconcile'),
     onSuccess: () => invalidate(),
+  });
+}
+
+// --- Users ------------------------------------------------------------------
+
+function useUserInvalidation() {
+  const client = useQueryClient();
+  return () => client.invalidateQueries({ queryKey: ['users'] });
+}
+
+export function useCreateUser(): UseMutationResult<ManagedUser, Error, CreateUser> {
+  const invalidate = useUserInvalidation();
+  return useMutation({
+    mutationFn: (input) => api.post<ManagedUser>('/users', input),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useUpdateUser(): UseMutationResult<
+  ManagedUser,
+  Error,
+  { id: string; patch: UpdateUser }
+> {
+  const invalidate = useUserInvalidation();
+  return useMutation({
+    mutationFn: ({ id, patch }) => api.patch<ManagedUser>(`/users/${id}`, patch),
+    onSuccess: () => invalidate(),
+  });
+}
+
+/** Deactivate rather than delete, so the audit trail keeps naming a real actor. */
+export function useDeactivateUser(): UseMutationResult<ManagedUser, Error, string> {
+  const invalidate = useUserInvalidation();
+  return useMutation({
+    mutationFn: (id) => api.delete<ManagedUser>(`/users/${id}`),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useChangeOwnPassword(): UseMutationResult<void, Error, ChangePassword> {
+  return useMutation({
+    mutationFn: (input) => api.post<void>('/account/password', input),
   });
 }

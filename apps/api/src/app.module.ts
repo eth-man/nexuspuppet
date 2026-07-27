@@ -31,6 +31,8 @@ import { PrismaService } from './prisma/prisma.service';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthController } from './auth/auth.controller';
+import { AccountController, UsersController } from './auth/users.controller';
+import { UsersService } from './auth/users.service';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
 import { RbacPolicy } from './auth/rbac.policy';
 import { TokenService } from './auth/token.service';
@@ -94,6 +96,8 @@ export class AppModule {
         ReportsController,
         NodeGroupsController,
         MaterializationController,
+        UsersController,
+        AccountController,
       ],
       providers: [
         ...providers,
@@ -103,6 +107,7 @@ export class AppModule {
         // --- Auth (ADR-0006) ------------------------------------------------
         LocalAuthProvider,
         LocalUserDirectory,
+        UsersService,
         RbacPolicy,
         PrismaAuditSink,
         CoreLicenseService,

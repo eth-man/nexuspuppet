@@ -179,3 +179,53 @@ export interface ILicenseService {
   status(): Promise<LicenseStatus>;
   has(capability: CapabilityName): Promise<boolean>;
 }
+
+/**
+ * User administration (ADR-0006).
+ *
+ * Core's directory is writable; an enterprise LDAP/SAML directory is read-only,
+ * which is why `IUserDirectory.readOnly` exists. The UI must respect it rather
+ * than offering edits that the provider will reject.
+ */
+
+export const createUserSchema = z.object({
+  email: z.string().email().max(255),
+  displayName: z.string().min(1).max(128),
+  role: userRoleSchema,
+  /**
+   * Long minimum rather than a composition rule. Length dominates entropy, and
+   * character-class rules mostly produce `Password1!` — memorised, reused, and
+   * no stronger than a longer passphrase.
+   */
+  password: z.string().min(12).max(1024),
+});
+export type CreateUser = z.infer<typeof createUserSchema>;
+
+export const updateUserSchema = z.object({
+  displayName: z.string().min(1).max(128).optional(),
+  role: userRoleSchema.optional(),
+  isActive: z.boolean().optional(),
+});
+export type UpdateUser = z.infer<typeof updateUserSchema>;
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword: z.string().min(12).max(1024),
+});
+export type ChangePassword = z.infer<typeof changePasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  newPassword: z.string().min(12).max(1024),
+});
+export type ResetPassword = z.infer<typeof resetPasswordSchema>;
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  isActive: boolean;
+  authSource: string;
+  lastLoginAt: string | null;
+  createdAt: string;
+}

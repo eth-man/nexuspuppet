@@ -5,6 +5,8 @@ import { useAuth } from '@/providers/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { QueryError, Spinner } from '@/components/states';
+import { UsersPanel } from '@/components/data/users-panel';
+import { ChangePasswordCard } from '@/components/data/change-password';
 
 /** Deployment facts an operator needs when filing a bug or planning an upgrade. */
 export default function SettingsPage() {
@@ -69,6 +71,8 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+        <ChangePasswordCard />
+        <UsersPanel />
       </div>
     </div>
   );

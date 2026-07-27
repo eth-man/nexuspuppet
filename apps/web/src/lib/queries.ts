@@ -4,6 +4,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type {
   DeploymentCapabilities,
   FactPathIndex,
+  ManagedUser,
   NodeClassificationExplanation,
   NodeGroupDetail,
   Page,
@@ -175,6 +176,15 @@ export function useFactPaths(): UseQueryResult<FactPathIndex> {
     queryKey: ['fact-paths'],
     queryFn: ({ signal }) => api.get<FactPathIndex>('/fact-paths', signal),
     staleTime: 120_000,
+  });
+}
+
+export function useUsers(enabled: boolean): UseQueryResult<ManagedUser[]> {
+  return useQuery({
+    queryKey: ['users'],
+    queryFn: ({ signal }) => api.get<ManagedUser[]>('/users', signal),
+    // Only ADMIN may list users; asking as a VIEWER would 403 on every render.
+    enabled,
   });
 }
 
