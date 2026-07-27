@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
@@ -52,9 +52,13 @@ export class EncFileWriter implements IEncFileWriter {
   private readonly nodesDir: string;
   private readonly defaultFile: string;
 
-  constructor(private readonly outputDir: string) {
-    this.nodesDir = join(resolve(outputDir), 'nodes');
-    this.defaultFile = join(resolve(outputDir), 'default.yaml');
+  /** Absolute ENC output root, for diagnostics and health reporting. */
+  readonly root: string;
+
+  constructor(outputDir: string) {
+    this.root = resolve(outputDir);
+    this.nodesDir = join(this.root, 'nodes');
+    this.defaultFile = join(this.root, 'default.yaml');
   }
 
   /** Create the directory tree. Safe to call repeatedly. */
@@ -129,7 +133,6 @@ export class EncFileWriter implements IEncFileWriter {
 
   private async matchesOnDisk(target: string, contentHash: string): Promise<boolean> {
     try {
-      const { readFile } = await import('node:fs/promises');
       const existing = await readFile(target, 'utf8');
       return createHash('sha256').update(existing, 'utf8').digest('hex') === contentHash;
     } catch (error) {
@@ -150,7 +153,7 @@ export class EncFileWriter implements IEncFileWriter {
     await mkdir(dir, { recursive: true });
 
     // Same directory, therefore same filesystem, therefore rename is atomic.
-    const tmp = join(dir, `.${crypto.randomUUID()}.tmp`);
+    const tmp = join(dir, `.${randomUUID()}.tmp`);
 
     try {
       await writeFile(tmp, contents, { encoding: 'utf8', mode: 0o644 });
