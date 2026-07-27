@@ -138,6 +138,35 @@ export interface IAuthorizationPolicy {
 export interface IUserDirectory {
   readonly readOnly: boolean;
   findByEmail(email: string): Promise<AuthenticatedPrincipal | null>;
+
+  /**
+   * Look up by the identifier carried in a session.
+   *
+   * Required because an external auth provider (LDAP, SAML) authenticates
+   * against a directory but must still return a principal whose `userId` is a
+   * row in this application — `refresh_tokens` and `audit_logs` both hold a
+   * foreign key to it. Without this, such a provider cannot re-resolve a
+   * principal on token refresh, and a deactivation would not take effect until
+   * the refresh window expired.
+   */
+  findById(userId: string): Promise<AuthenticatedPrincipal | null>;
+
+  /**
+   * Record what an external authority asserted at a successful login: the role
+   * derived from directory group membership, and the current display name.
+   *
+   * Exists so that `IAuthProvider.resolve()` on token refresh agrees with what
+   * `authenticate()` decided. Without it the two paths can disagree about what
+   * a user may do — the login says ADMIN from a group, the refresh reads a
+   * stale row and says VIEWER.
+   *
+   * IMPLEMENTORS: a directory-backed implementation whose `readOnly` is true
+   * may treat this as a no-op. CALLERS: treat a rejection as non-fatal. The
+   * person supplied valid credentials; a failure to cache that is not their
+   * problem and must not deny them a session.
+   */
+  recordLogin(userId: string, update: { role: UserRole; displayName: string }): Promise<void>;
+
   list(options: { limit: number; offset: number }): Promise<{
     users: AuthenticatedPrincipal[];
     total: number;

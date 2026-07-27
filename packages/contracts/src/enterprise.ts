@@ -14,8 +14,15 @@ import type { CapabilityToken, CapabilityName } from './tokens';
  * signal, not a reason to widen the exemption.
  */
 
-/** Minimum contracts version the enterprise build was compiled against. */
-export const CONTRACTS_VERSION = '0.1.0';
+/**
+ * Minimum contracts version the enterprise build was compiled against.
+ *
+ * Pre-1.0 the MINOR is the breaking-change axis (see `major()` in the loader),
+ * so this moves whenever an interface gains a required member. 0.2.0 added
+ * IUserDirectory.findById and .recordLogin, which external auth providers need
+ * in order to re-resolve a principal on token refresh.
+ */
+export const CONTRACTS_VERSION = '0.2.0';
 
 export interface CapabilityRegistration {
   token: CapabilityToken;
