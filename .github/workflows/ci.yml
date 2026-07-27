@@ -83,8 +83,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_ci?schema=public
       # `migrate diff --from-migrations` replays migrations into a throwaway
-      # database. Prisma creates and drops it itself, so it must NOT be a
-      # database anything else uses. Read via prisma.config.ts.
+      # database. Prisma does NOT create it — it connects and fails with P1003
+      # if missing — so CI creates it explicitly below. Prisma may drop and
+      # recreate its contents, so it must not be a database anything else uses.
       SHADOW_DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_shadow?schema=public
     steps:
       - uses: actions/checkout@v4
@@ -97,9 +98,17 @@ jobs:
 
       # A committed schema with no matching migration means `migrate deploy`
       # would silently no-op during an operator's upgrade.
+      # On a developer machine this database already exists, created as a side
+      # effect of `prisma migrate dev` — which is precisely why its absence
+      # only ever surfaces in CI.
+      - name: Create the shadow database
+        run: node scripts/ci/ensure-database.mjs nexuspuppet_shadow
+        env:
+          ADMIN_DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/postgres
+
       # Prisma 7 dropped --shadow-database-url and renamed --to-schema-datamodel
-      # to --to-schema. The shadow database now comes from prisma.config.ts,
-      # which reads SHADOW_DATABASE_URL; Prisma creates and drops it itself.
+      # to --to-schema. The shadow database comes from prisma.config.ts, which
+      # reads SHADOW_DATABASE_URL.
       - name: Migrations match the schema
         working-directory: apps/api
         run: >-
