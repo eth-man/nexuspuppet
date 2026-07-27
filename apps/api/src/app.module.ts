@@ -22,6 +22,7 @@ import {
 } from './classification/node-groups.controller';
 import { ClassificationService } from './classification/classification.service';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
+import { NodeProjectionService } from './puppetdb/node-projection.service';
 import { EncFileWriter } from './materialization/enc-file-writer';
 import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
@@ -40,7 +41,7 @@ import {
   PrismaAuditSink,
 } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
-import type { IAuthProvider } from '@nexuspuppet/contracts';
+import type { IAuthProvider, IPuppetDbClient } from '@nexuspuppet/contracts';
 
 /**
  * Root module.
@@ -127,6 +128,26 @@ export class AppModule {
             new BootstrapService(prisma, env.BOOTSTRAP_ADMIN_EMAIL, env.BOOTSTRAP_ADMIN_PASSWORD),
         },
 
+        // --- PuppetDB projection (ADR-0004) ---------------------------------
+        // Populates the ManagedNode cache that rule evaluation reads, so
+        // classification never needs a live PuppetDB query.
+        {
+          provide: NodeProjectionService,
+          inject: [PrismaService, PUPPETDB_CLIENT, MaterializationService],
+          useFactory: (
+            prisma: PrismaService,
+            puppetdb: IPuppetDbClient,
+            materialization: MaterializationService,
+          ): NodeProjectionService =>
+            new NodeProjectionService(
+              prisma,
+              puppetdb,
+              materialization,
+              env.PUPPETDB_PROJECTED_FACTS,
+              env.PUPPETDB_PROJECTION_INTERVAL_MS,
+            ),
+        },
+
         // --- Materialization (ADR-0003) -------------------------------------
         { provide: PrismaService, useFactory: () => new PrismaService(env.DATABASE_URL) },
         {
@@ -184,6 +205,7 @@ export class AppModule {
         MaterializationService,
         TokenService,
         BootstrapService,
+        NodeProjectionService,
       ],
     };
   }

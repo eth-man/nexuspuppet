@@ -139,6 +139,17 @@ export function buildReportByHashQuery(hash: string): PqlAst {
   return ['=', 'hash', hash];
 }
 
+/**
+ * Facts named in the projection allow-list, across every node.
+ *
+ * @returns null when the allow-list is empty — which would otherwise build an
+ *          empty `or` and fetch every fact in the estate.
+ */
+export function buildFactsQuery(factNames: readonly string[]): PqlAst | null {
+  if (factNames.length === 0) return null;
+  return ['or', ...factNames.map((name) => ['=', 'name', name])];
+}
+
 export function buildEventsQuery(reportHash: string): PqlAst {
   return ['=', 'report', reportHash];
 }

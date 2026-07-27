@@ -10,12 +10,14 @@ import {
   type PuppetDbHealth,
   type PuppetNode,
   type PuppetReport,
+  type FactRow,
   type ReportSummary,
   type ResourceEvent,
 } from '@nexuspuppet/contracts';
 import {
   buildCountQuery,
   buildEventsQuery,
+  buildFactsQuery,
   buildNodeQuery,
   buildPagination,
   buildReportByHashQuery,
@@ -113,6 +115,34 @@ export class PuppetDbClient implements IPuppetDbClient {
     ]);
     const row = rows[0];
     return row === undefined ? {} : mapFactsetToFacts(row);
+  }
+
+  async listFacts(factNames: readonly string[], page: PageRequest): Promise<Page<FactRow>> {
+    const query = buildFactsQuery(factNames);
+
+    // An empty allow-list must fetch nothing, not everything.
+    if (query === null) {
+      return { items: [], total: 0, limit: page.limit, offset: page.offset };
+    }
+
+    const [rows, total] = await Promise.all([
+      this.query<Record<string, unknown>[]>('/facts', query, {
+        ...buildPagination({ ...page, orderBy: 'certname' }),
+        order_by: JSON.stringify([{ field: 'certname', order: 'asc' }]),
+      }),
+      this.count('/facts', query),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        certname: String(row['certname'] ?? ''),
+        name: String(row['name'] ?? ''),
+        value: row['value'] ?? null,
+      })),
+      total,
+      limit: page.limit,
+      offset: page.offset,
+    };
   }
 
   async listReports(certname: string, page: PageRequest): Promise<Page<PuppetReport>> {

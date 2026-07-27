@@ -6,10 +6,10 @@ classification.
 
 Apache-2.0. Open core — the entire product below is in this repository.
 
-> **Status: API complete, UI pending.** Architecture, contracts, schema, the
-> classification engine and materializer, the PuppetDB client, and
-> authentication are implemented and tested. The web console screens are not
-> yet built.
+> **Status: backend complete, UI pending.** Architecture, contracts, schema,
+> the classification engine, materializer, PuppetDB client and projector, and
+> authentication are implemented and tested end to end. The web console screens
+> are not yet built.
 
 ## The defining property
 

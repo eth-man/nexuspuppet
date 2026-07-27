@@ -151,6 +151,19 @@ export const reportSummarySchema = z.object({
 });
 export type ReportSummary = z.infer<typeof reportSummarySchema>;
 
+/**
+ * One (certname, fact) pair from /pdb/query/v4/facts.
+ *
+ * The projector reads facts in BULK this way rather than fetching a factset
+ * per node: at 1,000 nodes a per-node fetch is 1,000 round trips every cycle,
+ * which is both slow and a needless load on PuppetDB.
+ */
+export interface FactRow {
+  certname: string;
+  name: string;
+  value: unknown;
+}
+
 export interface PuppetDbHealth {
   reachable: boolean;
   /** ISO-8601 of the last successful query, for the degraded-state UI (ADR-0004). */
@@ -170,6 +183,11 @@ export interface IPuppetDbClient {
   getNode(certname: string): Promise<PuppetNode | null>;
   /** Full fact set for one node — not the projected subset. */
   getFacts(certname: string): Promise<Record<string, unknown>>;
+  /**
+   * Named facts across the WHOLE estate, for the projector. One paged query
+   * instead of one request per node.
+   */
+  listFacts(factNames: readonly string[], page: PageRequest): Promise<Page<FactRow>>;
   listReports(certname: string, page: PageRequest): Promise<Page<PuppetReport>>;
   getReport(hash: string): Promise<PuppetReport | null>;
   /** Resource events for one report — the failure-triage view. */

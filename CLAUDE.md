@@ -62,6 +62,11 @@ is a usability affordance, never a security control.
   happens in `api`, before the query.
 - PuppetDB being unreachable is an explicit UI state showing last contact time.
   Not an empty table, not an endless spinner, not a generic 500.
+- **Never delete local state because PuppetDB returned less than expected.** A
+  partial fetch looks exactly like a shrunken estate. NodeProjectionService
+  refuses to prune on an empty or implausibly small response — deleting
+  ManagedNode cascades to EncMaterialization, the reconciler then removes the
+  YAML, and a network blip would unclassify the fleet.
 
 ## Writing anything that changes classification
 
