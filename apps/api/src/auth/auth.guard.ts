@@ -1,53 +1,68 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
+  Inject,
   Injectable,
-  Logger,
-  ServiceUnavailableException,
   SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import {
+  AUTHORIZATION_POLICY,
+  type AuthenticatedPrincipal,
+  type AuthorizationTarget,
+  type IAuthorizationPolicy,
+  type Permission,
+} from '@nexuspuppet/contracts';
+import type { Request } from 'express';
+import { TokenService } from './token.service';
+import { JwtError } from './jwt';
 
 export const IS_PUBLIC = 'nexuspuppet:isPublic';
+export const REQUIRED_PERMISSION = 'nexuspuppet:permission';
 
 /** Opt a route out of authentication. Everything else is protected by default. */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC, true);
 
 /**
- * Global authentication guard (ADR-0006).
+ * Declare the permission a route requires.
  *
- * Applied globally so a new controller is protected by default and forgetting
- * a decorator fails CLOSED. Opting out is explicit, visible in review, and
- * greppable.
+ * A protected route with no permission is authenticated but unauthorized-by-
+ * default: AuthGuard rejects it. Access must be granted deliberately, never by
+ * omission.
+ */
+export const RequirePermission = (permission: Permission): MethodDecorator & ClassDecorator =>
+  SetMetadata(REQUIRED_PERMISSION, permission);
+
+/** The authenticated principal, attached by AuthGuard. */
+export interface AuthenticatedRequest extends Request {
+  principal?: AuthenticatedPrincipal;
+}
+
+export const ACCESS_COOKIE = 'nexuspuppet_access';
+export const REFRESH_COOKIE = 'nexuspuppet_refresh';
+
+/**
+ * Authentication and authorization for every route (ADR-0006).
  *
- * ---------------------------------------------------------------------------
- * INTERIM STATE — authentication is not yet implemented.
+ * Applied globally, so a new controller is protected by default and forgetting
+ * a decorator FAILS CLOSED. Both opt-outs are explicit, greppable, and visible
+ * in review.
  *
- * LocalAuthProvider, the JWT issuance/refresh flow, and the RBAC policy are
- * still to be built. Until they land this guard has no way to identify a
- * caller, and the endpoints behind it proxy an mTLS certificate that can read
- * the ENTIRE estate (ADR-0004). Shipping that ungated would be an open
- * read-proxy for the whole Puppet infrastructure.
- *
- * So it fails closed where it matters:
- *
- *   production   → 503. The API refuses to serve protected routes at all until
- *                  a real auth provider is wired in. Loud, not silent.
- *   development  → allowed, with a warning logged once per process.
- *
- * The dev allowance exists so the walking skeleton is usable before auth is
- * finished. It is keyed off NODE_ENV rather than a config flag on purpose:
- * there is no setting an operator can flip to get this behaviour in
- * production.
- * ---------------------------------------------------------------------------
+ * Authorization is resolved through the AUTHORIZATION_POLICY token rather than
+ * a concrete class, so the enterprise layer's scoped RBAC replaces it without
+ * this guard changing. Likewise the principal arrives from whichever provider
+ * is registered; this guard never learns whether it came from a local password,
+ * an LDAP bind, or a SAML assertion.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  private static readonly logger = new Logger(AuthGuard.name);
-  private static warned = false;
-
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly tokens: TokenService,
+    @Inject(AUTHORIZATION_POLICY) private readonly policy: IAuthorizationPolicy,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
@@ -57,28 +72,120 @@ export class AuthGuard implements CanActivate {
 
     if (isPublic === true) return true;
 
-    if (process.env['NODE_ENV'] === 'production') {
-      throw new ServiceUnavailableException({
-        error: 'AUTH_NOT_CONFIGURED',
-        message:
-          'Authentication is not yet implemented in this build. Protected routes are disabled in production ' +
-          'rather than served without an identity, because they proxy an estate-wide PuppetDB credential.',
-      });
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const token = extractToken(request);
+
+    if (token === null) {
+      throw new UnauthorizedException('Authentication required.');
     }
 
-    if (!AuthGuard.warned) {
-      AuthGuard.warned = true;
-      AuthGuard.logger.warn(
-        'AUTHENTICATION IS NOT IMPLEMENTED. Protected routes are open in this development process. ' +
-          'This build must not be exposed to an untrusted network, and will refuse to serve them under NODE_ENV=production.',
+    let principal: AuthenticatedPrincipal;
+    try {
+      principal = this.tokens.verifyAccessToken(token);
+    } catch (error) {
+      // Distinguish expiry so the client knows to refresh rather than to
+      // re-prompt for a password.
+      if (error instanceof JwtError && error.reason === 'EXPIRED') {
+        throw new UnauthorizedException({
+          error: 'TOKEN_EXPIRED',
+          message: 'Access token has expired; refresh the session.',
+        });
+      }
+      throw new UnauthorizedException('Invalid access token.');
+    }
+
+    request.principal = principal;
+
+    const permission = this.reflector.getAllAndOverride<Permission>(REQUIRED_PERMISSION, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // Authenticated but with no declared permission: deny. Access is granted by
+    // an explicit @RequirePermission, never by forgetting one.
+    if (permission === undefined) {
+      throw new ForbiddenException(
+        'This route declares no required permission and is therefore denied.',
       );
+    }
+
+    if (!this.policy.can(principal, permission, targetFrom(request))) {
+      throw new ForbiddenException({
+        error: 'INSUFFICIENT_PERMISSION',
+        message: `Your role (${principal.role}) does not grant "${permission}".`,
+        required: permission,
+      });
     }
 
     return true;
   }
 }
 
-/** Placeholder for the eventual UnauthorizedException path, kept for symmetry. */
-export const unauthenticated = (): never => {
-  throw new UnauthorizedException();
-};
+/**
+ * Accept the session cookie first, then a bearer header.
+ *
+ * The cookie is HttpOnly, so browser JavaScript cannot read it and an XSS
+ * cannot exfiltrate the session. The bearer header exists for scripts and
+ * CI, which have no cookie jar.
+ */
+function extractToken(request: Request): string | null {
+  const cookie = parseCookies(request.headers.cookie)[ACCESS_COOKIE];
+  if (cookie !== undefined && cookie !== '') return cookie;
+
+  const header = request.headers.authorization;
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    const value = header.slice('Bearer '.length).trim();
+    if (value !== '') return value;
+  }
+
+  return null;
+}
+
+/**
+ * Minimal cookie parsing, to avoid a dependency for one header.
+ * Only the first occurrence of a name is honoured, so a duplicated cookie
+ * cannot be used to smuggle a second value past the first.
+ */
+export function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (header === undefined) return out;
+
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=');
+    if (index < 1) continue;
+
+    const name = part.slice(0, index).trim();
+    if (name === '' || Object.prototype.hasOwnProperty.call(out, name)) continue;
+
+    try {
+      out[name] = decodeURIComponent(part.slice(index + 1).trim());
+    } catch {
+      out[name] = part.slice(index + 1).trim();
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Derive the authorization target from the route, so scoped principals are
+ * checked against the thing they are acting on rather than in the abstract.
+ */
+function targetFrom(request: Request): AuthorizationTarget | undefined {
+  const params = request.params as Record<string, string | undefined>;
+  const query = request.query as Record<string, unknown>;
+
+  const groupId = params['groupId'] ?? params['id'];
+  const certname = params['certname'];
+  const environment = typeof query['environment'] === 'string' ? query['environment'] : undefined;
+
+  if (groupId === undefined && certname === undefined && environment === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(groupId === undefined ? {} : { groupId }),
+    ...(certname === undefined ? {} : { certname }),
+    ...(environment === undefined ? {} : { environment }),
+  };
+}

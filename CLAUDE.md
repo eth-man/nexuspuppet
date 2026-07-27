@@ -75,6 +75,18 @@ Splitting these lets a committed change silently never reach disk. Return `202`
 with the job id — never imply a change is live before `EncMaterialization`
 confirms it.
 
+## Writing anything behind authentication
+
+- Routes are protected by default. A route with **no** `@RequirePermission` is
+  denied even to an authenticated caller — access is granted by an explicit
+  decorator, never by forgetting one. `@Public()` opts out and is greppable.
+- Depend on the `AUTHORIZATION_POLICY` and `AUTH_PROVIDER` tokens, never on
+  `RbacPolicy` or `LocalAuthProvider` directly. The enterprise layer replaces
+  either one independently (ADR-0006).
+- Login failures return one message for every cause. Distinguishing "no such
+  user" from "wrong password" makes login a user-enumeration oracle.
+- Never log a token, a password, or a refresh value.
+
 ## Conventions
 
 - TypeScript is pinned to `~5.9.3` on purpose. See ADR-0010 before upgrading.

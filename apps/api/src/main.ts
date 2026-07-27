@@ -1,7 +1,9 @@
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { BootstrapService } from './auth/core-capabilities';
 import { loadEnv } from './config/env';
 
 async function bootstrap(): Promise<void> {
@@ -11,7 +13,7 @@ async function bootstrap(): Promise<void> {
   // clear message rather than a stack trace from inside the framework.
   const env = loadEnv();
 
-  const app = await NestFactory.create(await AppModule.bootstrap(), {
+  const app = await NestFactory.create<NestExpressApplication>(await AppModule.bootstrap(), {
     logger:
       env.LOG_LEVEL === 'debug'
         ? ['debug', 'log', 'warn', 'error']
@@ -28,6 +30,14 @@ async function bootstrap(): Promise<void> {
   // The web tier is the only intended browser-facing origin; it proxies
   // server-side, so no permissive CORS is required here.
   app.enableShutdownHooks();
+
+  // A fresh install has no users, and every route requires authentication —
+  // so without this there is no way in. Runs only when the table is empty.
+  await app.get(BootstrapService).seedAdminIfEmpty();
+
+  // request.ip and `secure` must reflect the real client behind a reverse
+  // proxy, or rate limiting keys on the proxy and cookies never get Secure.
+  app.set('trust proxy', 1);
 
   await app.listen(env.API_PORT, '0.0.0.0');
   logger.log(`NexusPuppet API listening on :${env.API_PORT}`);

@@ -11,6 +11,7 @@ import {
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { RequirePermission } from '../auth/auth.guard';
 
 /**
  * Node inventory (ADR-0004).
@@ -67,6 +68,7 @@ const listQuerySchema = z
 
 type ListQuery = z.infer<typeof listQuerySchema>;
 
+@RequirePermission('inventory:read')
 @Controller('nodes')
 export class NodesController {
   constructor(@Inject(PUPPETDB_CLIENT) private readonly puppetdb: IPuppetDbClient) {}

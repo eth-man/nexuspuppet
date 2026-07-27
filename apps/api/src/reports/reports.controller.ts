@@ -11,6 +11,7 @@ import {
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { RequirePermission } from '../auth/auth.guard';
 
 /**
  * Run reports and failure triage (ADR-0004, read-only).
@@ -43,6 +44,7 @@ export interface ReportDetail {
   events: ResourceEvent[];
 }
 
+@RequirePermission('reports:read')
 @Controller()
 export class ReportsController {
   constructor(@Inject(PUPPETDB_CLIENT) private readonly puppetdb: IPuppetDbClient) {}

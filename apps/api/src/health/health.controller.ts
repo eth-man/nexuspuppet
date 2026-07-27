@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from '../auth/auth.guard';
 import { CapabilityRegistry } from '../enterprise/capability.registry';
 import type { DeploymentCapabilities } from '@nexuspuppet/contracts';
 
@@ -15,11 +16,16 @@ export class HealthController {
   constructor(private readonly capabilities: CapabilityRegistry) {}
 
   /** Liveness: is the process up? Deliberately dependency-free. */
+  // A liveness probe that requires a session is useless to a load balancer.
+  @Public()
   @Get('healthz')
   health(): { status: 'ok' } {
     return { status: 'ok' };
   }
 
+  // The login screen needs this before a session exists, to know whether to
+  // render a password form or an SSO button.
+  @Public()
   @Get('capabilities')
   deployment(): DeploymentCapabilities {
     return {

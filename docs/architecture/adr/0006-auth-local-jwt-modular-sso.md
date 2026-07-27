@@ -49,6 +49,47 @@ Guards are applied globally and opt out explicitly via `@Public()`. A new contro
 
 Routes for enterprise capabilities exist in core and return **`501 Not Implemented`** with a machine-readable `capability` field. Not 404 — the feature exists, this deployment lacks it. This keeps the boundary legible to the UI and testable in core CI.
 
+## Implementation notes
+
+Recorded here because they were decided while building, and each is the kind of
+thing a future reader would otherwise re-litigate.
+
+**HS256 is implemented on `node:crypto`, not a JWT library.** `jsonwebtoken`
+pulls ten transitive dependencies including six lodash micro-packages, which is
+a poor supply-chain trade for an air-gapped on-prem product needing exactly one
+algorithm. The primitive is Node's HMAC; what is hand-written is the
+serialisation and — the part that actually matters — the verification rules.
+Each documented JWT failure mode has an adversarial test: `alg: none`, the
+RS256→HS256 confusion attack, payload tampering, truncated and empty
+signatures, a validly-signed token with no `exp`, and issuer/audience
+mismatch. The header is never allowed to select the verifier.
+
+**Refresh tokens are hashed with SHA-256, not scrypt.** They are 256 bits of
+CSPRNG output, not a human-chosen secret, so there is no dictionary to slow
+down and a KDF per request would buy nothing.
+
+**Reuse detection revokes the whole family.** Presenting an already-consumed
+refresh token means either the attacker or the legitimate user is replaying a
+token the other spent, and we cannot tell which. Revoking the family is
+deliberately more disruptive than ignoring it: one forced login costs less than
+a session that might be compromised.
+
+**Login is rate limited, and that is part of the password design.** scrypt costs
+~100ms and 32 MiB per verification, which protects stolen hashes but makes an
+unthrottled endpoint a cheap denial of service. The limiter is in-memory and
+therefore per-replica; a shared store is the obvious upgrade and is not yet
+built.
+
+**A route with no `@RequirePermission` is denied, not allowed.** Authentication
+alone grants nothing. Access is granted by an explicit decorator, never by
+forgetting one.
+
+**`IAuthProvider` carries a `mode`.** A redirect-mode provider (SAML/OIDC)
+answers the same `POST /auth/login` with a challenge instead of a session, so
+the enterprise layer never adds routes and core never learns they exist. Session
+issuance, rotation, and cookie handling stay in core, so swapping the provider
+cannot change them.
+
 ## Consequences
 
 - Core is fully usable with no external identity infrastructure.

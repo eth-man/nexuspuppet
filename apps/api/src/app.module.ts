@@ -1,7 +1,16 @@
 import { Module, type DynamicModule, type Provider } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ENC_FILE_WRITER, PUPPETDB_CLIENT, type CapabilityToken } from '@nexuspuppet/contracts';
+import {
+  AUDIT_SINK,
+  AUTHORIZATION_POLICY,
+  AUTH_PROVIDER,
+  ENC_FILE_WRITER,
+  LICENSE_SERVICE,
+  PUPPETDB_CLIENT,
+  USER_DIRECTORY,
+  type CapabilityToken,
+} from '@nexuspuppet/contracts';
 import { CapabilityRegistry } from './enterprise/capability.registry';
 import { EnterpriseLoader } from './enterprise/enterprise.loader';
 import { HealthController } from './health/health.controller';
@@ -15,7 +24,18 @@ import { ReconcilerService } from './materialization/reconciler.service';
 import { PrismaService } from './prisma/prisma.service';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
+import { AuthController } from './auth/auth.controller';
+import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
+import { RbacPolicy } from './auth/rbac.policy';
+import { TokenService } from './auth/token.service';
+import {
+  BootstrapService,
+  CoreLicenseService,
+  LoginRateLimiter,
+  PrismaAuditSink,
+} from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
+import type { IAuthProvider } from '@nexuspuppet/contracts';
 
 /**
  * Root module.
@@ -34,9 +54,16 @@ export class AppModule {
     const env = loadEnv();
     const enterprise = await EnterpriseLoader.load();
 
+    // EVERY capability token gets a core default (ADR-0002). A token without
+    // one would mean the product is incomplete without the enterprise layer.
     const coreDefaults = new Map<CapabilityToken, Provider>([
       [PUPPETDB_CLIENT, puppetDbProvider(env)],
       [ENC_FILE_WRITER, encWriterProvider()],
+      [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useClass: LocalAuthProvider }],
+      [AUTHORIZATION_POLICY, { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy }],
+      [USER_DIRECTORY, { provide: USER_DIRECTORY, useClass: LocalUserDirectory }],
+      [AUDIT_SINK, { provide: AUDIT_SINK, useClass: PrismaAuditSink }],
+      [LICENSE_SERVICE, { provide: LICENSE_SERVICE, useClass: CoreLicenseService }],
     ]);
 
     const { providers, registry } = CapabilityRegistry.buildProviders(
@@ -54,11 +81,39 @@ export class AppModule {
           validate: loadEnv,
         }),
       ],
-      controllers: [HealthController, NodesController, ReportsController],
+      controllers: [HealthController, AuthController, NodesController, ReportsController],
       providers: [
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
         Reflector,
+
+        // --- Auth (ADR-0006) ------------------------------------------------
+        LocalAuthProvider,
+        LocalUserDirectory,
+        RbacPolicy,
+        PrismaAuditSink,
+        CoreLicenseService,
+        // Explicit factory: the constructor's defaulted numeric parameters
+        // would otherwise be treated by Nest as injectable dependencies.
+        { provide: LoginRateLimiter, useFactory: (): LoginRateLimiter => new LoginRateLimiter() },
+        {
+          provide: TokenService,
+          inject: [PrismaService, AUTH_PROVIDER],
+          useFactory: (prisma: PrismaService, provider: IAuthProvider): TokenService =>
+            new TokenService(prisma, provider, {
+              secret: env.JWT_SECRET,
+              accessTtl: env.ACCESS_TOKEN_TTL,
+              refreshTtl: env.REFRESH_TOKEN_TTL,
+              issuer: 'nexuspuppet',
+              audience: 'nexuspuppet-api',
+            }),
+        },
+        {
+          provide: BootstrapService,
+          inject: [PrismaService],
+          useFactory: (prisma: PrismaService): BootstrapService =>
+            new BootstrapService(prisma, env.BOOTSTRAP_ADMIN_EMAIL, env.BOOTSTRAP_ADMIN_PASSWORD),
+        },
 
         // --- Materialization (ADR-0003) -------------------------------------
         { provide: PrismaService, useFactory: () => new PrismaService(env.DATABASE_URL) },
@@ -114,6 +169,8 @@ export class AppModule {
         PrismaService,
         MaterializerService,
         MaterializationService,
+        TokenService,
+        BootstrapService,
       ],
     };
   }
