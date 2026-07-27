@@ -148,6 +148,12 @@ from **built artifacts** — `next start`, not `next dev` — waits for the firs
 projection to land, and then runs the suite. On failure it dumps the service logs
 and uploads traces and screenshots.
 
+## Deploying it
+
+[`docs/operations/production-deployment.md`](docs/operations/production-deployment.md)
+covers a fresh on-prem VM end to end: certificates, `.env`, migrations, wiring
+puppetserver, backups, and what to expect on first contact with a real estate.
+
 ## Connecting it to Puppet
 
 1. Mount the ENC volume **read-only** on your puppetserver.
