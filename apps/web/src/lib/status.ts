@@ -53,19 +53,18 @@ export const STATE_STYLES: Record<DisplayState, StateStyle> = {
   },
   /**
    * Skipped is a KNOWN outcome — the resource was not applied because
-   * something it depends on failed. Rendering it as "Unknown" told an operator
-   * triaging a failure that the system had no idea what happened, when in fact
-   * it knows precisely.
+   * something it depends on failed.
    *
-   * The colour stays neutral: a skipped resource is a consequence of a failure,
-   * not a failure in itself, and the palette reserves rose for the actual
-   * cause. The label carries the meaning.
+   * Amber, alongside pending and no-op: all three mean "did not converge, and
+   * not because anything is wrong with this resource". Rose stays reserved for
+   * the resource that actually failed, so a run with one failure and twenty
+   * skipped dependants still points at the single cause.
    */
   skipped: {
     label: 'Skipped',
-    badge: 'border-state-unknown/40 bg-state-unknown/10 text-state-unknown',
-    text: 'text-state-unknown',
-    dot: 'bg-state-unknown',
+    badge: 'border-state-pending/40 bg-state-pending/10 text-state-pending',
+    text: 'text-state-pending',
+    dot: 'bg-state-pending',
   },
   unknown: {
     label: 'Unknown',
