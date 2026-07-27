@@ -62,7 +62,16 @@ export type Env = z.infer<typeof envSchema>;
  * discover the next missing variable on each restart.
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const result = envSchema.safeParse(source);
+  // A .env file routinely carries `SOME_VAR=` for values the operator has not
+  // filled in yet. Zod sees an empty string as present-but-invalid, so an
+  // unfilled optional would block boot and a blank line would defeat a
+  // default. Treat empty as absent — which is what an operator means by it.
+  const present: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && value !== '') present[key] = value;
+  }
+
+  const result = envSchema.safeParse(present);
 
   if (!result.success) {
     const problems = result.error.issues
