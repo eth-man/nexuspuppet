@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodes } from '@/lib/queries';
 import { absolute, ago, isStale, shortHash } from '@/lib/format';
+import { Button } from '@/components/ui/button';
 import { StateBadge } from '@/components/ui/badge';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError } from '@/components/states';
@@ -29,25 +31,35 @@ const PAGE_SIZE = 50;
 export default function ReportsPage() {
   // Failures first: this page exists for triage.
   const [statuses, setStatuses] = useState<string[]>(['failed']);
+  const [offset, setOffset] = useState(0);
 
   const runs = useNodes({
     limit: PAGE_SIZE,
-    offset: 0,
+    offset,
     orderBy: 'report_timestamp',
     order: 'desc',
     ...(statuses.length === 0 ? {} : { statuses }),
   });
 
-  const toggle = (status: string) =>
+  const toggle = (status: string) => {
+    setOffset(0);
     setStatuses((current) =>
       current.includes(status) ? current.filter((s) => s !== status) : [...current, status],
     );
+  };
+
+  const total = runs.data?.total ?? 0;
+  const shown = runs.data?.items.length ?? 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-line-soft px-3 py-2">
         <h1 className="text-sm font-semibold tracking-tight">Reports</h1>
-        <p className="text-xs text-ink-muted">Most recent run per node</p>
+        <p className="text-xs text-ink-muted">
+          Most recent run per node
+          {runs.isSuccess &&
+            ` — showing ${shown === 0 ? 0 : offset + 1}–${offset + shown} of ${total.toLocaleString()}`}
+        </p>
       </header>
 
       <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
@@ -70,7 +82,9 @@ export default function ReportsPage() {
           ))}
         </div>
         <span className="text-[11px] text-ink-faint">
-          {statuses.length === 0 ? 'showing all states' : 'filtered'}
+          {statuses.length === 0 || statuses.length === STATUSES.length
+            ? 'all states'
+            : `${statuses.length} of ${STATUSES.length} states`}
         </span>
       </div>
 
@@ -138,6 +152,34 @@ export default function ReportsPage() {
           </Table>
         )}
       </div>
+
+      {runs.isSuccess && total > PAGE_SIZE && (
+        <footer className="flex items-center justify-between border-t border-line-soft px-3 py-1.5 text-xs text-ink-muted">
+          <span>
+            {offset + 1}–{offset + shown} of {total.toLocaleString()}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            >
+              <ChevronLeft aria-hidden />
+              Previous
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={offset + PAGE_SIZE >= total}
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+            >
+              Next
+              <ChevronRight aria-hidden />
+            </Button>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
