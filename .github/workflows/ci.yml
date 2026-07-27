@@ -119,6 +119,70 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public
 
+  # ---------------------------------------------------------------------------
+  # END-TO-END.
+  #
+  # Boots the whole console — PuppetDB stand-in, API, web — against the
+  # synthetic fixtures and drives it in a real browser. This is the only job
+  # that exercises the browser/proxy/API/Postgres path as a whole, so it is the
+  # only place a broken cookie scope or an unhydrated page can be caught.
+  #
+  # It runs BUILT artifacts, not `next dev`, so it tests what ships.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: End-to-end (browser)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexuspuppet
+          POSTGRES_PASSWORD: nexuspuppet
+          POSTGRES_DB: nexuspuppet_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_e2e?schema=public
+      # Not a secret: this database is created and destroyed by this job, and
+      # is never reachable from outside the runner (ADR-0002 — the public
+      # pipeline must need no secrets).
+      JWT_SECRET: e2e-only-jwt-secret-not-used-anywhere-else
+      BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: e2e-only-admin-password
+      E2E_ADMIN_EMAIL: admin@example.com
+      E2E_ADMIN_PASSWORD: e2e-only-admin-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:deploy
+      - run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Boot the stack and run the suite
+        run: ./scripts/ci/e2e-stack.sh
+
+      # The trace and screenshots are the whole point of a failed browser run;
+      # without them a red E2E job is just a name and a timeout.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-artifacts
+          path: |
+            e2e/.results/
+            e2e/.logs/
+          retention-days: 7
+
   format:
     name: Formatting
     runs-on: ubuntu-latest

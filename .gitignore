@@ -44,3 +44,8 @@ apps/api/src/generated/
 
 # Throwaway dev certificates, generated on first run of scripts/dev/puppetdb.mjs
 scripts/dev/certs/
+
+# Playwright artefacts
+e2e/.results/
+e2e/.logs/
+playwright-report/

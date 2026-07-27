@@ -26,10 +26,12 @@
     "db:deploy": "npm run db:deploy --workspace @nexuspuppet/api",
     "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
     "dev:stack": "./scripts/dev/stack.sh",
-    "dev:puppetdb": "node scripts/dev/puppetdb.mjs"
+    "dev:puppetdb": "node scripts/dev/puppetdb.mjs",
+    "test:e2e:ui": "playwright test --ui"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.0",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",

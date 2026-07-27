@@ -91,6 +91,38 @@ and pagination behave as a real PuppetDB would. It is a development harness, not
 a PuppetDB implementation — see [`fixtures/README.md`](fixtures/README.md) for
 what synthetic data cannot tell you.
 
+## Tests
+
+```bash
+npm test                                   # unit
+npm run test:int --workspace @nexuspuppet/api   # integration, needs Postgres
+npm run test:e2e                           # browser, needs a running stack
+```
+
+The unit and integration suites are the usual thing. Two notes on the others:
+
+**Integration tests truncate tables**, so they run against their own
+`nexuspuppet_test` database and never `DATABASE_URL`. Run
+`npm run db:test:setup --workspace @nexuspuppet/api` once first. The transactional
+outbox and the advisory lock cannot be verified against a mock — a mock confirms
+whatever the code already believes.
+
+**E2E tests drive a real browser** against a stack you have already started with
+`npm run dev:stack`. They are deliberately thin on styling assertions and thick
+on behaviour that breaks silently: that a classification write answers `202` and
+never `200`, that the console reports materialization as *queued* rather than
+applied, that a rule change queues a **full** reconcile, and that regex
+metacharacters in a filter are matched literally instead of returning the whole
+estate.
+
+They create node groups prefixed `e2e-` and sweep them both before and after,
+so a run against a stack you are also using by hand is safe.
+
+In CI, [`scripts/ci/e2e-stack.sh`](scripts/ci/e2e-stack.sh) boots the whole stack
+from **built artifacts** — `next start`, not `next dev` — waits for the first
+projection to land, and then runs the suite. On failure it dumps the service logs
+and uploads traces and screenshots.
+
 ## Connecting it to Puppet
 
 1. Mount the ENC volume **read-only** on your puppetserver.
