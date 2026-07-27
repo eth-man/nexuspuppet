@@ -107,6 +107,11 @@ jobs:
 
       - run: npm run db:deploy
 
+      # The transactional outbox and the advisory lock cannot be verified
+      # against a mock — a mock confirms whatever the code already believes.
+      # These run against the real Postgres service above.
+      - run: npm run test:int --workspace @nexuspuppet/api
+
   format:
     name: Formatting
     runs-on: ubuntu-latest

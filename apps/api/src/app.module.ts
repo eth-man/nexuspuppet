@@ -9,6 +9,10 @@ import { NodesController } from './inventory/nodes.controller';
 import { ReportsController } from './reports/reports.controller';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
 import { EncFileWriter } from './materialization/enc-file-writer';
+import { MaterializerService } from './materialization/materializer.service';
+import { MaterializationService } from './materialization/materialization.service';
+import { ReconcilerService } from './materialization/reconciler.service';
+import { PrismaService } from './prisma/prisma.service';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
 import { loadEnv, type Env } from './config/env';
@@ -32,7 +36,7 @@ export class AppModule {
 
     const coreDefaults = new Map<CapabilityToken, Provider>([
       [PUPPETDB_CLIENT, puppetDbProvider(env)],
-      [ENC_FILE_WRITER, encWriterProvider(env)],
+      [ENC_FILE_WRITER, encWriterProvider()],
     ]);
 
     const { providers, registry } = CapabilityRegistry.buildProviders(
@@ -55,6 +59,47 @@ export class AppModule {
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
         Reflector,
+
+        // --- Materialization (ADR-0003) -------------------------------------
+        { provide: PrismaService, useFactory: () => new PrismaService(env.DATABASE_URL) },
+        {
+          provide: EncFileWriter,
+          useFactory: async (): Promise<EncFileWriter> => {
+            const writer = new EncFileWriter(env.ENC_OUTPUT_DIR);
+            await writer.ensureLayout();
+            return writer;
+          },
+        },
+        MaterializationService,
+        {
+          provide: MaterializerService,
+          inject: [PrismaService, EncFileWriter],
+          useFactory: (prisma: PrismaService, writer: EncFileWriter): MaterializerService =>
+            new MaterializerService(
+              prisma,
+              writer,
+              env.ENC_MAX_JOB_ATTEMPTS,
+              env.ENC_DEFAULT_ENVIRONMENT,
+            ),
+        },
+        {
+          // Starts the drain and reconcile loops on module init, and writes
+          // default.yaml before puppetserver can ask for an unknown node.
+          provide: ReconcilerService,
+          inject: [PrismaService, MaterializerService, EncFileWriter],
+          useFactory: (
+            prisma: PrismaService,
+            materializer: MaterializerService,
+            writer: EncFileWriter,
+          ): ReconcilerService =>
+            new ReconcilerService(
+              prisma,
+              materializer,
+              writer,
+              env.ENC_MATERIALIZER_INTERVAL_MS,
+              env.ENC_RECONCILE_INTERVAL_MS,
+            ),
+        },
         // Global, so a new controller is protected by default and forgetting
         // the decorator fails closed (ADR-0006).
         { provide: APP_GUARD, useClass: AuthGuard },
@@ -62,7 +107,14 @@ export class AppModule {
         // table (ADR-0004 §6).
         { provide: APP_FILTER, useClass: PuppetDbExceptionFilter },
       ],
-      exports: [CapabilityRegistry, PUPPETDB_CLIENT, ENC_FILE_WRITER],
+      exports: [
+        CapabilityRegistry,
+        PUPPETDB_CLIENT,
+        ENC_FILE_WRITER,
+        PrismaService,
+        MaterializerService,
+        MaterializationService,
+      ],
     };
   }
 }
@@ -84,13 +136,15 @@ function puppetDbProvider(env: Env): Provider {
   };
 }
 
-function encWriterProvider(env: Env): Provider {
+/**
+ * The contracts token resolves to the SAME instance as the concrete class.
+ * Two EncFileWriter instances would mean two owners of the ENC directory,
+ * which ADR-0003 explicitly forbids — only one component may write it.
+ */
+function encWriterProvider(): Provider {
   return {
     provide: ENC_FILE_WRITER,
-    useFactory: async (): Promise<EncFileWriter> => {
-      const writer = new EncFileWriter(env.ENC_OUTPUT_DIR);
-      await writer.ensureLayout();
-      return writer;
-    },
+    inject: [EncFileWriter],
+    useFactory: (writer: EncFileWriter): EncFileWriter => writer,
   };
 }

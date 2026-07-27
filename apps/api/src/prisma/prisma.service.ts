@@ -31,31 +31,55 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
-   * Run `work` while holding a Postgres session-level advisory lock, or skip it
-   * entirely if another replica already holds the lock.
+   * Run `work` while holding a Postgres advisory lock, or skip it entirely if
+   * another replica already holds the lock.
    *
-   * Deliberately non-blocking (`pg_try_advisory_lock`): a materializer tick that
-   * cannot get the lock should return immediately and let the holder proceed,
-   * not queue up behind it. The next tick will try again.
+   * TRANSACTION-SCOPED, NOT SESSION-SCOPED. This distinction is the whole
+   * reason this method is subtle enough to need a comment.
+   *
+   * `pg_advisory_lock` / `pg_advisory_unlock` are scoped to a SESSION — that
+   * is, to one connection. Prisma runs every query through a connection POOL,
+   * so a lock taken by one `$queryRaw` and released by another can easily be
+   * taken on connection A and released on connection B. The release then
+   * no-ops (Postgres merely warns), connection A keeps the lock for as long as
+   * the pool keeps it alive, and the materializer never runs again. It would
+   * deadlock itself permanently after its first tick, silently, in production.
+   *
+   * `pg_try_advisory_xact_lock` is held for the duration of a transaction and
+   * released automatically on commit or rollback. Prisma's interactive
+   * transactions pin a single connection, so lock and release are guaranteed to
+   * be the same session. There is no unlock call to get wrong.
+   *
+   * The transaction exists only to scope the lock; `work` uses the pool
+   * normally. Mutual exclusion still holds, because exclusion comes from the
+   * lock rather than from the transaction's isolation.
+   *
+   * Deliberately non-blocking (`try`): a materializer tick that cannot get the
+   * lock returns immediately and lets the holder proceed rather than queueing
+   * behind it. The next tick tries again.
    *
    * @returns the result of `work`, or null if the lock was not acquired.
    */
-  async withAdvisoryLock<T>(lockKey: bigint, work: () => Promise<T>): Promise<T | null> {
-    const [acquired] = await this.$queryRaw<[{ locked: boolean }]>`
-      SELECT pg_try_advisory_lock(${lockKey}::bigint) AS locked
-    `;
+  async withAdvisoryLock<T>(
+    lockKey: bigint,
+    work: () => Promise<T>,
+    options: { timeoutMs?: number } = {},
+  ): Promise<T | null> {
+    // A full reconcile over a large estate can outlast Prisma's 5s default.
+    const timeout = options.timeoutMs ?? 120_000;
 
-    if (acquired?.locked !== true) {
-      return null;
-    }
+    return this.$transaction(
+      async (tx) => {
+        const [acquired] = await tx.$queryRaw<[{ locked: boolean }]>`
+          SELECT pg_try_advisory_xact_lock(${lockKey}::bigint) AS locked
+        `;
 
-    try {
-      return await work();
-    } finally {
-      // Must always release: a session-level lock outlives the transaction and
-      // would otherwise wedge materialization until the connection is recycled.
-      await this.$queryRaw`SELECT pg_advisory_unlock(${lockKey}::bigint)`;
-    }
+        if (acquired?.locked !== true) return null;
+
+        return work();
+      },
+      { timeout, maxWait: 5_000 },
+    );
   }
 }
 

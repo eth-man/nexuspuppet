@@ -1,12 +1,12 @@
 {
   "name": "@nexuspuppet/api",
   "version": "0.1.0",
-  "description": "NexusPuppet API — business logic, PuppetDB proxy, ENC materializer",
+  "description": "NexusPuppet API \u2014 business logic, PuppetDB proxy, ENC materializer",
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
     "build": "rm -rf dist *.tsbuildinfo && tsc -p tsconfig.build.json && cp -R src/generated dist/generated",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
     "test": "jest",
@@ -15,7 +15,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "clean": "rm -rf dist coverage src/generated *.tsbuildinfo"
+    "clean": "rm -rf dist coverage src/generated *.tsbuildinfo",
+    "test:int": "jest --config jest.int.config.js --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

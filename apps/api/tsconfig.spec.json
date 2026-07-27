@@ -1,0 +1,11 @@
+{
+  // Integration tests live outside src/, which the build's rootDir owns.
+  // Typechecked here so they are held to the same strictness as the code
+  // they exercise, but never emitted.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
