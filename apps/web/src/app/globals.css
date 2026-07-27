@@ -1,0 +1,11 @@
+@import 'tailwindcss';
+
+/* Dense ops-console defaults. Dark-first per the intake's design inputs. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+}
+
+:root {
+  color-scheme: dark;
+}

@@ -1,0 +1,91 @@
+# NexusPuppet — single-VM on-prem deployment (C4 L2).
+#
+# The enc-data volume is the handoff surface to Puppet (ADR-0003):
+# read-write here, READ-ONLY wherever puppetserver mounts it. Only the api
+# service may write it.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nexuspuppet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-nexuspuppet}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nexuspuppet}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nexuspuppet}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nexuspuppet}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — openssl rand -base64 48}
+      PUPPETDB_URL: ${PUPPETDB_URL:?PUPPETDB_URL is required}
+      PUPPETDB_CERT_PATH: /etc/nexuspuppet/certs/client.pem
+      PUPPETDB_KEY_PATH: /etc/nexuspuppet/certs/client.key
+      PUPPETDB_CA_PATH: /etc/nexuspuppet/certs/ca.pem
+      ENC_OUTPUT_DIR: /srv/nexuspuppet/enc
+    volumes:
+      # Certificates as mounted files, never baked into the image (ADR-0004).
+      - ${PUPPETDB_CERT_DIR:-./certs}:/etc/nexuspuppet/certs:ro
+      # The ONLY writer of the ENC volume.
+      - enc-data:/srv/nexuspuppet/enc
+    ports:
+      - '${API_PORT:-3001}:3001'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3001/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      # Server-side only. Deliberately not NEXT_PUBLIC_ — the browser never
+      # receives an API address, database credential, or certificate.
+      API_INTERNAL_URL: http://api:3001
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+
+  # Reference only — your puppetserver almost certainly lives outside this
+  # compose file. What matters is the READ-ONLY mount and the ENC script.
+  #
+  # puppetserver:
+  #   image: puppet/puppetserver:latest
+  #   volumes:
+  #     - enc-data:/etc/puppetlabs/nexuspuppet:ro
+  #     - ./scripts/nexuspuppet-enc.sh:/usr/local/bin/nexuspuppet-enc.sh:ro
+  #   environment:
+  #     # puppet.conf: node_terminus = exec
+  #     #              external_nodes = /usr/local/bin/nexuspuppet-enc.sh
+  #     NEXUSPUPPET_ENC_DIR: /etc/puppetlabs/nexuspuppet
+
+volumes:
+  db-data:
+  enc-data:

@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # No secrets here. The public pipeline must never need them (ADR-0002).
+  NODE_VERSION: '22.x'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # THE LOAD-BEARING JOB (ADR-0002).
+  #
+  # Proves the public repository builds, typechecks, lints, and tests with NO
+  # enterprise layer present. This is what makes the open core genuinely open
+  # rather than a marketing claim. It must never be made conditional, and it
+  # must never be given access to the private repository.
+  # ---------------------------------------------------------------------------
+  core-isolation:
+    name: Core builds without the enterprise layer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Assert the enterprise layer is absent
+        run: |
+          if [ -e packages/enterprise ]; then
+            echo "::error::packages/enterprise must never exist in the public repository (ADR-0002)."
+            exit 1
+          fi
+          if [ -e .gitmodules ]; then
+            echo "::error::.gitmodules would publish the private repository URL (ADR-0002)."
+            exit 1
+          fi
+          if git grep -nIE 'from .@nexuspuppet/enterprise' -- 'apps' 'packages' \
+               | grep -v 'enterprise.loader.ts'; then
+            echo "::error::Static import of the enterprise package outside the loader (ADR-0002)."
+            exit 1
+          fi
+          echo "Core isolation checks passed."
+
+      - run: npm ci
+
+      # No-op without NEXUSPUPPET_ENTERPRISE_REPO. Running it here proves the
+      # script is safe in the public pipeline.
+      - run: npm run enterprise:fetch
+
+      - run: npm run build --workspace @nexuspuppet/contracts
+
+      # Prisma 7 resolves DATABASE_URL via prisma.config.ts even for `generate`,
+      # which never contacts a database. A dummy value is correct here.
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/unused
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  prisma:
+    name: Prisma schema and migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexuspuppet
+          POSTGRES_PASSWORD: nexuspuppet
+          POSTGRES_DB: nexuspuppet_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+
+      # A committed schema with no matching migration means `migrate deploy`
+      # would silently no-op during an operator's upgrade.
+      - name: Migrations match the schema
+        working-directory: apps/api
+        run: >-
+          npx prisma migrate diff
+          --from-migrations prisma/migrations
+          --to-schema-datamodel prisma/schema.prisma
+          --shadow-database-url "$DATABASE_URL"
+          --exit-code
+
+      - run: npm run db:deploy
+
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+
+  licenses:
+    name: Dependency licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      # A GPL/AGPL dependency would create obligations Apache-2.0 cannot
+      # satisfy (ADR-0007).
+      - name: Fail on copyleft dependencies
+        run: |
+          npx --yes license-checker-rseidelsohn \
+            --production \
+            --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;Unlicense;CC0-1.0;CC-BY-4.0;BlueOak-1.0.0;Python-2.0;MPL-2.0" \
+            --excludePrivatePackages

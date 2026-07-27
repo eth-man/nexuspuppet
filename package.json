@@ -1,0 +1,37 @@
+{
+  "name": "nexuspuppet",
+  "version": "0.1.0",
+  "description": "Puppet estate console — read-only visibility plus native ENC classification",
+  "license": "Apache-2.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "enterprise:fetch": "node scripts/enterprise.mjs",
+    "build": "npm run build --workspace @nexuspuppet/contracts && npm run build --workspaces --if-present",
+    "typecheck": "npm run build --workspace @nexuspuppet/contracts && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "db:generate": "npm run db:generate --workspace @nexuspuppet/api",
+    "db:migrate": "npm run db:migrate --workspace @nexuspuppet/api",
+    "db:deploy": "npm run db:deploy --workspace @nexuspuppet/api",
+    "clean": "npm run clean --workspaces --if-present && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.65.0"
+  }
+}

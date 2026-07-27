@@ -1,0 +1,47 @@
+{
+  "name": "@nexuspuppet/api",
+  "version": "0.1.0",
+  "description": "NexusPuppet API — business logic, PuppetDB proxy, ENC materializer",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "start:dev": "tsx watch src/main.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "clean": "rm -rf dist coverage tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-express": "^11.1.28",
+    "@nestjs/schedule": "^6.0.1",
+    "@nexuspuppet/contracts": "*",
+    "@prisma/adapter-pg": "^7.9.0",
+    "@prisma/client": "^7.9.0",
+    "pg": "^8.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "undici": "^7.16.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.1.28",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.20.0",
+    "jest": "^30.4.2",
+    "prisma": "^7.9.0",
+    "ts-jest": "^29.4.12",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3"
+  }
+}

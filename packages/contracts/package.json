@@ -1,0 +1,23 @@
+{
+  "name": "@nexuspuppet/contracts",
+  "version": "0.1.0",
+  "description": "Shared interfaces, DI tokens, and Zod schemas for the NexusPuppet monorepo",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

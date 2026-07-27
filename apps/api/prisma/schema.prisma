@@ -1,0 +1,343 @@
+// NexusPuppet — local application state only.
+//
+// PuppetDB remains authoritative for facts, catalogs, and reports (ADR-0004).
+// Nothing in this schema duplicates it except ManagedNode, which is an
+// explicitly disposable cache.
+//
+// The EncMaterializationJob table is the transactional outbox that makes
+// ADR-0003 ("generate, don't serve") safe: a classification change and its
+// materialization job are written in ONE transaction, so a committed change can
+// never be silently lost between the database and the disk.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 removed `url` from this block. The connection string for migration
+// and introspection commands now lives in ../prisma.config.ts, and the runtime
+// client receives a driver adapter explicitly. See ADR-0005.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Identity & access (ADR-0006)
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  VIEWER
+  OPERATOR
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  /// Normalised to lowercase on write. Plain text rather than citext so the
+  /// schema needs no Postgres extension at migrate time.
+  email        String   @unique
+  displayName  String
+  /// scrypt$N$r$p$salt$hash — self-describing so parameters can be raised
+  /// later and verified per-record. Null when an external directory owns
+  /// authentication (enterprise LDAP/SAML).
+  passwordHash String?
+  role         UserRole @default(VIEWER)
+  isActive     Boolean  @default(true)
+  /// Identifier of the auth provider that owns this account.
+  authSource   String   @default("local")
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  savedQueries  SavedQuery[]
+
+  @@index([isActive])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the opaque token. The plaintext is never stored.
+  tokenHash String    @unique
+  /// Rotation family. Reuse of a consumed token revokes the entire family.
+  familyId  String    @db.Uuid
+  expiresAt DateTime
+  consumedAt DateTime?
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Node projection — a CACHE of PuppetDB, never a source of truth (ADR-0004)
+// ---------------------------------------------------------------------------
+
+/// Safe to truncate. Rebuilt by NodeProjectionService.
+///
+/// Exists so rule evaluation during materialization reads Postgres rather than
+/// PuppetDB — otherwise a PuppetDB outage would block classification changes,
+/// reintroducing exactly the coupling ADR-0003 removes.
+model ManagedNode {
+  certname        String    @id @db.VarChar(255)
+  environment     String?
+  /// The PROJECTED fact subset (an allow-list), not the full fact blob.
+  /// Full facts are unbounded; mirroring them here would be a large, useless table.
+  facts           Json      @default("{}")
+  latestReportStatus String?
+  reportTimestamp DateTime?
+  factsTimestamp  DateTime?
+  expired         Boolean   @default(false)
+  /// When this row was last refreshed from PuppetDB. Surfaced in the UI as
+  /// "facts as of <t>" so operators can see staleness rather than guess at it.
+  projectedAt     DateTime  @default(now())
+
+  pins            NodeGroupPin[]
+  materialization EncMaterialization?
+
+  @@index([environment])
+  @@index([projectedAt])
+  @@index([latestReportStatus])
+  @@map("managed_nodes")
+}
+
+// ---------------------------------------------------------------------------
+// Classification (ADR-0009)
+// ---------------------------------------------------------------------------
+
+enum MatchStrategy {
+  ALL_RULES
+  ANY_RULE
+  PINNED
+}
+
+enum RuleOperator {
+  EQUALS
+  NOT_EQUALS
+  MATCHES_REGEX
+  NOT_MATCHES_REGEX
+  IN
+  NOT_IN
+  GREATER_THAN
+  LESS_THAN
+  EXISTS
+  NOT_EXISTS
+}
+
+model NodeGroup {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String        @unique
+  description String?
+  /// Higher rank is applied LATER and therefore wins on conflict.
+  /// Ties are broken by id so merge order is fully deterministic (ADR-0009).
+  rank        Int           @default(100)
+  strategy    MatchStrategy @default(ALL_RULES)
+  /// Sets the ENC `environment` key. Null does not clear an earlier value.
+  environment String?
+  isEnabled   Boolean       @default(true)
+
+  /// Hierarchy contributes ordering, not value inheritance: a child is always
+  /// evaluated after its ancestors and therefore overrides them.
+  parentId    String?       @db.Uuid
+  parent      NodeGroup?    @relation("GroupHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children    NodeGroup[]   @relation("GroupHierarchy")
+
+  rules       NodeGroupRule[]
+  classes     NodeGroupClass[]
+  parameters  NodeGroupParameter[]
+  pins        NodeGroupPin[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([rank, id])
+  @@index([parentId])
+  @@index([isEnabled])
+  @@map("node_groups")
+}
+
+model NodeGroupRule {
+  id        String       @id @default(uuid()) @db.Uuid
+  groupId   String       @db.Uuid
+  group     NodeGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Dotted path into the projected fact subset, e.g. `os.family`.
+  /// A path outside the projected allow-list can never match; the UI must warn
+  /// rather than silently never matching.
+  factPath  String       @db.VarChar(512)
+  operator  RuleOperator
+  /// Absent for EXISTS / NOT_EXISTS.
+  value     Json?
+  createdAt DateTime     @default(now())
+
+  @@index([groupId])
+  @@map("node_group_rules")
+}
+
+/// Explicit static membership, used with MatchStrategy.PINNED.
+model NodeGroupPin {
+  groupId   String      @db.Uuid
+  group     NodeGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  certname  String      @db.VarChar(255)
+  /// Intentionally NOT a foreign key to ManagedNode: an operator may pin a node
+  /// that has not yet checked in, and truncating the cache must not drop pins.
+  node      ManagedNode? @relation(fields: [certname], references: [certname], onDelete: SetNull, map: "node_group_pins_certname_soft_fkey")
+  createdAt DateTime    @default(now())
+
+  @@id([groupId, certname])
+  @@index([certname])
+  @@map("node_group_pins")
+}
+
+model NodeGroupClass {
+  id        String    @id @default(uuid()) @db.Uuid
+  groupId   String    @db.Uuid
+  group     NodeGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Validated against Puppet's identifier grammar before persistence — an
+  /// invalid class name is rejected in the UI, not discovered during catalog
+  /// compilation.
+  className String    @db.VarChar(255)
+  /// Parameter map. Values are replaced wholesale on conflict, never
+  /// deep-merged (ADR-0009).
+  params    Json      @default("{}")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([groupId, className])
+  @@index([className])
+  @@map("node_group_classes")
+}
+
+/// Top-scope ENC parameters contributed by a group.
+model NodeGroupParameter {
+  id        String    @id @default(uuid()) @db.Uuid
+  groupId   String    @db.Uuid
+  group     NodeGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  key       String    @db.VarChar(255)
+  value     Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([groupId, key])
+  @@map("node_group_parameters")
+}
+
+// ---------------------------------------------------------------------------
+// Materialization — the machinery that makes ADR-0003 work
+// ---------------------------------------------------------------------------
+
+enum MaterializationStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  FAILED
+}
+
+/// THE TRANSACTIONAL OUTBOX.
+///
+/// Written in the SAME transaction as the classification change that caused it.
+/// Either both land or neither does, so a crash between commit and file write
+/// loses nothing — the job is still PENDING on restart.
+model EncMaterializationJob {
+  id          String                @id @default(uuid()) @db.Uuid
+  /// Null means a full reconcile of every node.
+  certname    String?               @db.VarChar(255)
+  /// Collapses redundant work: many edits to one group before the worker runs
+  /// should produce one materialization, not N. Upserted on this key.
+  dedupeKey   String                @unique
+  reason      String                @db.VarChar(255)
+  status      MaterializationStatus @default(PENDING)
+  attempts    Int                   @default(0)
+  lastError   String?
+  /// Exponential backoff; the worker ignores jobs until this instant.
+  nextAttemptAt DateTime            @default(now())
+  createdAt   DateTime              @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([status, nextAttemptAt])
+  @@index([certname])
+  @@map("enc_materialization_jobs")
+}
+
+/// What is currently believed to be on disk for a node.
+///
+/// contentHash drives change detection: identical rendered YAML must not
+/// rewrite the file, which is why EncYamlRenderer is required to be
+/// deterministic down to key ordering (ADR-0009).
+model EncMaterialization {
+  certname       String      @id @db.VarChar(255)
+  node           ManagedNode @relation(fields: [certname], references: [certname], onDelete: Cascade)
+  /// SHA-256 of the rendered YAML.
+  contentHash    String      @db.VarChar(64)
+  /// Monotonic per node; increments only when content actually changes.
+  revision       Int         @default(1)
+  /// Path relative to ENC_OUTPUT_DIR, e.g. `nodes/web01.example.com.yaml`.
+  relativePath   String
+  /// Groups applied, in merge order. Answers "why is this node classified this way?"
+  appliedGroupIds String[]   @db.Uuid
+  /// Conflicts detected during merge. Warnings, not errors — surfaced in the UI (ADR-0009).
+  conflicts      Json        @default("[]")
+  writtenAt      DateTime    @default(now())
+
+  @@index([writtenAt])
+  @@index([contentHash])
+  @@map("enc_materializations")
+}
+
+// ---------------------------------------------------------------------------
+// Audit, settings, saved views
+// ---------------------------------------------------------------------------
+
+/// Written inside the same transaction as the change it records (ADR-0005).
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  actorUserId  String?  @db.Uuid
+  actor        User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  /// Denormalised so the record survives user deletion.
+  actorEmail   String?
+  action       String   @db.VarChar(128)
+  entityType   String   @db.VarChar(64)
+  entityId     String?
+  before       Json?
+  after        Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+model AppSetting {
+  key       String   @id @db.VarChar(128)
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+model SavedQuery {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  /// A typed NodeFilter, never a raw PQL string (ADR-0004).
+  filter    Json
+  isShared  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@map("saved_queries")
+}

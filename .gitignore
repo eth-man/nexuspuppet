@@ -1,0 +1,43 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Secrets. Nothing here may ever be committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+certs/
+
+# ADR-0002: the private enterprise layer is fetched by scripts/enterprise.mjs
+# from NEXUSPUPPET_ENTERPRISE_REPO. It is never committed here, and this
+# repository contains no reference to its location.
+packages/enterprise/
+
+# Fixtures may contain real hostnames and facts from a customer estate.
+# Commit only anonymized samples, explicitly un-ignored.
+fixtures/*
+!fixtures/.gitkeep
+!fixtures/README.md
+!fixtures/*.sample.json
+
+# Materialized ENC output — generated, never source of truth.
+enc-output/
+
+.DS_Store
+*.log
+npm-debug.log*
+.idea/
+.vscode/*
+!.vscode/extensions.json
+playwright-report/
+test-results/
+
+# Prisma generated client (regenerate with `npm run db:generate`).
+apps/api/src/generated/

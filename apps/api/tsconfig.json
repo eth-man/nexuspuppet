@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "types": ["node", "jest"],
+
+    // NestJS dependency injection reads decorator metadata at runtime. This is
+    // the mechanism the whole open-core extensibility model rests on
+    // (ADR-0002), and the reason TypeScript is pinned below 6.x (ADR-0010).
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false
+  },
+  "include": ["src/**/*.ts"],
+  "//": "generated client is typechecked by Prisma, not by us",
+  "exclude": ["dist", "node_modules"]
+}
