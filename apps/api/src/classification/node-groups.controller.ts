@@ -28,6 +28,7 @@ import {
   type ReplaceRules,
   type SetParameter,
   type UpdateNodeGroup,
+  type FactPathIndex,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
@@ -190,6 +191,18 @@ export class NodeGroupsController {
 @Controller()
 export class MaterializationController {
   constructor(private readonly classification: ClassificationService) {}
+
+  /**
+   * Fact paths available to matching rules.
+   *
+   * Read permission, not write: an operator reviewing why a group matches
+   * nothing needs to see which facts exist without being able to change them.
+   */
+  @RequirePermission('classification:read')
+  @Get('fact-paths')
+  factPaths(): Promise<FactPathIndex> {
+    return this.classification.listFactPaths();
+  }
 
   @RequirePermission('materialization:trigger')
   @Post('materialization/reconcile')

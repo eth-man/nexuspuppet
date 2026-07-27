@@ -433,6 +433,92 @@ describe('classification writes (integration)', () => {
     });
   });
 
+  /**
+   * Rule authoring is where a typo fails silently: a misspelt fact path simply
+   * never matches, and nothing tells the operator. These back the UI's picker.
+   */
+  describe('fact path discovery', () => {
+    const seedNodeWithFacts = (certname: string, facts: Record<string, unknown>) =>
+      prisma.managedNode.create({
+        data: { certname, facts: facts as object, environment: 'production' },
+      });
+
+    it('lists dotted paths from the projection', async () => {
+      await seedNodeWithFacts('a01', { os: { family: 'RedHat', release: { major: '9' } } });
+
+      const index = await service.listFactPaths();
+      const paths = index.paths.map((p) => p.path);
+
+      expect(paths).toContain('os.family');
+      expect(paths).toContain('os.release.major');
+      // Containers are matchable too — EXISTS on `os` is a legitimate rule.
+      expect(paths).toContain('os');
+    });
+
+    it('counts coverage, so a fact on 1 of 50 nodes is visibly rare', async () => {
+      await seedNodeWithFacts('a01', { kernel: 'Linux', rare_fact: 'yes' });
+      await seedNodeWithFacts('a02', { kernel: 'Linux' });
+      await seedNodeWithFacts('a03', { kernel: 'Linux' });
+
+      const index = await service.listFactPaths();
+      const byPath = new Map(index.paths.map((p) => [p.path, p]));
+
+      expect(byPath.get('kernel')?.nodeCount).toBe(3);
+      expect(byPath.get('rare_fact')?.nodeCount).toBe(1);
+      expect(index.nodesScanned).toBe(3);
+    });
+
+    it('offers distinct values for a low-cardinality path', async () => {
+      await seedNodeWithFacts('a01', { os: { family: 'RedHat' } });
+      await seedNodeWithFacts('a02', { os: { family: 'Debian' } });
+      await seedNodeWithFacts('a03', { os: { family: 'RedHat' } });
+
+      const family = (await service.listFactPaths()).paths.find((p) => p.path === 'os.family');
+      expect(family?.values?.sort()).toEqual(['Debian', 'RedHat']);
+    });
+
+    // A dropdown of 1,000 IP addresses is noise, not help.
+    it('omits values for a high-cardinality path', async () => {
+      for (let i = 0; i < 30; i += 1) {
+        await seedNodeWithFacts(`h${i}`, { ip: `10.0.0.${i}` });
+      }
+
+      const ip = (await service.listFactPaths()).paths.find((p) => p.path === 'ip');
+      expect(ip?.nodeCount).toBe(30);
+      expect(ip?.values).toBeUndefined();
+    });
+
+    // A container's value is a whole object, and the evaluator never equates an
+    // object with a scalar — suggesting one would offer a rule that cannot match.
+    it('offers no value picker for a container path', async () => {
+      await seedNodeWithFacts('a01', { os: { family: 'RedHat' } });
+      await seedNodeWithFacts('a02', { os: { family: 'Debian' } });
+
+      const paths = (await service.listFactPaths()).paths;
+      expect(paths.find((p) => p.path === 'os')?.values).toBeUndefined();
+      // The leaf beneath it still gets one.
+      expect(paths.find((p) => p.path === 'os.family')?.values?.sort()).toEqual([
+        'Debian',
+        'RedHat',
+      ]);
+    });
+
+    // Arrays are matched whole by RuleEvaluator, never by index, so the picker
+    // must not suggest paths the evaluator cannot resolve.
+    it('treats arrays as leaves, matching the evaluator', async () => {
+      await seedNodeWithFacts('a01', { processors: { models: ['a', 'b'] } });
+
+      const paths = (await service.listFactPaths()).paths.map((p) => p.path);
+      expect(paths).toContain('processors.models');
+      expect(paths).not.toContain('processors.models.0');
+    });
+
+    it('returns an empty index rather than throwing on an empty projection', async () => {
+      const index = await service.listFactPaths();
+      expect(index).toEqual({ paths: [], nodesScanned: 0 });
+    });
+  });
+
   describe('explain', () => {
     it('returns applied groups in MERGE order, not database order', async () => {
       await seedNode('web01');

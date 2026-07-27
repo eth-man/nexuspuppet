@@ -12,7 +12,7 @@ import {
   type RuleOperator,
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
-import { useNodeGroup } from '@/lib/queries';
+import { useFactPaths, useNodeGroup } from '@/lib/queries';
 import {
   useAddPins,
   useAssignClass,
@@ -332,17 +332,24 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
  */
 function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) {
   const replace = useReplaceRules(id);
+  const factPaths = useFactPaths();
   const [rules, setRules] = useState<NodeRule[]>(detail.rules);
 
   const update = (index: number, patch: Partial<NodeRule>) =>
     setRules((current) => current.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
+
+  const known = new Map((factPaths.data?.paths ?? []).map((entry) => [entry.path, entry]));
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Matching rules</CardTitle>
         <span className="text-[11px] text-ink-faint">
-          {detail.strategy === 'PINNED' ? 'ignored for pinned groups' : 'saved as a set'}
+          {detail.strategy === 'PINNED'
+            ? 'ignored for pinned groups'
+            : factPaths.isSuccess
+              ? `${factPaths.data.paths.length} fact paths available`
+              : 'saved as a set'}
         </span>
       </CardHeader>
 
@@ -354,55 +361,112 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
           </p>
         )}
 
-        {rules.map((rule, index) => (
-          <div key={index} className="flex items-start gap-1.5">
-            <Input
-              value={rule.factPath}
-              onChange={(e) => update(index, { factPath: e.target.value })}
-              placeholder="os.family"
-              disabled={!writable}
-              className="flex-1 font-mono text-xs"
-              aria-label="Fact path"
-            />
-            <Select
-              value={rule.operator}
-              onChange={(e) => update(index, { operator: e.target.value as RuleOperator })}
-              disabled={!writable}
-              className="text-xs"
-              aria-label="Operator"
-            >
-              {OPERATORS.map((operator) => (
-                <option key={operator} value={operator}>
-                  {operator}
-                </option>
-              ))}
-            </Select>
-            <Input
-              value={
-                NO_VALUE.has(rule.operator)
-                  ? ''
-                  : typeof rule.value === 'string'
-                    ? rule.value
-                    : JSON.stringify(rule.value ?? '')
-              }
-              onChange={(e) => update(index, { value: e.target.value })}
-              placeholder={NO_VALUE.has(rule.operator) ? 'not used' : 'RedHat'}
-              disabled={!writable || NO_VALUE.has(rule.operator)}
-              className="flex-1 font-mono text-xs"
-              aria-label="Value"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              type="button"
-              disabled={!writable}
-              onClick={() => setRules((current) => current.filter((_, i) => i !== index))}
-              aria-label="Remove rule"
-            >
-              <Trash2 aria-hidden />
-            </Button>
-          </div>
-        ))}
+        {rules.map((rule, index) => {
+          const match = known.get(rule.factPath);
+          // Unknown only once the index has loaded — otherwise every path looks
+          // wrong for the first few hundred milliseconds.
+          const unknown = factPaths.isSuccess && rule.factPath.trim() !== '' && match === undefined;
+
+          return (
+            <div key={index} className="space-y-1">
+              <div className="flex items-start gap-1.5">
+                <div className="flex-1">
+                  <Input
+                    value={rule.factPath}
+                    onChange={(e) => update(index, { factPath: e.target.value })}
+                    placeholder="os.family"
+                    disabled={!writable}
+                    list={`fact-paths-${id}`}
+                    className="w-full font-mono text-xs"
+                    aria-label="Fact path"
+                    aria-invalid={unknown}
+                  />
+                </div>
+
+                <Select
+                  value={rule.operator}
+                  onChange={(e) => update(index, { operator: e.target.value as RuleOperator })}
+                  disabled={!writable}
+                  className="text-xs"
+                  aria-label="Operator"
+                >
+                  {OPERATORS.map((operator) => (
+                    <option key={operator} value={operator}>
+                      {operator}
+                    </option>
+                  ))}
+                </Select>
+
+                <div className="flex-1">
+                  <Input
+                    value={
+                      NO_VALUE.has(rule.operator)
+                        ? ''
+                        : typeof rule.value === 'string'
+                          ? rule.value
+                          : JSON.stringify(rule.value ?? '')
+                    }
+                    onChange={(e) => update(index, { value: e.target.value })}
+                    placeholder={NO_VALUE.has(rule.operator) ? 'not used' : 'RedHat'}
+                    disabled={!writable || NO_VALUE.has(rule.operator)}
+                    // Observed values for this path, when the cardinality is
+                    // low enough to be useful.
+                    list={match?.values === undefined ? undefined : `fact-values-${id}-${index}`}
+                    className="w-full font-mono text-xs"
+                    aria-label="Value"
+                  />
+                  {match?.values !== undefined && (
+                    <datalist id={`fact-values-${id}-${index}`}>
+                      {match.values.map((value) => (
+                        <option key={String(value)} value={String(value)} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  type="button"
+                  disabled={!writable}
+                  onClick={() => setRules((current) => current.filter((_, i) => i !== index))}
+                  aria-label="Remove rule"
+                >
+                  <Trash2 aria-hidden />
+                </Button>
+              </div>
+
+              {/* A typo silently never matches, which is the worst outcome —
+                  the group simply classifies nothing and nobody is told. */}
+              {unknown && (
+                <p className="pl-1 text-[11px] text-state-pending">
+                  No projected node has “{rule.factPath}”. This rule can never match. Check the
+                  spelling, or add the fact to PUPPETDB_PROJECTED_FACTS and re-run the projection.
+                </p>
+              )}
+
+              {match !== undefined && (
+                <p className="pl-1 text-[11px] text-ink-faint">
+                  on {match.nodeCount} node{match.nodeCount === 1 ? '' : 's'} · e.g.{' '}
+                  <code className="font-mono">
+                    {JSON.stringify(match.sampleValue).slice(0, 60)}
+                  </code>
+                </p>
+              )}
+            </div>
+          );
+        })}
+
+        {/* One shared list for every rule row. Options carry the sample value
+            as the label, so a path can be chosen on what it holds rather than
+            on remembering its name. */}
+        <datalist id={`fact-paths-${id}`}>
+          {(factPaths.data?.paths ?? []).map((entry) => (
+            <option key={entry.path} value={entry.path}>
+              {`${JSON.stringify(entry.sampleValue).slice(0, 40)} — ${entry.nodeCount} node${entry.nodeCount === 1 ? '' : 's'}`}
+            </option>
+          ))}
+        </datalist>
 
         <div className="flex gap-2">
           <Button

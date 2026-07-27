@@ -61,6 +61,34 @@ export const addPinsSchema = z.object({
 });
 export type AddPins = z.infer<typeof addPinsSchema>;
 
+/**
+ * A fact path a rule can actually match on, discovered from the ManagedNode
+ * projection.
+ *
+ * Sourced from the PROJECTION, not from PuppetDB's full fact set, because that
+ * is the only thing rule evaluation reads. A path absent here can never match,
+ * so offering PuppetDB's complete fact list would actively mislead — it would
+ * suggest paths that are guaranteed to fail (ADR-0004).
+ */
+export interface FactPathSuggestion {
+  /** Dotted path, e.g. `os.family`. */
+  path: string;
+  /** How many projected nodes carry this path — coverage, so a rule author can
+   *  see that a fact exists on 3 of 1,000 nodes before matching on it. */
+  nodeCount: number;
+  /** One observed value, for orientation. */
+  sampleValue: unknown;
+  /** Distinct observed values, when the cardinality is low enough to be a
+   *  useful picker. Absent for high-cardinality paths like IP addresses. */
+  values?: unknown[];
+}
+
+export interface FactPathIndex {
+  paths: FactPathSuggestion[];
+  /** Nodes scanned to build this. Zero means the projection is empty. */
+  nodesScanned: number;
+}
+
 export interface NodeGroupSummary {
   id: string;
   name: string;

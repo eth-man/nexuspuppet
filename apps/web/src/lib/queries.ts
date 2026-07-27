@@ -3,6 +3,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type {
   DeploymentCapabilities,
+  FactPathIndex,
   NodeClassificationExplanation,
   NodeGroupDetail,
   Page,
@@ -160,6 +161,20 @@ export function useNodeGroup(id: string): UseQueryResult<NodeGroupDetail> {
   return useQuery({
     queryKey: ['node-group', id],
     queryFn: ({ signal }) => api.get<NodeGroupDetail>(`/node-groups/${id}`, signal),
+  });
+}
+
+/**
+ * Fact paths a rule can match on.
+ *
+ * Cached hard: it changes only when the projection refreshes, and a type-ahead
+ * must not refetch on every keystroke.
+ */
+export function useFactPaths(): UseQueryResult<FactPathIndex> {
+  return useQuery({
+    queryKey: ['fact-paths'],
+    queryFn: ({ signal }) => api.get<FactPathIndex>('/fact-paths', signal),
+    staleTime: 120_000,
   });
 }
 

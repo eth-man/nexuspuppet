@@ -15,6 +15,7 @@ import type {
   UpdateNodeGroup,
   NodeClassificationExplanation,
   ClassificationConflict,
+  FactPathIndex,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -141,6 +142,62 @@ export class ClassificationService {
       factsAsOf: node?.projectedAt.toISOString() ?? null,
       pending: queued > 0,
     };
+  }
+
+  /**
+   * Fact paths a rule can match on, with coverage and low-cardinality values.
+   *
+   * Built from the ManagedNode PROJECTION rather than PuppetDB, because the
+   * projection is the only thing rule evaluation reads. Suggesting a path that
+   * is not projected would offer the author a rule guaranteed never to match
+   * (ADR-0004).
+   */
+  async listFactPaths(): Promise<FactPathIndex> {
+    // The projected subset is small by construction (an allow-list), so
+    // scanning it is cheap. Bounded anyway so an unexpectedly large estate
+    // cannot turn a type-ahead into a table scan.
+    const nodes = await this.prisma.managedNode.findMany({
+      select: { facts: true },
+      take: MAX_NODES_FOR_FACT_INDEX,
+    });
+
+    const index = new Map<string, { count: number; values: Set<string>; sample: unknown }>();
+
+    for (const node of nodes) {
+      for (const [path, value] of flattenFacts(node.facts as Record<string, unknown>)) {
+        const entry = index.get(path) ?? { count: 0, values: new Set<string>(), sample: value };
+        entry.count += 1;
+
+        // Value suggestions are for LEAVES only. A container's value is a whole
+        // object, and RuleEvaluator's comparison never equates an object with a
+        // scalar — offering `os` = {…} would suggest a rule that cannot match.
+        //
+        // Collection also stops once a path is clearly high-cardinality: an IP
+        // or a hostname is not a useful picker, and the set would grow unbounded.
+        const isContainer = value !== null && typeof value === 'object' && !Array.isArray(value);
+        if (!isContainer && entry.values.size <= MAX_DISTINCT_VALUES) {
+          entry.values.add(JSON.stringify(value));
+        }
+        index.set(path, entry);
+      }
+    }
+
+    const paths = [...index.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([path, entry]) => ({
+        path,
+        nodeCount: entry.count,
+        sampleValue: entry.sample,
+        ...(entry.values.size > 0 && entry.values.size <= MAX_DISTINCT_VALUES
+          ? {
+              values: [...entry.values]
+                .map((raw) => JSON.parse(raw) as unknown)
+                .sort((a, b) => String(a).localeCompare(String(b))),
+            }
+          : {}),
+      }));
+
+    return { paths, nodesScanned: nodes.length };
   }
 
   // -------------------------------------------------------------------------
@@ -609,6 +666,44 @@ export class ClassificationService {
   ): ClassificationWriteResult {
     return { group, materializationQueued: queued, warnings };
   }
+}
+
+const MAX_NODES_FOR_FACT_INDEX = 2000;
+
+/**
+ * Above this, a path is treated as high-cardinality and no value list is
+ * offered — a dropdown of 1,000 IP addresses is noise, not help.
+ */
+const MAX_DISTINCT_VALUES = 25;
+
+/**
+ * Flatten facts to dotted paths, matching how RuleEvaluator resolves them.
+ *
+ * Arrays are leaves, exactly as in the evaluator: `processors.models` is
+ * matched as a whole value, never by index.
+ */
+function flattenFacts(
+  value: unknown,
+  prefix = '',
+  out: Array<[string, unknown]> = [],
+): Array<[string, unknown]> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    if (prefix !== '') out.push([prefix, value]);
+    return out;
+  }
+
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    const path = prefix === '' ? key : `${prefix}.${key}`;
+    const isContainer = nested !== null && typeof nested === 'object' && !Array.isArray(nested);
+
+    flattenFacts(nested, path, out);
+
+    // A container is matchable in its own right — EXISTS on `os` is a valid
+    // rule. Only containers are pushed here: the recursive call has already
+    // emitted leaves, and pushing them again would double their node count.
+    if (isContainer) out.push([path, nested]);
+  }
+  return out;
 }
 
 export interface AuditContext {
