@@ -37,7 +37,7 @@ export const envSchema = z.object({
   /** Allow-list of facts projected into ManagedNode for rule evaluation. */
   PUPPETDB_PROJECTED_FACTS: z
     .string()
-    .default('os,networking,processors,memory,virtual,is_virtual,fqdn,domain,kernel')
+    .default('os,networking,processors,memory,virtual,is_virtual,fqdn,domain,kernel,role')
     .transform((raw) =>
       raw
         .split(',')
