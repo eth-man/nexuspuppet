@@ -1,0 +1,56 @@
+# Local development dependencies only — no application containers.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Use this while working on the code: `npm run start:dev` and `prisma migrate
+# dev` run on the host against these services. The full-stack docker-compose.yml
+# is for deployment and builds the api/web images, which you do not want in the
+# edit-run loop.
+#
+# Differences from docker-compose.yml that matter:
+#   - Postgres publishes 5432 to the host, so host-side Prisma can reach it.
+#   - No secrets required. The password below is a development default and is
+#     deliberately not read from the environment, so this file always works.
+
+name: nexuspuppet-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: nexuspuppet-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexuspuppet
+      POSTGRES_PASSWORD: nexuspuppet
+      POSTGRES_DB: nexuspuppet
+      # Deterministic collation so index ordering matches production.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    ports:
+      # Host-published on purpose: `prisma migrate dev` runs on the host.
+      # Override with DEV_DB_PORT if 5432 is already taken locally.
+      - '${DEV_DB_PORT:-5432}:5432'
+    volumes:
+      - dev-db-data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` alone reports ready during init; the SELECT confirms the
+      # database actually accepts queries, which is what migrations need.
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U nexuspuppet -d nexuspuppet && psql -U nexuspuppet -d nexuspuppet -c "SELECT 1" > /dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Optional: uncomment for a UI over the dev database.
+  # adminer:
+  #   image: adminer:latest
+  #   ports: ['8080:8080']
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+
+volumes:
+  dev-db-data:

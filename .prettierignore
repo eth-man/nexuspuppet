@@ -6,3 +6,4 @@ package-lock.json
 packages/enterprise
 *.md
 apps/api/src/generated
+apps/web/next-env.d.ts

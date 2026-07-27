@@ -11,11 +11,15 @@ COPY apps/api/package.json apps/api/
 RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/api --include-workspace-root
 
 FROM deps AS build
+# Prisma 7 resolves DATABASE_URL through prisma.config.ts even for `generate`,
+# which never contacts a database. A dummy value is correct at build time; the
+# real connection string is injected at runtime.
+ENV DATABASE_URL=postgresql://build:build@localhost:5432/unused
 COPY tsconfig.base.json ./
 COPY packages/contracts packages/contracts
 COPY apps/api apps/api
 RUN npm run build --workspace @nexuspuppet/contracts \
- && npx prisma generate --schema apps/api/prisma/schema.prisma \
+ && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
 FROM node:22-alpine AS runtime
