@@ -156,6 +156,13 @@ export function useNodeGroups(): UseQueryResult<NodeGroupDetail[]> {
   });
 }
 
+export function useNodeGroup(id: string): UseQueryResult<NodeGroupDetail> {
+  return useQuery({
+    queryKey: ['node-group', id],
+    queryFn: ({ signal }) => api.get<NodeGroupDetail>(`/node-groups/${id}`, signal),
+  });
+}
+
 export function useCapabilities(): UseQueryResult<DeploymentCapabilities> {
   return useQuery({
     queryKey: ['capabilities'],

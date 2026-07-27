@@ -6,10 +6,11 @@ classification.
 
 Apache-2.0. Open core — the entire product below is in this repository.
 
-> **Status: backend complete, UI pending.** Architecture, contracts, schema,
-> the classification engine, materializer, PuppetDB client and projector, and
-> authentication are implemented and tested end to end. The web console screens
-> are not yet built.
+> **Status: feature-complete against the intake, pending real infrastructure.**
+> Architecture, contracts, schema, the classification engine, materializer,
+> PuppetDB client and projector, authentication, and the web console are
+> implemented and tested end to end against synthetic fixtures. Not yet run
+> against a real Puppet estate — see [`fixtures/README.md`](fixtures/README.md).
 
 ## The defining property
 
