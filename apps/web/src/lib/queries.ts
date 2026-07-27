@@ -1,0 +1,165 @@
+'use client';
+
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import type {
+  DeploymentCapabilities,
+  NodeClassificationExplanation,
+  NodeGroupDetail,
+  Page,
+  PuppetNode,
+  PuppetReport,
+  ReportSummary,
+  ResourceEvent,
+} from '@nexuspuppet/contracts';
+import { api } from './client';
+
+/**
+ * Typed query hooks.
+ *
+ * Query keys mirror the URL shape so a mutation can invalidate exactly the
+ * views it affects rather than blowing away the whole cache — on a dense
+ * console that would visibly blank several panels at once.
+ */
+
+export interface NodeQuery {
+  certnameContains?: string;
+  environments?: string[];
+  statuses?: string[];
+  includeInactive?: boolean;
+  limit: number;
+  offset: number;
+  orderBy?: string;
+  order?: 'asc' | 'desc';
+}
+
+function toSearch(query: NodeQuery): string {
+  const params = new URLSearchParams();
+  params.set('limit', String(query.limit));
+  params.set('offset', String(query.offset));
+
+  if (query.certnameContains !== undefined && query.certnameContains !== '') {
+    params.set('certnameContains', query.certnameContains);
+  }
+  if (query.environments !== undefined && query.environments.length > 0) {
+    params.set('environments', query.environments.join(','));
+  }
+  if (query.statuses !== undefined && query.statuses.length > 0) {
+    params.set('statuses', query.statuses.join(','));
+  }
+  if (query.includeInactive === true) params.set('includeInactive', 'true');
+  if (query.orderBy !== undefined) params.set('orderBy', query.orderBy);
+  if (query.order !== undefined) params.set('order', query.order);
+
+  return params.toString();
+}
+
+export function useNodes(query: NodeQuery): UseQueryResult<Page<PuppetNode>> {
+  return useQuery({
+    queryKey: ['nodes', query],
+    queryFn: ({ signal }) => api.get<Page<PuppetNode>>(`/nodes?${toSearch(query)}`, signal),
+    // Keeping the previous page visible while the next loads stops a dense
+    // table from collapsing to a spinner on every keystroke or page change.
+    placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * A count for one status, used by the dashboard tiles.
+ *
+ * The API returns a total alongside every page, so a limit of 1 is the cheapest
+ * possible count — there is no dedicated counts endpoint and inventing one for
+ * four tiles would not earn its keep.
+ */
+export function useNodeCount(statuses: string[] | undefined, label: string) {
+  return useQuery({
+    queryKey: ['node-count', label],
+    queryFn: async ({ signal }) => {
+      const page = await api.get<Page<PuppetNode>>(
+        `/nodes?${toSearch({ limit: 1, offset: 0, ...(statuses === undefined ? {} : { statuses }) })}`,
+        signal,
+      );
+      return page.total;
+    },
+  });
+}
+
+export function useNode(certname: string): UseQueryResult<PuppetNode> {
+  return useQuery({
+    queryKey: ['node', certname],
+    queryFn: ({ signal }) => api.get<PuppetNode>(`/nodes/${encodeURIComponent(certname)}`, signal),
+  });
+}
+
+export function useNodeFacts(certname: string): UseQueryResult<Record<string, unknown>> {
+  return useQuery({
+    queryKey: ['node-facts', certname],
+    queryFn: ({ signal }) =>
+      api.get<Record<string, unknown>>(`/nodes/${encodeURIComponent(certname)}/facts`, signal),
+  });
+}
+
+export function useNodeClassification(
+  certname: string,
+): UseQueryResult<NodeClassificationExplanation> {
+  return useQuery({
+    queryKey: ['node-classification', certname],
+    queryFn: ({ signal }) =>
+      api.get<NodeClassificationExplanation>(
+        `/nodes/${encodeURIComponent(certname)}/classification`,
+        signal,
+      ),
+    // Classification is served from local state and keeps working during a
+    // PuppetDB outage, so it must not be cached against the inventory's
+    // freshness assumptions.
+    staleTime: 5_000,
+  });
+}
+
+export function useNodeReports(certname: string, limit = 20): UseQueryResult<Page<PuppetReport>> {
+  return useQuery({
+    queryKey: ['node-reports', certname, limit],
+    queryFn: ({ signal }) =>
+      api.get<Page<PuppetReport>>(
+        `/nodes/${encodeURIComponent(certname)}/reports?limit=${limit}&offset=0`,
+        signal,
+      ),
+  });
+}
+
+export interface ReportDetail {
+  report: PuppetReport;
+  summary: ReportSummary | null;
+  events: ResourceEvent[];
+}
+
+export function useReport(hash: string): UseQueryResult<ReportDetail> {
+  return useQuery({
+    queryKey: ['report', hash],
+    queryFn: ({ signal }) => api.get<ReportDetail>(`/reports/${encodeURIComponent(hash)}`, signal),
+    // A report is immutable once written.
+    staleTime: Infinity,
+  });
+}
+
+export function useEnvironments(): UseQueryResult<string[]> {
+  return useQuery({
+    queryKey: ['environments'],
+    queryFn: ({ signal }) => api.get<string[]>('/environments', signal),
+    staleTime: 300_000,
+  });
+}
+
+export function useNodeGroups(): UseQueryResult<NodeGroupDetail[]> {
+  return useQuery({
+    queryKey: ['node-groups'],
+    queryFn: ({ signal }) => api.get<NodeGroupDetail[]>('/node-groups', signal),
+  });
+}
+
+export function useCapabilities(): UseQueryResult<DeploymentCapabilities> {
+  return useQuery({
+    queryKey: ['capabilities'],
+    queryFn: ({ signal }) => api.get<DeploymentCapabilities>('/capabilities', signal),
+    staleTime: Infinity,
+  });
+}

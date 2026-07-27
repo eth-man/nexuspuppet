@@ -264,7 +264,9 @@ const factset = [
 // ---------------------------------------------------------------------------
 
 function report({ certname, status, startOffset, durationSeconds, events, logs }) {
-  const hash = sha1(`${certname}:${status}:${startOffset}`);
+  // Reuse the hash the node list advertises as latest_report_hash, so the
+  // inventory's report link actually resolves to this report.
+  const hash = sha1(`${certname}:report`);
   return [
     {
       hash,
@@ -331,7 +333,12 @@ function report({ certname, status, startOffset, durationSeconds, events, logs }
   ];
 }
 
-const successCertname = `web01.${DOMAIN}`;
+// Chosen FROM the generated node list. Naming a certname that the estate does
+// not contain makes the fixture set internally inconsistent: a report would
+// reference a node the inventory has never heard of.
+const successCertname =
+  nodes.find((n) => n.latest_report_status !== 'failed' && !n.deactivated)?.certname ??
+  nodes[0].certname;
 const successEvents = [
   {
     status: 'success',
@@ -368,7 +375,8 @@ const successEvents = [
   },
 ];
 
-const failureCertname = `db03.${DOMAIN}`;
+const failureCertname =
+  nodes.find((n) => n.latest_report_status === 'failed')?.certname ?? nodes[1].certname;
 const failureEvents = [
   {
     status: 'failure',

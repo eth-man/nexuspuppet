@@ -1,11 +1,11 @@
 [
   {
-    "hash": "813df9b65c09176dcf31dec5cc7262b2cf5f1345",
-    "certname": "web01.example.com",
+    "hash": "b930c3ab065cdd09177234b3fde577596b3bf856",
+    "certname": "db01.example.com",
     "puppet_version": "8.10.0",
     "report_format": 12,
-    "transaction_uuid": "6bd43984-e764-579a-74a7-2709a31c8a5e",
-    "catalog_uuid": "d54adb37-4dcd-fbca-adfe-6d28582f4e84",
+    "transaction_uuid": "20792e7b-a6d6-2546-ef5f-371496ab40f2",
+    "catalog_uuid": "9a36230e-864f-3e3d-069b-00149cad9aaa",
     "code_id": null,
     "job_id": null,
     "cached_catalog_status": "not_used",
@@ -21,7 +21,7 @@
     "receive_time": "2026-07-27T08:30:14.000Z",
     "configuration_version": "1753001800",
     "resource_events": {
-      "href": "/pdb/query/v4/reports/813df9b65c09176dcf31dec5cc7262b2cf5f1345/events",
+      "href": "/pdb/query/v4/reports/b930c3ab065cdd09177234b3fde577596b3bf856/events",
       "data": [
         {
           "status": "success",
@@ -58,7 +58,7 @@
       ]
     },
     "metrics": {
-      "href": "/pdb/query/v4/reports/813df9b65c09176dcf31dec5cc7262b2cf5f1345/metrics",
+      "href": "/pdb/query/v4/reports/b930c3ab065cdd09177234b3fde577596b3bf856/metrics",
       "data": [
         {
           "category": "time",
@@ -118,7 +118,7 @@
       ]
     },
     "logs": {
-      "href": "/pdb/query/v4/reports/813df9b65c09176dcf31dec5cc7262b2cf5f1345/logs",
+      "href": "/pdb/query/v4/reports/b930c3ab065cdd09177234b3fde577596b3bf856/logs",
       "data": [
         {
           "file": null,

@@ -122,14 +122,27 @@ describe('mapReport', () => {
 
   it('maps the successful report', () => {
     expect(success.status).toBe('changed');
-    expect(success.certname).toBe('web01.example.com');
     expect(success.noop).toBe(false);
     expect(success.puppetVersion).toBe('8.10.0');
   });
 
   it('maps the failed report', () => {
     expect(failure.status).toBe('failed');
-    expect(failure.certname).toBe('db03.example.com');
+  });
+
+  // Asserting the certname LITERAL would only restate the fixture. What matters
+  // is that the fixture set is internally coherent: a report must belong to a
+  // node the inventory actually contains, or anything cross-referencing them
+  // lands on a node that is not there.
+  it('references nodes that exist in the inventory fixture', () => {
+    const estate = new Map(nodes.map((n) => [String(n['certname']), n]));
+
+    for (const report of [success, failure]) {
+      expect(estate.has(report.certname)).toBe(true);
+      // And the node's advertised latest_report_hash resolves to this report,
+      // so the inventory's "view report" link works.
+      expect(estate.get(report.certname)?.['latest_report_hash']).toBe(report.hash);
+    }
   });
 
   // PuppetDB carries no duration field. Deriving it is the mapper's job.
