@@ -288,9 +288,15 @@ function NodeRow({ node }: { node: PuppetNode }) {
   // operators to ignore the marker where it matters.
   const stale = node.isActive && isStale(node.reportTimestamp);
 
+  // Dim decommissioned rows so the live estate reads first — but per CELL, not
+  // on the row. Opacity on the row would dim the status badge with everything
+  // else, and status colour is the column this table is scanned for. The
+  // badge stays at full strength.
+  const dim = node.isActive ? undefined : 'opacity-45';
+
   return (
     <TR>
-      <TD className="font-mono text-xs">
+      <TD className={cn('font-mono text-xs', dim)}>
         <Link href={`/nodes/${encodeURIComponent(node.certname)}`} className="link-entity">
           {node.certname}
         </Link>
@@ -303,18 +309,18 @@ function NodeRow({ node }: { node: PuppetNode }) {
       <TD>
         <StateBadge state={node.latestReportStatus} />
       </TD>
-      <TD className="text-xs text-ink-muted">{node.environment ?? '—'}</TD>
+      <TD className={cn('text-xs text-ink-muted', dim)}>{node.environment ?? '—'}</TD>
       <TD
-        className={cn('text-xs tabular-nums', stale ? 'text-state-pending' : 'text-ink-muted')}
+        className={cn('text-xs tabular-nums', stale ? 'text-state-pending' : 'text-ink-muted', dim)}
         title={absolute(node.reportTimestamp)}
       >
         {relativeAge(node.reportTimestamp)}
         {stale && <span className="ml-1 text-[10px] uppercase">stale</span>}
       </TD>
-      <TD className="text-xs text-ink-faint" title={absolute(node.factsTimestamp)}>
+      <TD className={cn('text-xs text-ink-faint', dim)} title={absolute(node.factsTimestamp)}>
         {relativeAge(node.factsTimestamp)}
       </TD>
-      <TD className="text-right">
+      <TD className={cn('text-right', dim)}>
         {node.latestReportHash === null ? (
           <span className="text-xs text-ink-faint">—</span>
         ) : (
