@@ -777,7 +777,7 @@ function PinsSection({ id, detail, writable, onWrite, onError }: SectionProps) {
             <li key={certname} className="flex items-center gap-2 px-3 py-1">
               <Link
                 href={`/nodes/${encodeURIComponent(certname)}`}
-                className="min-w-0 flex-1 truncate font-mono text-xs hover:text-accent"
+                className="link-entity min-w-0 flex-1 truncate font-mono text-xs"
               >
                 {certname}
               </Link>

@@ -78,4 +78,28 @@ body {
     overflow-x: auto;
     max-width: 100%;
   }
+
+  /**
+   * An entity name that navigates — a certname, a group, a report hash.
+   *
+   * Needs a REST-STATE affordance. Hover-only discovery means an operator has
+   * to sweep the pointer across a dense table to learn what is clickable, which
+   * in a 50-row inventory is genuinely tedious.
+   *
+   * Underline rather than colour, deliberately: blue is the "Changed" status,
+   * and a vocabulary where blue means both "changed" and "link" stops meaning
+   * either. The dotted rest state is quiet enough not to stripe a full table.
+   */
+  .link-entity {
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--color-line);
+    text-underline-offset: 3px;
+  }
+
+  .link-entity:hover {
+    color: var(--color-accent);
+    text-decoration-style: solid;
+    text-decoration-color: var(--color-accent);
+  }
 }

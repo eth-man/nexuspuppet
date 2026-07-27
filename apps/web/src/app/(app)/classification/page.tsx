@@ -152,7 +152,7 @@ export default function ClassificationPage() {
                 <TR key={group.id}>
                   <TD className="font-mono text-xs tabular-nums text-ink-faint">{group.rank}</TD>
                   <TD className="text-xs">
-                    <Link href={`/classification/${group.id}`} className="hover:text-accent">
+                    <Link href={`/classification/${group.id}`} className="link-entity">
                       {group.name}
                     </Link>
                     {!group.isEnabled && (

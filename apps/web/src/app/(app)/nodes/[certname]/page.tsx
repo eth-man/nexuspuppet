@@ -301,7 +301,7 @@ function RunsTab({ certname }: { certname: string }) {
             <TD className="text-right">
               <Link
                 href={`/reports/${report.hash}`}
-                className="font-mono text-xs text-ink-muted hover:text-accent"
+                className="link-entity font-mono text-xs text-ink-muted"
                 title={report.hash}
               >
                 {shortHash(report.hash)}

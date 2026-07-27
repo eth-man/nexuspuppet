@@ -101,7 +101,7 @@ export default function ReportsPage() {
                   <TD className="font-mono text-xs">
                     <Link
                       href={`/nodes/${encodeURIComponent(node.certname)}`}
-                      className="hover:text-accent"
+                      className="link-entity"
                     >
                       {node.certname}
                     </Link>
@@ -125,7 +125,7 @@ export default function ReportsPage() {
                     ) : (
                       <Link
                         href={`/reports/${node.latestReportHash}`}
-                        className="font-mono text-xs text-ink-muted hover:text-accent"
+                        className="link-entity font-mono text-xs text-ink-muted"
                         title={node.latestReportHash}
                       >
                         {shortHash(node.latestReportHash)}

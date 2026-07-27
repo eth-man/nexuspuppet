@@ -80,7 +80,7 @@ export default function DashboardPage() {
                   <TD className="font-mono text-xs">
                     <Link
                       href={`/nodes/${encodeURIComponent(node.certname)}`}
-                      className="hover:text-accent"
+                      className="link-entity"
                     >
                       {node.certname}
                     </Link>
@@ -104,7 +104,7 @@ export default function DashboardPage() {
                     ) : (
                       <Link
                         href={`/reports/${node.latestReportHash}`}
-                        className="text-xs text-ink-muted hover:text-accent"
+                        className="link-entity text-xs text-ink-muted"
                       >
                         view
                       </Link>

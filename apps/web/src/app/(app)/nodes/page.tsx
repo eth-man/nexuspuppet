@@ -287,7 +287,7 @@ function NodeRow({ node }: { node: PuppetNode }) {
   return (
     <TR>
       <TD className="font-mono text-xs">
-        <Link href={`/nodes/${encodeURIComponent(node.certname)}`} className="hover:text-accent">
+        <Link href={`/nodes/${encodeURIComponent(node.certname)}`} className="link-entity">
           {node.certname}
         </Link>
         {!node.isActive && (
@@ -316,7 +316,7 @@ function NodeRow({ node }: { node: PuppetNode }) {
         ) : (
           <Link
             href={`/reports/${node.latestReportHash}`}
-            className="font-mono text-xs text-ink-muted hover:text-accent"
+            className="link-entity font-mono text-xs text-ink-muted"
           >
             view
           </Link>
