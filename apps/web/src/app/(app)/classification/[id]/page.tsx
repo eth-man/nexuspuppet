@@ -340,6 +340,11 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
 
   const known = new Map((factPaths.data?.paths ?? []).map((entry) => [entry.path, entry]));
 
+  // Rules save as a set, so "changed" is a property of the whole list. Without
+  // this the button invites a pointless write that would queue a full reconcile
+  // across the estate for no change at all.
+  const dirty = JSON.stringify(rules) !== JSON.stringify(detail.rules);
+
   return (
     <Card>
       <CardHeader>
@@ -486,7 +491,7 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
             variant="primary"
             size="sm"
             type="button"
-            disabled={!writable || replace.isPending}
+            disabled={!writable || !dirty || replace.isPending}
             onClick={() =>
               replace.mutate(
                 {

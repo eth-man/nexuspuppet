@@ -265,7 +265,13 @@ function SortableTH({
       <button
         type="button"
         onClick={() => onSort(column)}
-        className={cn('inline-flex items-center gap-1 hover:text-ink', active && 'text-ink')}
+        // `uppercase` is repeated here rather than inherited from TH: the
+        // button resets text-transform, which left sortable headers title-case
+        // beside uppercase static ones.
+        className={cn(
+          'inline-flex items-center gap-1 uppercase tracking-wide hover:text-ink',
+          active && 'text-ink',
+        )}
         aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
       >
         {label}
