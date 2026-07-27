@@ -82,6 +82,9 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_ci?schema=public
+      # `migrate diff --from-migrations` requires a separate database that
+      # Prisma may drop and recreate. It must already exist.
+      SHADOW_DATABASE_URL: postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_shadow?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

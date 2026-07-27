@@ -48,11 +48,16 @@ npm test
 
 Requires Node ≥ 22.12. Postgres is needed only once you run migrations.
 
+Start the development database, then migrate:
+
 ```bash
-npm run db:generate           # after any schema.prisma change
-npm run db:migrate            # local development
-docker compose up -d          # full stack
+docker compose -f docker-compose.dev.yml up -d   # Postgres only, port 5432
+npm run db:generate                              # after any schema.prisma change
+npm run db:migrate                               # apply migrations locally
 ```
+
+`docker-compose.yml` is the full stack and builds both app images — use it for
+deployment, not for the edit-run loop.
 
 ## Connecting it to Puppet
 
