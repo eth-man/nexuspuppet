@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useNodes } from '@/lib/queries';
-import { absolute, isStale, relativeAge, shortHash } from '@/lib/format';
+import { absolute, ago, isStale, shortHash } from '@/lib/format';
 import { StateBadge } from '@/components/ui/badge';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError } from '@/components/states';
@@ -117,7 +117,7 @@ export default function ReportsPage() {
                     )}
                     title={absolute(node.reportTimestamp)}
                   >
-                    {relativeAge(node.reportTimestamp)} ago
+                    {ago(node.reportTimestamp)}
                   </TD>
                   <TD className="text-right">
                     {node.latestReportHash === null ? (

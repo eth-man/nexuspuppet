@@ -7,7 +7,7 @@ import { useUsers } from '@/lib/queries';
 import { useCreateUser, useDeactivateUser, useUpdateUser } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
-import { absolute, relativeAge } from '@/lib/format';
+import { absolute, ago } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
@@ -129,7 +129,7 @@ export function UsersPanel() {
                     className="text-xs tabular-nums text-ink-muted"
                     title={absolute(user.lastLoginAt)}
                   >
-                    {user.lastLoginAt === null ? 'never' : `${relativeAge(user.lastLoginAt)} ago`}
+                    {user.lastLoginAt === null ? 'never' : `${ago(user.lastLoginAt)}`}
                   </TD>
                   <TD className="text-right">
                     {user.isActive ? (

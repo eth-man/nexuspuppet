@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import type { ResourceEvent } from '@nexuspuppet/contracts';
 import { useReport } from '@/lib/queries';
-import { absolute, duration, relativeAge, shortHash } from '@/lib/format';
+import { absolute, ago, duration, shortHash } from '@/lib/format';
 import { eventState, stateStyle } from '@/lib/status';
 import { cn } from '@/lib/utils';
 import { Badge, StateBadge } from '@/components/ui/badge';
@@ -61,11 +61,7 @@ export default function ReportPage({ params }: { params: Promise<{ hash: string 
         </div>
 
         <dl className="mt-1.5 flex flex-wrap gap-x-5 gap-y-0.5 text-xs">
-          <Field
-            label="Started"
-            value={`${relativeAge(report.startTime)} ago`}
-            title={absolute(report.startTime)}
-          />
+          <Field label="Started" value={ago(report.startTime)} title={absolute(report.startTime)} />
           <Field label="Duration" value={duration(report.durationSeconds)} />
           <Field label="Puppet" value={report.puppetVersion ?? '—'} />
           <Field label="Config version" value={report.configurationVersion ?? '—'} />

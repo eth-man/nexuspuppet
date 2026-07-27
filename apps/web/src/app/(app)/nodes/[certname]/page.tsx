@@ -4,7 +4,7 @@ import { use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Layers } from 'lucide-react';
 import { useNode, useNodeClassification, useNodeFacts, useNodeReports } from '@/lib/queries';
-import { absolute, duration, relativeAge, shortHash } from '@/lib/format';
+import { absolute, ago, duration, relativeAge, shortHash } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Badge, StateBadge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -196,11 +196,11 @@ function ClassificationTab({ certname }: { certname: string }) {
                 </dd>
                 <dt className="text-ink-faint">Written</dt>
                 <dd className="text-ink" title={absolute(materialization.writtenAt)}>
-                  {relativeAge(materialization.writtenAt)} ago
+                  {ago(materialization.writtenAt)}
                 </dd>
                 <dt className="text-ink-faint">Facts as of</dt>
                 <dd className="text-ink" title={absolute(factsAsOf)}>
-                  {relativeAge(factsAsOf)} ago
+                  {ago(factsAsOf)}
                 </dd>
               </dl>
             )}
@@ -289,7 +289,7 @@ function RunsTab({ certname }: { certname: string }) {
               <StateBadge state={report.noop ? 'noop' : report.status} />
             </TD>
             <TD className="text-xs tabular-nums text-ink-muted" title={absolute(report.startTime)}>
-              {relativeAge(report.startTime)} ago
+              {ago(report.startTime)}
             </TD>
             <TD className="text-xs tabular-nums text-ink-muted">
               {duration(report.durationSeconds)}

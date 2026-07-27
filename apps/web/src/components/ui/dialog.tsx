@@ -48,7 +48,10 @@ export function Dialog({
         if (event.target === ref.current) onClose();
       }}
       className={cn(
-        'w-[min(40rem,calc(100vw-2rem))] rounded border border-line bg-panel p-0 text-ink',
+        // `m-auto` is load-bearing. A modal <dialog> is centred by the browser's
+        // default `margin: auto`, which Tailwind's preflight resets to 0 — so
+        // without this the modal renders pinned to the top-left corner.
+        'm-auto w-[min(40rem,calc(100vw-2rem))] rounded border border-line bg-panel p-0 text-ink',
         'backdrop:bg-black/60',
         className,
       )}

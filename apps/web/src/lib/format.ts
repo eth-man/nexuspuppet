@@ -14,11 +14,27 @@ export function relativeAge(iso: string | null | undefined): string {
   if (Number.isNaN(then)) return '—';
 
   const seconds = Math.floor((Date.now() - then) / 1000);
-  if (seconds < 0) return 'just now';
+  // "0s ago" is technically accurate and reads like a bug.
+  if (seconds < 10) return 'just now';
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86400)}d`;
+}
+
+/**
+ * A complete phrase, for prose contexts.
+ *
+ * Separate from relativeAge because callers were appending " ago" to its
+ * output, which produced "just now ago" the moment the bare form gained a
+ * phrase. A value that is sometimes a duration and sometimes a sentence cannot
+ * be safely concatenated, so the two forms are now distinct functions.
+ */
+export function ago(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined) return 'never';
+  const age = relativeAge(iso);
+  if (age === '—') return 'never';
+  return age === 'just now' ? age : `${age} ago`;
 }
 
 export function absolute(iso: string | null | undefined): string {
