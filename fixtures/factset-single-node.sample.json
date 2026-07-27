@@ -1,0 +1,194 @@
+[
+  {
+    "certname": "db01.example.com",
+    "environment": "production",
+    "timestamp": "2026-07-27T08:55:00.000Z",
+    "producer_timestamp": "2026-07-27T08:54:58.000Z",
+    "producer": "puppetserver01.example.com",
+    "hash": "1668e131ccc0d2ac4cb4ba19faeeca0cfbcf9f02",
+    "facts": {
+      "href": "/pdb/query/v4/factsets/db01.example.com/facts",
+      "data": [
+        {
+          "name": "aio_agent_version",
+          "value": "8.10.0"
+        },
+        {
+          "name": "architecture",
+          "value": "x86_64"
+        },
+        {
+          "name": "clientcert",
+          "value": "db01.example.com"
+        },
+        {
+          "name": "clientversion",
+          "value": "8.10.0"
+        },
+        {
+          "name": "domain",
+          "value": "example.com"
+        },
+        {
+          "name": "fqdn",
+          "value": "db01.example.com"
+        },
+        {
+          "name": "hostname",
+          "value": "db01"
+        },
+        {
+          "name": "is_virtual",
+          "value": true
+        },
+        {
+          "name": "kernel",
+          "value": "Linux"
+        },
+        {
+          "name": "kernelmajversion",
+          "value": "5.14"
+        },
+        {
+          "name": "kernelrelease",
+          "value": "5.14.0-427.40.1.el9_4.x86_64"
+        },
+        {
+          "name": "kernelversion",
+          "value": "5.14.0"
+        },
+        {
+          "name": "memory",
+          "value": {
+            "system": {
+              "available": "12.04 GiB",
+              "available_bytes": 12928204800,
+              "capacity": "24.75%",
+              "total": "15.61 GiB",
+              "total_bytes": 16763875328,
+              "used": "3.86 GiB",
+              "used_bytes": 4148412416
+            },
+            "swap": {
+              "available": "4.00 GiB",
+              "available_bytes": 4294967296,
+              "capacity": "0.00%",
+              "total": "4.00 GiB",
+              "total_bytes": 4294967296,
+              "used": "0 bytes",
+              "used_bytes": 0
+            }
+          }
+        },
+        {
+          "name": "networking",
+          "value": {
+            "domain": "example.com",
+            "fqdn": "db01.example.com",
+            "hostname": "db01",
+            "interfaces": {
+              "eth0": {
+                "bindings": [
+                  {
+                    "address": "10.20.30.41",
+                    "netmask": "255.255.255.0",
+                    "network": "10.20.30.0"
+                  }
+                ],
+                "ip": "10.20.30.41",
+                "mac": "52:54:00:1a:2b:3c",
+                "mtu": 1500,
+                "netmask": "255.255.255.0",
+                "network": "10.20.30.0"
+              },
+              "lo": {
+                "bindings": [
+                  {
+                    "address": "127.0.0.1",
+                    "netmask": "255.0.0.0",
+                    "network": "127.0.0.0"
+                  }
+                ],
+                "ip": "127.0.0.1",
+                "mtu": 65536,
+                "netmask": "255.0.0.0",
+                "network": "127.0.0.0"
+              }
+            },
+            "ip": "10.20.30.41",
+            "mac": "52:54:00:1a:2b:3c",
+            "mtu": 1500,
+            "primary": "eth0"
+          }
+        },
+        {
+          "name": "os",
+          "value": {
+            "architecture": "x86_64",
+            "family": "RedHat",
+            "hardware": "x86_64",
+            "name": "RedHat",
+            "release": {
+              "full": "9.4",
+              "major": "9",
+              "minor": "4"
+            },
+            "selinux": {
+              "config_mode": "enforcing",
+              "enabled": true,
+              "enforced": true
+            }
+          }
+        },
+        {
+          "name": "processors",
+          "value": {
+            "cores": 4,
+            "count": 8,
+            "isa": "x86_64",
+            "models": [
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
+              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz"
+            ],
+            "physicalcount": 1,
+            "threads": 2
+          }
+        },
+        {
+          "name": "puppetversion",
+          "value": "8.10.0"
+        },
+        {
+          "name": "role",
+          "value": "db"
+        },
+        {
+          "name": "timezone",
+          "value": "UTC"
+        },
+        {
+          "name": "virtual",
+          "value": "kvm"
+        },
+        {
+          "name": "selinux_mode",
+          "value": "enforcing"
+        },
+        {
+          "name": "rack_position",
+          "value": "0755"
+        },
+        {
+          "name": "maintenance_window",
+          "value": "yes"
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,206 @@
+[
+  {
+    "hash": "f51c507b132777d29605bcfb9c784f3b417f3452",
+    "certname": "db03.example.com",
+    "puppet_version": "8.10.0",
+    "report_format": 12,
+    "transaction_uuid": "90d53e8d-07b6-1532-9f43-a59f73810a58",
+    "catalog_uuid": "1aab46d9-6373-c092-dc2e-5391864d0ec4",
+    "code_id": null,
+    "job_id": null,
+    "cached_catalog_status": "not_used",
+    "environment": "production",
+    "status": "failed",
+    "noop": false,
+    "noop_pending": false,
+    "corrective_change": null,
+    "start_time": "2026-07-27T08:45:00.000Z",
+    "end_time": "2026-07-27T08:45:47.000Z",
+    "producer_timestamp": "2026-07-27T08:45:48.000Z",
+    "producer": "puppetserver01.example.com",
+    "receive_time": "2026-07-27T08:45:49.000Z",
+    "configuration_version": "1753000900",
+    "resource_events": {
+      "href": "/pdb/query/v4/reports/f51c507b132777d29605bcfb9c784f3b417f3452/events",
+      "data": [
+        {
+          "status": "failure",
+          "timestamp": "2026-07-27T08:45:05.000Z",
+          "resource_type": "Package",
+          "resource_title": "postgresql16-server",
+          "property": "ensure",
+          "name": "ensure",
+          "old_value": "absent",
+          "new_value": "16.4",
+          "message": "Could not update: Execution of '/usr/bin/dnf -d 0 -e 1 -y install postgresql16-server-16.4' returned 1: Error: Unable to find a match: postgresql16-server-16.4",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
+          "line": 18,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Db::Postgres",
+            "Package[postgresql16-server]"
+          ],
+          "containing_class": "Profile::Db::Postgres",
+          "corrective_change": false
+        },
+        {
+          "status": "skipped",
+          "timestamp": "2026-07-27T08:45:06.000Z",
+          "resource_type": "Service",
+          "resource_title": "postgresql-16",
+          "property": null,
+          "name": null,
+          "old_value": null,
+          "new_value": null,
+          "message": null,
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
+          "line": 42,
+          "containment_path": ["Stage[main]", "Profile::Db::Postgres", "Service[postgresql-16]"],
+          "containing_class": "Profile::Db::Postgres",
+          "corrective_change": null
+        },
+        {
+          "status": "skipped",
+          "timestamp": "2026-07-27T08:45:06.000Z",
+          "resource_type": "Exec",
+          "resource_title": "initdb-postgresql-16",
+          "property": null,
+          "name": null,
+          "old_value": null,
+          "new_value": null,
+          "message": null,
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
+          "line": 55,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Db::Postgres",
+            "Exec[initdb-postgresql-16]"
+          ],
+          "containing_class": "Profile::Db::Postgres",
+          "corrective_change": null
+        },
+        {
+          "status": "noop",
+          "timestamp": "2026-07-27T08:45:07.000Z",
+          "resource_type": "File",
+          "resource_title": "/var/lib/pgsql/16/data/postgresql.conf",
+          "property": "content",
+          "name": "content",
+          "old_value": "{md5}0cc175b9c0f1b6a831c399e269772661",
+          "new_value": "{md5}92eb5ffee6ae2fec3ad71c777531578f",
+          "message": "current_value {md5}0cc175b9c0f1b6a831c399e269772661, should be {md5}92eb5ffee6ae2fec3ad71c777531578f (noop)",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
+          "line": 63,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Db::Postgres",
+            "File[/var/lib/pgsql/16/data/postgresql.conf]"
+          ],
+          "containing_class": "Profile::Db::Postgres",
+          "corrective_change": null
+        }
+      ]
+    },
+    "metrics": {
+      "href": "/pdb/query/v4/reports/f51c507b132777d29605bcfb9c784f3b417f3452/metrics",
+      "data": [
+        {
+          "category": "time",
+          "name": "total",
+          "value": 47
+        },
+        {
+          "category": "time",
+          "name": "config_retrieval",
+          "value": 2.14
+        },
+        {
+          "category": "time",
+          "name": "file",
+          "value": 0.31
+        },
+        {
+          "category": "time",
+          "name": "package",
+          "value": 1.02
+        },
+        {
+          "category": "resources",
+          "name": "total",
+          "value": 214
+        },
+        {
+          "category": "resources",
+          "name": "changed",
+          "value": 0
+        },
+        {
+          "category": "resources",
+          "name": "failed",
+          "value": 1
+        },
+        {
+          "category": "resources",
+          "name": "skipped",
+          "value": 2
+        },
+        {
+          "category": "resources",
+          "name": "out_of_sync",
+          "value": 4
+        },
+        {
+          "category": "events",
+          "name": "total",
+          "value": 4
+        },
+        {
+          "category": "changes",
+          "name": "total",
+          "value": 0
+        }
+      ]
+    },
+    "logs": {
+      "href": "/pdb/query/v4/reports/f51c507b132777d29605bcfb9c784f3b417f3452/logs",
+      "data": [
+        {
+          "file": null,
+          "line": null,
+          "level": "info",
+          "message": "Applying configuration version 1753000900",
+          "source": "Puppet",
+          "tags": ["info"],
+          "time": "2026-07-27T08:45:01.000Z"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
+          "line": 18,
+          "level": "err",
+          "message": "Could not update: Execution of '/usr/bin/dnf -d 0 -e 1 -y install postgresql16-server-16.4' returned 1: Error: Unable to find a match: postgresql16-server-16.4",
+          "source": "/Stage[main]/Profile::Db::Postgres/Package[postgresql16-server]/ensure",
+          "tags": ["err", "package", "ensure", "profile::db::postgres"],
+          "time": "2026-07-27T08:45:05.000Z"
+        },
+        {
+          "file": null,
+          "line": null,
+          "level": "notice",
+          "message": "Skipping because of failed dependencies",
+          "source": "/Stage[main]/Profile::Db::Postgres/Service[postgresql-16]",
+          "tags": ["notice", "service", "profile::db::postgres"],
+          "time": "2026-07-27T08:45:06.000Z"
+        },
+        {
+          "file": null,
+          "line": null,
+          "level": "notice",
+          "message": "Applied catalog in 47.21 seconds",
+          "source": "Puppet",
+          "tags": ["notice"],
+          "time": "2026-07-27T08:45:47.000Z"
+        }
+      ]
+    }
+  }
+]

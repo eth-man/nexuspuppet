@@ -1,0 +1,153 @@
+[
+  {
+    "hash": "813df9b65c09176dcf31dec5cc7262b2cf5f1345",
+    "certname": "web01.example.com",
+    "puppet_version": "8.10.0",
+    "report_format": 12,
+    "transaction_uuid": "6bd43984-e764-579a-74a7-2709a31c8a5e",
+    "catalog_uuid": "d54adb37-4dcd-fbca-adfe-6d28582f4e84",
+    "code_id": null,
+    "job_id": null,
+    "cached_catalog_status": "not_used",
+    "environment": "production",
+    "status": "changed",
+    "noop": false,
+    "noop_pending": false,
+    "corrective_change": null,
+    "start_time": "2026-07-27T08:30:00.000Z",
+    "end_time": "2026-07-27T08:30:12.000Z",
+    "producer_timestamp": "2026-07-27T08:30:13.000Z",
+    "producer": "puppetserver01.example.com",
+    "receive_time": "2026-07-27T08:30:14.000Z",
+    "configuration_version": "1753001800",
+    "resource_events": {
+      "href": "/pdb/query/v4/reports/813df9b65c09176dcf31dec5cc7262b2cf5f1345/events",
+      "data": [
+        {
+          "status": "success",
+          "timestamp": "2026-07-27T08:30:05.000Z",
+          "resource_type": "File",
+          "resource_title": "/etc/ntp.conf",
+          "property": "content",
+          "name": "content",
+          "old_value": "{md5}5d41402abc4b2a76b9719d911017c592",
+          "new_value": "{md5}7d793037a0760186574b0282f2f435e7",
+          "message": "content changed '{md5}5d41402abc4b2a76b9719d911017c592' to '{md5}7d793037a0760186574b0282f2f435e7'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ntp.pp",
+          "line": 24,
+          "containment_path": ["Stage[main]", "Profile::Base::Ntp", "File[/etc/ntp.conf]"],
+          "containing_class": "Profile::Base::Ntp",
+          "corrective_change": true
+        },
+        {
+          "status": "success",
+          "timestamp": "2026-07-27T08:30:07.000Z",
+          "resource_type": "Service",
+          "resource_title": "ntpd",
+          "property": "ensure",
+          "name": "ensure",
+          "old_value": "stopped",
+          "new_value": "running",
+          "message": "ensure changed 'stopped' to 'running'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ntp.pp",
+          "line": 31,
+          "containment_path": ["Stage[main]", "Profile::Base::Ntp", "Service[ntpd]"],
+          "containing_class": "Profile::Base::Ntp",
+          "corrective_change": false
+        }
+      ]
+    },
+    "metrics": {
+      "href": "/pdb/query/v4/reports/813df9b65c09176dcf31dec5cc7262b2cf5f1345/metrics",
+      "data": [
+        {
+          "category": "time",
+          "name": "total",
+          "value": 12
+        },
+        {
+          "category": "time",
+          "name": "config_retrieval",
+          "value": 2.14
+        },
+        {
+          "category": "time",
+          "name": "file",
+          "value": 0.31
+        },
+        {
+          "category": "time",
+          "name": "package",
+          "value": 1.02
+        },
+        {
+          "category": "resources",
+          "name": "total",
+          "value": 214
+        },
+        {
+          "category": "resources",
+          "name": "changed",
+          "value": 2
+        },
+        {
+          "category": "resources",
+          "name": "failed",
+          "value": 0
+        },
+        {
+          "category": "resources",
+          "name": "skipped",
+          "value": 0
+        },
+        {
+          "category": "resources",
+          "name": "out_of_sync",
+          "value": 2
+        },
+        {
+          "category": "events",
+          "name": "total",
+          "value": 2
+        },
+        {
+          "category": "changes",
+          "name": "total",
+          "value": 2
+        }
+      ]
+    },
+    "logs": {
+      "href": "/pdb/query/v4/reports/813df9b65c09176dcf31dec5cc7262b2cf5f1345/logs",
+      "data": [
+        {
+          "file": null,
+          "line": null,
+          "level": "info",
+          "message": "Applying configuration version 1753001800",
+          "source": "Puppet",
+          "tags": ["info"],
+          "time": "2026-07-27T08:30:01.000Z"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ntp.pp",
+          "line": 24,
+          "level": "notice",
+          "message": "content changed '{md5}5d41402abc4b2a76b9719d911017c592' to '{md5}7d793037a0760186574b0282f2f435e7'",
+          "source": "/Stage[main]/Profile::Base::Ntp/File[/etc/ntp.conf]/content",
+          "tags": ["notice", "file", "content", "profile::base::ntp"],
+          "time": "2026-07-27T08:30:05.000Z"
+        },
+        {
+          "file": null,
+          "line": null,
+          "level": "notice",
+          "message": "Applied catalog in 12.04 seconds",
+          "source": "Puppet",
+          "tags": ["notice"],
+          "time": "2026-07-27T08:30:12.000Z"
+        }
+      ]
+    }
+  }
+]

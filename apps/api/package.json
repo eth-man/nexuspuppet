@@ -1,7 +1,7 @@
 {
   "name": "@nexuspuppet/api",
   "version": "0.1.0",
-  "description": "NexusPuppet API \u2014 business logic, PuppetDB proxy, ENC materializer",
+  "description": "NexusPuppet API — business logic, PuppetDB proxy, ENC materializer",
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.28",
+    "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.0",
     "@types/pg": "^8.20.0",

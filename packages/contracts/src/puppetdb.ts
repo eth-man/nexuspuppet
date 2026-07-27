@@ -7,25 +7,60 @@ import { z } from 'zod';
  * and none may be added — deactivating nodes or submitting facts is not
  * NexusPuppet's business.
  *
+ * These are DOMAIN types, not wire types. PuppetDB speaks snake_case and
+ * exposes some fields we deliberately reshape (three separate environment
+ * fields; `expired` as a timestamp rather than a flag; no duration on reports).
+ * The client owns that translation so PuppetDB's shape does not leak into our
+ * API or the UI. Wire shapes are documented at each field that differs.
+ *
  * Note the absence of any `query(pql: string)` method taking caller-supplied
  * PQL. The mTLS client certificate is estate-wide, so the API is a confused
  * deputy by construction; callers pass typed filters and the implementation
- * builds parameterised PQL. Raw PQL is an admin-only, audited endpoint that
- * does not route through this interface.
+ * builds a parameterised AST query.
  */
 
-export const nodeStatusSchema = z.enum(['CHANGED', 'UNCHANGED', 'FAILED', 'NORESPONSE', 'UNKNOWN']);
+/**
+ * PuppetDB's `latest_report_status`. Documented values are `changed`,
+ * `unchanged`, and `failed`; older servers have also been observed emitting
+ * `success`. `unknown` is ours, covering null — which is what a deactivated or
+ * never-reported node returns.
+ */
+export const nodeStatusSchema = z.enum(['changed', 'unchanged', 'failed', 'unknown']);
 export type NodeStatus = z.infer<typeof nodeStatusSchema>;
 
 export const puppetNodeSchema = z.object({
   certname: z.string(),
+
+  /**
+   * Effective environment. PuppetDB exposes `report_environment`,
+   * `facts_environment`, and `catalog_environment` separately; they normally
+   * agree, and an inventory table wants one column. Resolution order is
+   * report → facts → catalog. The three raw values are preserved below so a
+   * disagreement — which usually means a half-completed environment move —
+   * remains visible rather than being silently flattened.
+   */
   environment: z.string().nullable(),
-  /** ISO-8601 */
+  reportEnvironment: z.string().nullable(),
+  factsEnvironment: z.string().nullable(),
+  catalogEnvironment: z.string().nullable(),
+
+  /** ISO-8601, or null when the node has never submitted one. */
   reportTimestamp: z.string().nullable(),
   factsTimestamp: z.string().nullable(),
   catalogTimestamp: z.string().nullable(),
+
   latestReportStatus: nodeStatusSchema,
-  expired: z.boolean(),
+  latestReportHash: z.string().nullable(),
+  latestReportNoop: z.boolean(),
+
+  /**
+   * Wire fields `deactivated` and `expired` are TIMESTAMPS OR NULL, not
+   * booleans — a node carries when it was deactivated, not merely that it was.
+   * Preserved as timestamps, with `isActive` derived for the common case.
+   */
+  deactivated: z.string().nullable(),
+  expired: z.string().nullable(),
+  isActive: z.boolean(),
 });
 export type PuppetNode = z.infer<typeof puppetNodeSchema>;
 
@@ -33,8 +68,10 @@ export const nodeFilterSchema = z.object({
   certnameContains: z.string().max(255).optional(),
   environments: z.array(z.string()).optional(),
   statuses: z.array(nodeStatusSchema).optional(),
-  /** Nodes with no report newer than this ISO-8601 instant. */
-  staleBefore: z.string().datetime().optional(),
+  /** Nodes whose last report is older than this ISO-8601 instant. */
+  staleBefore: z.string().optional(),
+  /** Default false: deactivated and expired nodes are hidden unless asked for. */
+  includeInactive: z.boolean().default(false),
 });
 export type NodeFilter = z.infer<typeof nodeFilterSchema>;
 
@@ -43,8 +80,8 @@ export type NodeFilter = z.infer<typeof nodeFilterSchema>;
  * browser in one response (ADR-0008).
  */
 export const pageRequestSchema = z.object({
-  limit: z.number().int().min(1).max(500).default(50),
-  offset: z.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(500).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
   orderBy: z.string().max(64).optional(),
   order: z.enum(['asc', 'desc']).default('asc'),
 });
@@ -57,8 +94,13 @@ export interface Page<T> {
   offset: number;
 }
 
+/** Documented legal values: success, failure, noop, skipped. */
+export const eventStatusSchema = z.enum(['success', 'failure', 'noop', 'skipped']);
+export type EventStatus = z.infer<typeof eventStatusSchema>;
+
 export const resourceEventSchema = z.object({
-  status: z.enum(['success', 'failure', 'noop', 'skipped']),
+  status: eventStatusSchema,
+  timestamp: z.string().nullable(),
   resourceType: z.string(),
   resourceTitle: z.string(),
   property: z.string().nullable(),
@@ -67,6 +109,10 @@ export const resourceEventSchema = z.object({
   message: z.string().nullable(),
   file: z.string().nullable(),
   line: z.number().nullable(),
+  /** e.g. ["Stage[main]", "Profile::Db::Postgres", "Package[postgresql16-server]"] */
+  containmentPath: z.array(z.string()),
+  containingClass: z.string().nullable(),
+  correctiveChange: z.boolean().nullable(),
 });
 export type ResourceEvent = z.infer<typeof resourceEventSchema>;
 
@@ -74,16 +120,36 @@ export const puppetReportSchema = z.object({
   hash: z.string(),
   certname: z.string(),
   environment: z.string().nullable(),
-  status: nodeStatusSchema,
+  status: z.enum(['changed', 'unchanged', 'failed', 'unknown']),
   noop: z.boolean(),
+  noopPending: z.boolean(),
   puppetVersion: z.string().nullable(),
   configurationVersion: z.string().nullable(),
+  transactionUuid: z.string().nullable(),
+  catalogUuid: z.string().nullable(),
+  cachedCatalogStatus: z.string().nullable(),
   startTime: z.string().nullable(),
   endTime: z.string().nullable(),
-  /** Seconds. */
-  duration: z.number().nullable(),
+  receiveTime: z.string().nullable(),
+  /**
+   * DERIVED from start_time/end_time. PuppetDB reports carry no duration field;
+   * the `time`/`total` metric is close but is catalog application time only and
+   * is absent on some report formats.
+   */
+  durationSeconds: z.number().nullable(),
 });
 export type PuppetReport = z.infer<typeof puppetReportSchema>;
+
+/** Resource/event/change counters from a report's `metrics` collection. */
+export const reportSummarySchema = z.object({
+  resourcesTotal: z.number().nullable(),
+  resourcesChanged: z.number().nullable(),
+  resourcesFailed: z.number().nullable(),
+  resourcesSkipped: z.number().nullable(),
+  eventsTotal: z.number().nullable(),
+  timeTotalSeconds: z.number().nullable(),
+});
+export type ReportSummary = z.infer<typeof reportSummarySchema>;
 
 export interface PuppetDbHealth {
   reachable: boolean;
@@ -94,8 +160,9 @@ export interface PuppetDbHealth {
 }
 
 /**
- * Read-only PuppetDB access. All methods may reject with PuppetDbUnavailable;
- * callers must render an explicit degraded state rather than an empty table.
+ * Read-only PuppetDB access. Any method may reject with
+ * PuppetDbUnavailableError; callers must render an explicit degraded state
+ * rather than an empty table.
  */
 export interface IPuppetDbClient {
   health(): Promise<PuppetDbHealth>;
@@ -107,15 +174,22 @@ export interface IPuppetDbClient {
   getReport(hash: string): Promise<PuppetReport | null>;
   /** Resource events for one report — the failure-triage view. */
   getReportEvents(hash: string): Promise<ResourceEvent[]>;
+  getReportSummary(hash: string): Promise<ReportSummary | null>;
   listEnvironments(): Promise<string[]>;
 }
 
 /** Thrown when PuppetDB cannot be reached or returns an error. */
 export class PuppetDbUnavailableError extends Error {
   readonly lastSuccessAt: string | null;
-  constructor(message: string, lastSuccessAt: string | null = null) {
-    super(message);
+  readonly statusCode: number | undefined;
+
+  constructor(
+    message: string,
+    options: { lastSuccessAt?: string | null; statusCode?: number; cause?: unknown } = {},
+  ) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'PuppetDbUnavailableError';
-    this.lastSuccessAt = lastSuccessAt;
+    this.lastSuccessAt = options.lastSuccessAt ?? null;
+    this.statusCode = options.statusCode;
   }
 }

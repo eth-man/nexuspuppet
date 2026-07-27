@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
@@ -20,9 +20,10 @@ async function bootstrap(): Promise<void> {
           : [env.LOG_LEVEL],
   });
 
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-  );
+  // No global ValidationPipe: input is validated per-route by ZodValidationPipe
+  // against the schemas in @nexuspuppet/contracts, so the API accepts exactly
+  // what the shared types promise. Nest's ValidationPipe would require
+  // class-validator and a second, drifting definition of every request shape.
 
   // The web tier is the only intended browser-facing origin; it proxies
   // server-side, so no permissive CORS is required here.
