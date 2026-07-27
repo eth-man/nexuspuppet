@@ -96,10 +96,23 @@ describe('LocalUserDirectory (integration)', () => {
      * deactivated account means belongs to the auth provider — it returns null
      * from resolve() — and a directory that hid the row would also hide it from
      * user administration.
+     *
+     * That only works because the status is REPORTED. A directory that returned
+     * the row while omitting isActive would leave every provider unable to
+     * enforce a deactivation, and `!user.isActive` on an absent field is
+     * `true` — which silently locks out everyone instead.
      */
-    it('still returns a deactivated user, leaving the policy to the caller', async () => {
+    it('still returns a deactivated user, and says that it is deactivated', async () => {
       const user = await seed({ isActive: false });
-      expect(await directory.findById(user.id)).not.toBeNull();
+      const found = await directory.findById(user.id);
+
+      expect(found).not.toBeNull();
+      expect(found?.isActive).toBe(false);
+    });
+
+    it('reports an active account as active', async () => {
+      const user = await seed({ isActive: true });
+      expect((await directory.findById(user.id))?.isActive).toBe(true);
     });
   });
 
@@ -170,5 +183,16 @@ describe('LocalUserDirectory (integration)', () => {
 
   it('reports itself as writable, which an LDAP-backed directory would not', async () => {
     expect(directory.readOnly).toBe(false);
+  });
+
+  it('exposes account status through list() as well', async () => {
+    await seed({ isActive: false });
+    const { users } = await directory.list({ limit: 10, offset: 0 });
+    expect(users[0]?.isActive).toBe(false);
+  });
+
+  it('exposes account status through findByEmail as well', async () => {
+    await seed({ isActive: false });
+    expect((await directory.findByEmail('alice@example.com'))?.isActive).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import type {
   AuthResult,
   AuthenticatedPrincipal,
   Credentials,
+  DirectoryUser,
   IAuthProvider,
   IUserDirectory,
   UserRole,
@@ -96,14 +97,14 @@ export class LocalUserDirectory implements IUserDirectory {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByEmail(email: string): Promise<AuthenticatedPrincipal | null> {
+  async findByEmail(email: string): Promise<DirectoryUser | null> {
     const user = await this.prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
-    return user === null ? null : toPrincipal(user);
+    return user === null ? null : toDirectoryUser(user);
   }
 
-  async findById(userId: string): Promise<AuthenticatedPrincipal | null> {
+  async findById(userId: string): Promise<DirectoryUser | null> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    return user === null ? null : toPrincipal(user);
+    return user === null ? null : toDirectoryUser(user);
   }
 
   /**
@@ -132,7 +133,7 @@ export class LocalUserDirectory implements IUserDirectory {
   }
 
   async list(options: { limit: number; offset: number }): Promise<{
-    users: AuthenticatedPrincipal[];
+    users: DirectoryUser[];
     total: number;
   }> {
     const [rows, total] = await Promise.all([
@@ -144,7 +145,7 @@ export class LocalUserDirectory implements IUserDirectory {
       this.prisma.user.count(),
     ]);
 
-    return { users: rows.map(toPrincipal), total };
+    return { users: rows.map(toDirectoryUser), total };
   }
 }
 
@@ -154,6 +155,18 @@ interface UserRow {
   displayName: string;
   role: string;
   authSource: string;
+}
+
+interface DirectoryRow extends UserRow {
+  isActive: boolean;
+}
+
+/**
+ * The directory view carries account status; the principal deliberately does
+ * not. A provider that cannot see `isActive` cannot enforce a deactivation.
+ */
+function toDirectoryUser(user: DirectoryRow): DirectoryUser {
+  return { ...toPrincipal(user), isActive: user.isActive };
 }
 
 function toPrincipal(user: UserRow): AuthenticatedPrincipal {
