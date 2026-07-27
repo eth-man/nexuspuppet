@@ -101,6 +101,36 @@ export class LocalUserDirectory implements IUserDirectory {
     return user === null ? null : toPrincipal(user);
   }
 
+  async findById(userId: string): Promise<AuthenticatedPrincipal | null> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    return user === null ? null : toPrincipal(user);
+  }
+
+  /**
+   * Cache what an external authority asserted at login.
+   *
+   * Only ever called by a provider that is NOT LocalAuthProvider — a local
+   * password login has no external authority to defer to, and its role is
+   * already the row's own. Writing here for a local login would let a stale
+   * value overwrite an administrator's deliberate change.
+   *
+   * `updatedAt` moves, which is intentional: an operator looking at a user row
+   * should be able to see that the directory last confirmed this role.
+   */
+  async recordLogin(
+    userId: string,
+    update: { role: UserRole; displayName: string },
+  ): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: update.role,
+        displayName: update.displayName,
+        lastLoginAt: new Date(),
+      },
+    });
+  }
+
   async list(options: { limit: number; offset: number }): Promise<{
     users: AuthenticatedPrincipal[];
     total: number;
