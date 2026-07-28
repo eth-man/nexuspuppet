@@ -23,7 +23,7 @@ import {
 import { ClassificationService } from './classification/classification.service';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
 import { NodeProjectionService } from './puppetdb/node-projection.service';
-import { EncFileWriter } from './materialization/enc-file-writer';
+import { PosixEncStorage } from './materialization/posix-enc-storage';
 import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
 import { ReconcilerService } from './materialization/reconciler.service';
@@ -43,6 +43,7 @@ import {
   PrismaAuditSink,
 } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
+import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import type { IAuthProvider, IPuppetDbClient } from '@nexuspuppet/contracts';
 
 /**
@@ -66,8 +67,14 @@ export class AppModule {
     // one would mean the product is incomplete without the enterprise layer.
     const coreDefaults = new Map<CapabilityToken, Provider>([
       [PUPPETDB_CLIENT, puppetDbProvider(env)],
-      [ENC_FILE_WRITER, encWriterProvider()],
-      [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useClass: LocalAuthProvider }],
+      [ENC_FILE_WRITER, encWriterProvider(env)],
+      // useExisting, not useClass: LocalAuthProvider is built by a factory
+      // below so it can receive the lockout policy from config. useClass would
+      // have Nest construct a SECOND instance through DI metadata, which fails
+      // because the policy is a plain object rather than an injectable — and
+      // would silently give the two instances different configuration if it
+      // did not.
+      [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useExisting: LocalAuthProvider }],
       [AUTHORIZATION_POLICY, { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy }],
       [USER_DIRECTORY, { provide: USER_DIRECTORY, useClass: LocalUserDirectory }],
       [AUDIT_SINK, { provide: AUDIT_SINK, useClass: PrismaAuditSink }],
@@ -105,7 +112,15 @@ export class AppModule {
         Reflector,
 
         // --- Auth (ADR-0006) ------------------------------------------------
-        LocalAuthProvider,
+        {
+          provide: LocalAuthProvider,
+          inject: [PrismaService],
+          useFactory: (prisma: PrismaService): LocalAuthProvider =>
+            new LocalAuthProvider(prisma, {
+              maxFailedAttempts: env.LOGIN_MAX_FAILED_ATTEMPTS,
+              lockoutMinutes: env.LOGIN_LOCKOUT_MINUTES,
+            }),
+        },
         LocalUserDirectory,
         UsersService,
         RbacPolicy,
@@ -150,41 +165,42 @@ export class AppModule {
               materialization,
               env.PUPPETDB_PROJECTED_FACTS,
               env.PUPPETDB_PROJECTION_INTERVAL_MS,
+              env.PUPPETDB_POLL_INTERVAL_MS,
+              env.PUPPETDB_POLL_OVERLAP_MS,
             ),
         },
 
         // --- Materialization (ADR-0003) -------------------------------------
         { provide: PrismaService, useFactory: () => new PrismaService(env.DATABASE_URL) },
-        {
-          provide: EncFileWriter,
-          useFactory: async (): Promise<EncFileWriter> => {
-            const writer = new EncFileWriter(env.ENC_OUTPUT_DIR);
-            await writer.ensureLayout();
-            return writer;
-          },
-        },
         MaterializationService,
         ClassificationService,
         {
           provide: MaterializerService,
-          inject: [PrismaService, EncFileWriter],
-          useFactory: (prisma: PrismaService, writer: EncFileWriter): MaterializerService =>
+          inject: [PrismaService, ENC_FILE_WRITER],
+          useFactory: (prisma: PrismaService, writer: IEncFileWriter): MaterializerService =>
             new MaterializerService(
               prisma,
               writer,
               env.ENC_MAX_JOB_ATTEMPTS,
               env.ENC_DEFAULT_ENVIRONMENT,
+              {
+                batchSize: env.ENC_MATERIALIZER_BATCH_SIZE,
+                reconcileChunkSize: env.ENC_MATERIALIZER_RECONCILE_CHUNK,
+                batchDelayMs: env.ENC_MATERIALIZER_BATCH_DELAY_MS,
+                maxDrainMs: env.ENC_MATERIALIZER_MAX_DRAIN_MS,
+                batchTimeoutMs: env.ENC_MATERIALIZER_MAX_DRAIN_MS,
+              },
             ),
         },
         {
           // Starts the drain and reconcile loops on module init, and writes
           // default.yaml before puppetserver can ask for an unknown node.
           provide: ReconcilerService,
-          inject: [PrismaService, MaterializerService, EncFileWriter],
+          inject: [PrismaService, MaterializerService, ENC_FILE_WRITER],
           useFactory: (
             prisma: PrismaService,
             materializer: MaterializerService,
-            writer: EncFileWriter,
+            writer: IEncFileWriter,
           ): ReconcilerService =>
             new ReconcilerService(
               prisma,
@@ -234,14 +250,25 @@ function puppetDbProvider(env: Env): Provider {
 }
 
 /**
- * The contracts token resolves to the SAME instance as the concrete class.
- * Two EncFileWriter instances would mean two owners of the ENC directory,
- * which ADR-0003 explicitly forbids — only one component may write it.
+ * The ONE registration of ENC storage.
+ *
+ * It used to alias the token onto a separately-registered concrete class while
+ * every consumer injected that class — so the token could be overridden and
+ * nothing that writes ENC files would notice. The seam existed and did nothing.
+ * The token is now the only way to obtain storage, which is what makes an
+ * enterprise override (ADR-0002) actually take effect.
+ *
+ * Still exactly one instance: two owners of the ENC directory would break the
+ * content-hash change detection that keeps a no-op from becoming estate-wide
+ * file churn (ADR-0003).
  */
-function encWriterProvider(): Provider {
+function encWriterProvider(env: Env): Provider {
   return {
     provide: ENC_FILE_WRITER,
-    inject: [EncFileWriter],
-    useFactory: (writer: EncFileWriter): EncFileWriter => writer,
+    useFactory: async (): Promise<IEncFileWriter> => {
+      const storage = new PosixEncStorage(env.ENC_OUTPUT_DIR);
+      await storage.ensureLayout();
+      return storage;
+    },
   };
 }

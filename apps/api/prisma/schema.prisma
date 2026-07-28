@@ -46,6 +46,17 @@ model User {
   /// Identifier of the auth provider that owns this account.
   authSource   String   @default("local")
   lastLoginAt  DateTime?
+  /// Consecutive failed password attempts. Reset to zero on success.
+  ///
+  /// Persisted rather than held in memory because an in-memory counter is
+  /// per-replica: an attacker simply spreads attempts across replicas and the
+  /// threshold is never reached on any one of them.
+  failedLoginAttempts Int @default(0)
+  /// Set when the threshold is crossed; the account refuses passwords until it
+  /// passes. Null means not locked. Time-boxed on purpose — a permanent lock
+  /// turns a guessable email address into a denial of service against a real
+  /// person, with no way back that does not involve an administrator.
+  lockedUntil  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -97,6 +108,16 @@ model ManagedNode {
   reportTimestamp DateTime?
   factsTimestamp  DateTime?
   expired         Boolean   @default(false)
+  /// PuppetDB has deactivated this node but has NOT purged it.
+  ///
+  /// Two different states, and only one is permanent: a deactivated node
+  /// returns simply by checking in again. Its classification is therefore
+  /// retained rather than deleted, and PuppetDB's node-purge-ttl remains the
+  /// only signal that a node is genuinely gone. Inventing a second, local
+  /// notion of "gone" would mean two systems disagreeing about node lifecycle.
+  ///
+  /// Retained but not re-materialized: the file stays, the churn does not.
+  deactivated     Boolean   @default(false)
   /// When this row was last refreshed from PuppetDB. Surfaced in the UI as
   /// "facts as of <t>" so operators can see staleness rather than guess at it.
   projectedAt     DateTime  @default(now())
@@ -236,6 +257,17 @@ model NodeGroupParameter {
 // Materialization — the machinery that makes ADR-0003 work
 // ---------------------------------------------------------------------------
 
+/// What a materialization job is asking for.
+///
+/// Explicit rather than inferred from a missing ManagedNode: a node that
+/// re-registers between enqueue and drain would otherwise be silently deleted,
+/// because the absence that justified the job no longer holds by the time it
+/// runs.
+enum EncJobKind {
+  MATERIALIZE
+  DELETE
+}
+
 enum MaterializationStatus {
   PENDING
   IN_PROGRESS
@@ -252,6 +284,8 @@ model EncMaterializationJob {
   id          String                @id @default(uuid()) @db.Uuid
   /// Null means a full reconcile of every node.
   certname    String?               @db.VarChar(255)
+  /// Whether to write this node's file or remove it.
+  kind        EncJobKind            @default(MATERIALIZE)
   /// Collapses redundant work: many edits to one group before the worker runs
   /// should produce one materialization, not N. Upserted on this key.
   dedupeKey   String                @unique
@@ -261,6 +295,16 @@ model EncMaterializationJob {
   lastError   String?
   /// Exponential backoff; the worker ignores jobs until this instant.
   nextAttemptAt DateTime            @default(now())
+  /// How far a full reconcile has progressed: the last certname written.
+  ///
+  /// A full reconcile touches every node in the estate, which at ten thousand
+  /// nodes is ten thousand file writes inside one job. Processing it in
+  /// bounded chunks and re-enqueueing with this cursor keeps each batch — and
+  /// so the advisory lock and its transaction — short regardless of estate
+  /// size, and makes the reconcile resumable rather than all-or-nothing.
+  ///
+  /// Null on a per-node job, and on a full reconcile that has not started.
+  cursor      String?               @db.VarChar(255)
   createdAt   DateTime              @default(now())
   startedAt   DateTime?
   completedAt DateTime?

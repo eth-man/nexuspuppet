@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../generated/prisma/client';
+import { Prisma, PrismaClient } from '../generated/prisma/client';
 
 /**
  * Prisma access (ADR-0005).
@@ -62,7 +62,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    */
   async withAdvisoryLock<T>(
     lockKey: bigint,
-    work: () => Promise<T>,
+    work: (tx: Prisma.TransactionClient) => Promise<T>,
     options: { timeoutMs?: number } = {},
   ): Promise<T | null> {
     // A full reconcile over a large estate can outlast Prisma's 5s default.
@@ -76,7 +76,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
         if (acquired?.locked !== true) return null;
 
-        return work();
+        // The transaction client is HANDED to the work rather than merely held
+
+        // around it. Work that reaches for the top-level client instead runs on a
+
+        // different connection and commits independently — so a rollback here would
+
+        // leave it applied, which for the outbox means claimed jobs vanish while
+
+        // their work is unfinished.
+
+        return work(tx);
       },
       { timeout, maxWait: 5_000 },
     );

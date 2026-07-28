@@ -70,6 +70,15 @@ export const nodeFilterSchema = z.object({
   statuses: z.array(nodeStatusSchema).optional(),
   /** Nodes whose last report is older than this ISO-8601 instant. */
   staleBefore: z.string().optional(),
+  /**
+   * Nodes whose FACTS changed after this ISO-8601 instant.
+   *
+   * Facts, not reports: classification is evaluated against facts, and a node
+   * can report repeatedly without any fact the rules read having changed.
+   * Filtering on report_timestamp instead would return the whole estate on
+   * every agent run and defeat the point.
+   */
+  factsChangedSince: z.string().datetime().optional(),
   /** Default false: deactivated and expired nodes are hidden unless asked for. */
   includeInactive: z.boolean().default(false),
 });

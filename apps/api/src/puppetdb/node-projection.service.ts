@@ -56,6 +56,8 @@ export interface ProjectionResult {
   error: string | null;
 }
 
+const POLL_MAX_NODES = 500;
+
 const PAGE_SIZE = 500;
 
 /**
@@ -70,6 +72,7 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NodeProjectionService.name);
 
   private timer: NodeJS.Timeout | null = null;
+  private pollTimer: NodeJS.Timeout | null = null;
   private running = false;
   private stopping = false;
 
@@ -79,6 +82,24 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
     private readonly materialization: MaterializationService,
     private readonly projectedFacts: readonly string[],
     private readonly intervalMs: number = 300_000,
+    /**
+     * How often to ask PuppetDB for nodes whose facts changed.
+     *
+     * Far more frequent than the full sweep and far cheaper: typically zero
+     * rows, and facts are fetched only for what came back. 0 disables it and
+     * leaves behaviour exactly as it was.
+     */
+    private readonly pollIntervalMs: number = 30_000,
+    /**
+     * How far back to look beyond the watermark.
+     *
+     * PuppetDB's facts_timestamp comes from the agent, so clocks differ and
+     * several nodes can share a boundary second. A strict `>` on the exact
+     * high-water mark silently drops whatever sat on that boundary. Rewriting a
+     * handful of unchanged nodes costs one content hash each and changes
+     * nothing, because materialization is idempotent and hash-gated.
+     */
+    private readonly pollOverlapMs: number = 120_000,
   ) {}
 
   onModuleInit(): void {
@@ -92,6 +113,15 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     this.timer.unref();
 
+    if (this.pollIntervalMs > 0) {
+      this.pollTimer = setInterval(() => void this.pollTick(), this.pollIntervalMs);
+      this.pollTimer.unref();
+      this.logger.log(
+        `Incremental fact poll running every ${this.pollIntervalMs}ms ` +
+          `(${this.pollOverlapMs}ms overlap).`,
+      );
+    }
+
     this.logger.log(
       `Node projection running every ${this.intervalMs}ms for facts: ${this.projectedFacts.join(', ') || '(none)'}`,
     );
@@ -100,6 +130,106 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy(): void {
     this.stopping = true;
     if (this.timer !== null) clearInterval(this.timer);
+    if (this.pollTimer !== null) clearInterval(this.pollTimer);
+  }
+
+  private async pollTick(): Promise<void> {
+    if (this.running || this.stopping) return;
+    try {
+      await this.pollChangedFacts();
+    } catch (error) {
+      // Never fatal. A failed poll costs latency until the next one; the full
+      // sweep remains the backstop.
+      this.logger.warn(
+        `Incremental fact poll failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Refresh only the nodes whose facts changed since the last one we saw.
+   *
+   * The point is latency: a fact change alters group membership with no
+   * classification edit to trigger it, and waiting for the full sweep leaves a
+   * node misclassified for as long as that interval.
+   *
+   * THIS NEVER PRUNES AND NEVER MARKS DEACTIVATION, and that is structural
+   * rather than an oversight. An incremental result is a partial view by
+   * construction, so treating absence from it as absence from PuppetDB would
+   * read every quiet poll as an estate that had vanished. Only the full sweep,
+   * which asks for everything, is entitled to draw conclusions from absence.
+   */
+  async pollChangedFacts(): Promise<{ scanned: number; refreshed: number; since: string | null }> {
+    if (this.running || this.projectedFacts.length === 0) {
+      return { scanned: 0, refreshed: 0, since: null };
+    }
+
+    const since = await this.watermark();
+    if (since === null) {
+      // Nothing projected yet: there is no "since", and asking for everything
+      // here would duplicate the full sweep at poll frequency.
+      return { scanned: 0, refreshed: 0, since: null };
+    }
+
+    const changed = await this.puppetdb.listNodes(
+      // Active only. A deactivated node is not reporting new facts, and the
+      // full sweep owns its lifecycle.
+      { factsChangedSince: since, includeInactive: false },
+      { limit: POLL_MAX_NODES, offset: 0, order: 'asc', orderBy: 'facts_timestamp' },
+    );
+
+    if (changed.items.length === 0) return { scanned: 0, refreshed: 0, since };
+
+    // A burst larger than this is a mass agent run, and fetching facts one node
+    // at a time would be slower than the sweep that is about to happen anyway.
+    if (changed.total > POLL_MAX_NODES) {
+      this.logger.log(
+        `Incremental poll saw ${changed.total} changed nodes, more than the ${POLL_MAX_NODES} ` +
+          'it will handle; the full sweep will cover the remainder.',
+      );
+    }
+
+    let refreshed = 0;
+    for (const node of changed.items) {
+      if (this.stopping) break;
+
+      // Per-node fetch, not the estate-wide fact query the sweep uses: the
+      // whole saving here is not reading facts for nodes that did not change.
+      const facts = pick(await this.puppetdb.getFacts(node.certname), this.projectedFacts);
+      if (await this.upsertNode(node, facts)) refreshed += 1;
+    }
+
+    if (refreshed > 0) {
+      this.logger.log(
+        `Incremental poll: ${refreshed} of ${changed.items.length} node(s) had changed facts and were requeued.`,
+      );
+    }
+
+    return { scanned: changed.items.length, refreshed, since };
+  }
+
+  /**
+   * Where to resume from: the newest facts timestamp already projected, less an
+   * overlap.
+   *
+   * Derived rather than stored. No extra table, correct after a restart, and
+   * consistent across replicas because it comes from the shared row set the
+   * projection already maintains.
+   *
+   * Capped at now(): a single agent with a clock set a year fast would
+   * otherwise push the watermark into the future and starve every other node
+   * from ever being polled again.
+   */
+  private async watermark(): Promise<string | null> {
+    const newest = await this.prisma.managedNode.aggregate({
+      _max: { factsTimestamp: true },
+    });
+
+    const latest = newest._max.factsTimestamp;
+    if (latest === null || latest === undefined) return null;
+
+    const capped = Math.min(latest.getTime(), Date.now());
+    return new Date(capped - this.pollOverlapMs).toISOString();
   }
 
   /** One projection pass, guarded against overlapping with itself. */
@@ -170,9 +300,23 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
     let changed = 0;
 
     for (const node of nodes) {
-      // A deactivated or expired node must not be classified. It is pruned
-      // below rather than projected.
-      if (!node.isActive) continue;
+      // Deactivated nodes ARE retained, contrary to how this once worked.
+      //
+      // Deactivation is reversible — a node returns by checking in again — and
+      // PuppetDB purges for real on node-purge-ttl. Deleting a deactivated
+      // node's classification would invent a second, competing notion of
+      // "gone", and churn a file that is about to be needed again. Its facts
+      // are left as they were: the node is not reporting, so there is nothing
+      // newer to record.
+      if (!node.isActive) {
+        // Only nodes we already knew. A node that was ALREADY deactivated the
+        // first time PuppetDB showed it to us has no classification to retain,
+        // and inventing one would classify a machine that is not reporting —
+        // the churn this design exists to avoid. It is counted only if a row
+        // was actually touched, so the figure means what it says.
+        if (await this.markDeactivated(node.certname)) upserted += 1;
+        continue;
+      }
 
       const projected = pick(facts.get(node.certname) ?? {}, this.projectedFacts);
 
@@ -181,12 +325,14 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
       if (didChange) changed += 1;
     }
 
-    const active = nodes.filter((n) => n.isActive);
-    const pruneDecision = await this.shouldPrune(active.length);
+    // Everything PuppetDB still knows about, active or not. Pruning is about
+    // ABSENCE, not about state: a node listed here has not been purged.
+    const known = nodes.map((n) => n.certname);
+    const pruneDecision = await this.shouldPrune(nodes.length);
 
     let pruned = 0;
     if (pruneDecision.prune) {
-      pruned = await this.prune(active.map((n) => n.certname));
+      pruned = await this.prune(known);
     } else if (pruneDecision.reason !== null) {
       this.logger.warn(`Prune skipped: ${pruneDecision.reason}`);
     }
@@ -243,6 +389,9 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
         },
         update: {
           environment: node.environment,
+          // A node reporting again is no longer deactivated. Without clearing
+          // this, a returned node would stay flagged forever.
+          deactivated: false,
           facts: projected as object,
           latestReportStatus: node.latestReportStatus,
           reportTimestamp: toDate(node.reportTimestamp),
@@ -306,11 +455,54 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
    * removes the orphaned YAML, so a decommissioned node stops being classified
    * rather than keeping its last configuration forever.
    */
-  private async prune(activeCertnames: readonly string[]): Promise<number> {
-    const { count } = await this.prisma.managedNode.deleteMany({
-      where: { certname: { notIn: [...activeCertnames] } },
+  /**
+   * Remove nodes PuppetDB no longer knows about at all, and queue removal of
+   * their ENC files.
+   *
+   * One transaction, because the domain change and its outbox row must not be
+   * separable: a prune committing without its jobs leaves files classifying
+   * nodes that no longer exist, repaired only by the periodic reconcile up to
+   * fifteen minutes later.
+   *
+   * The certnames are read BEFORE the delete — afterwards there is nothing left
+   * to read, and the jobs have to name the nodes whose files they remove.
+   */
+  private async prune(knownCertnames: readonly string[]): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const doomed = await tx.managedNode.findMany({
+        where: { certname: { notIn: [...knownCertnames] } },
+        select: { certname: true },
+      });
+
+      if (doomed.length === 0) return 0;
+
+      const certnames = doomed.map((n) => n.certname);
+
+      await tx.managedNode.deleteMany({ where: { certname: { in: certnames } } });
+      await this.materialization.enqueueNodeDeletions(tx, certnames, 'node-purged');
+
+      this.logger.log(
+        `Purged ${certnames.length} node(s) absent from PuppetDB; ` +
+          'queued their ENC files for removal.',
+      );
+
+      return certnames.length;
     });
-    return count;
+  }
+
+  /**
+   * Record that a node is deactivated, retaining its facts and its file.
+   *
+   * No materialization is queued: nothing about its classification changed, and
+   * re-materializing every deactivated node on every cycle is exactly the churn
+   * this design exists to avoid.
+   */
+  private async markDeactivated(certname: string): Promise<boolean> {
+    const { count } = await this.prisma.managedNode.updateMany({
+      where: { certname },
+      data: { deactivated: true, projectedAt: new Date() },
+    });
+    return count > 0;
   }
 
   /** Page through the whole node list. Throws if any page fails. */

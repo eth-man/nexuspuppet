@@ -28,6 +28,7 @@ const NODE_FIELDS = {
   factsEnvironment: 'facts_environment',
   catalogEnvironment: 'catalog_environment',
   reportTimestamp: 'report_timestamp',
+  factsTimestamp: 'facts_timestamp',
   latestReportStatus: 'latest_report_status',
   deactivated: 'deactivated',
   expired: 'expired',
@@ -118,6 +119,14 @@ export function buildNodeQuery(filter: NodeFilter): PqlAst | null {
       ['<', NODE_FIELDS.reportTimestamp, filter.staleBefore],
       ['null?', NODE_FIELDS.reportTimestamp, true],
     ]);
+  }
+
+  if (filter.factsChangedSince !== undefined && filter.factsChangedSince !== '') {
+    // Strictly greater, and deliberately NOT or-ed with a null check — unlike
+    // staleBefore above. A node that has never submitted facts has nothing to
+    // reclassify against, and including it would return every factless node on
+    // every incremental poll forever.
+    clauses.push(['>', NODE_FIELDS.factsTimestamp, filter.factsChangedSince]);
   }
 
   if (!filter.includeInactive) {

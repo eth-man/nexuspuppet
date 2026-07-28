@@ -5,7 +5,7 @@ import {
   escapeRegex,
   resolveOrderBy,
 } from './pql-builder';
-import type { NodeFilter } from '@nexuspuppet/contracts';
+import { nodeFilterSchema, type NodeFilter } from '@nexuspuppet/contracts';
 
 const filter = (over: Partial<NodeFilter> = {}): NodeFilter => ({
   includeInactive: false,
@@ -184,5 +184,39 @@ describe('buildPagination', () => {
   it('defaults the sort field', () => {
     const p = buildPagination({ limit: 10, offset: 0, order: 'asc' });
     expect(JSON.parse(p.order_by)).toEqual([{ field: 'certname', order: 'asc' }]);
+  });
+});
+
+describe('factsChangedSince', () => {
+  it('emits a strict greater-than on facts_timestamp', () => {
+    const ast = buildNodeQuery(
+      nodeFilterSchema.parse({ factsChangedSince: '2026-07-28T00:00:00.000Z' }),
+    );
+    expect(JSON.stringify(ast)).toContain('[">","facts_timestamp","2026-07-28T00:00:00.000Z"]');
+  });
+
+  /**
+   * Unlike staleBefore, this is NOT or-ed with a null check. A node that has
+   * never submitted facts has nothing to reclassify against, and including it
+   * would return every factless node on every poll, forever.
+   */
+  it('does not include nodes that have never submitted facts', () => {
+    const ast = buildNodeQuery(
+      nodeFilterSchema.parse({ factsChangedSince: '2026-07-28T00:00:00.000Z' }),
+    );
+    // Scoped to this field: includeInactive legitimately emits null? clauses
+    // for deactivated and expired, so asserting on the whole AST would pass or
+    // fail for reasons unrelated to facts.
+    expect(JSON.stringify(ast)).not.toContain('["null?","facts_timestamp"');
+  });
+
+  it('is absent from the query when not asked for', () => {
+    const ast = buildNodeQuery(nodeFilterSchema.parse({}));
+    expect(JSON.stringify(ast ?? null)).not.toContain('facts_timestamp');
+  });
+
+  /** Rule 2: a value never reaches an interpreter as text. */
+  it('rejects a non-timestamp rather than interpolating it', () => {
+    expect(() => nodeFilterSchema.parse({ factsChangedSince: "' or 1=1 --" })).toThrow();
   });
 });

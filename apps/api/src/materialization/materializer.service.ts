@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ClassificationConflict, PuppetValue } from '@nexuspuppet/contracts';
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
-import { EncFileWriter } from './enc-file-writer';
+import type { TransactionClient } from './materialization.service';
+import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import { matchGroups, type EvaluableGroup } from './pure/rule-evaluator';
 import { mergeGroups, type MergeableGroup } from './pure/class-merger';
 import { renderEncDocument, renderDefaultDocument } from './pure/enc-yaml-renderer';
@@ -57,7 +58,36 @@ export interface DrainResult {
   ranHere: boolean;
 }
 
-const MAX_JOBS_PER_TICK = 500;
+/**
+ * How the drain paces itself.
+ *
+ * Defaults are sized for a large estate rather than a fast one: a rule change
+ * across ten thousand nodes should take a visible number of seconds and leave
+ * the disk usable, not arrive as one burst that starves Postgres of the IOPS it
+ * is sharing.
+ */
+export interface MaterializerPacing {
+  /** Jobs claimed per batch, and so per lock acquisition. */
+  batchSize: number;
+  /** Nodes rewritten per chunk of a full reconcile. */
+  reconcileChunkSize: number;
+  /** Pause between batches: yields IOPS, and lets another replica take a turn. */
+  batchDelayMs: number;
+  /** Ceiling on one drain, so a tick cannot outrun its own interval forever. */
+  maxDrainMs: number;
+  /** Transaction timeout for a single batch. */
+  batchTimeoutMs: number;
+}
+
+export const DEFAULT_PACING: MaterializerPacing = {
+  batchSize: 50,
+  reconcileChunkSize: 100,
+  batchDelayMs: 100,
+  maxDrainMs: 30_000,
+  batchTimeoutMs: 30_000,
+};
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 @Injectable()
 export class MaterializerService {
@@ -65,9 +95,10 @@ export class MaterializerService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly writer: EncFileWriter,
+    private readonly writer: IEncFileWriter,
     private readonly maxAttempts: number,
     private readonly defaultEnvironment: string,
+    private readonly pacing: MaterializerPacing = DEFAULT_PACING,
   ) {}
 
   /**
@@ -82,7 +113,8 @@ export class MaterializerService {
 
   /** One drain pass. Safe to call concurrently from several replicas. */
   async drain(): Promise<DrainResult> {
-    const empty: DrainResult = {
+    const deadline = Date.now() + this.pacing.maxDrainMs;
+    const totals: DrainResult = {
       claimed: 0,
       succeeded: 0,
       failed: 0,
@@ -90,20 +122,63 @@ export class MaterializerService {
       ranHere: false,
     };
 
-    const result = await this.prisma.withAdvisoryLock(ADVISORY_LOCKS.ENC_MATERIALIZER, async () =>
-      this.drainLocked(),
-    );
+    // One lock acquisition PER BATCH, not per drain.
+    //
+    // pg_try_advisory_xact_lock makes another replica skip rather than block,
+    // so this was never a deadlock risk. Releasing between batches is what lets
+    // a second replica take the next batch instead of idling, and stops one
+    // transaction being held open across hundreds of fsyncs.
+    for (;;) {
+      if (Date.now() >= deadline) {
+        this.logger.warn(
+          `Materializer drain hit its ${this.pacing.maxDrainMs}ms budget with work outstanding; ` +
+            'the next tick continues where this left off.',
+        );
+        break;
+      }
 
-    return result ?? empty;
+      const batch = await this.prisma.withAdvisoryLock(
+        ADVISORY_LOCKS.ENC_MATERIALIZER,
+        (tx) => this.drainLocked(tx),
+        { timeoutMs: this.pacing.batchTimeoutMs },
+      );
+
+      // null means another replica holds the lock. Yield rather than spin.
+      if (batch === null) break;
+
+      totals.ranHere = true;
+      totals.claimed += batch.claimed;
+      totals.succeeded += batch.succeeded;
+      totals.failed += batch.failed;
+      totals.filesChanged += batch.filesChanged;
+
+      if (batch.claimed === 0) break;
+
+      // Pace the next batch. A rule change over a large estate is thousands of
+      // fsyncs; unpaced they arrive as one burst and the disk — shared with
+      // Postgres — is what suffers.
+      if (this.pacing.batchDelayMs > 0) await delay(this.pacing.batchDelayMs);
+    }
+
+    return totals;
   }
 
-  private async drainLocked(): Promise<DrainResult> {
+  /**
+   * One batch, inside the lock's transaction.
+   *
+   * Everything here reads and writes through `tx`. Reaching for the top-level
+   * client would run on a different connection and commit independently — so a
+   * rollback would leave the claim-by-delete applied and those jobs would be
+   * lost with their work unfinished, which is precisely what the outbox exists
+   * to prevent.
+   */
+  private async drainLocked(tx: TransactionClient): Promise<DrainResult> {
     const now = new Date();
 
-    const jobs = await this.prisma.encMaterializationJob.findMany({
+    const jobs = await tx.encMaterializationJob.findMany({
       where: { status: 'PENDING', nextAttemptAt: { lte: now } },
       orderBy: { createdAt: 'asc' },
-      take: MAX_JOBS_PER_TICK,
+      take: this.pacing.batchSize,
     });
 
     if (jobs.length === 0) {
@@ -111,7 +186,7 @@ export class MaterializerService {
     }
 
     // Take ownership. See CLAIM-BY-DELETE above.
-    await this.prisma.encMaterializationJob.deleteMany({
+    await tx.encMaterializationJob.deleteMany({
       where: { id: { in: jobs.map((j) => j.id) } },
     });
 
@@ -119,22 +194,24 @@ export class MaterializerService {
     let failed = 0;
     let filesChanged = 0;
 
-    // Load classification once per tick rather than per node: at 1,000 nodes a
+    // Load classification once per batch rather than per node: at 1,000 nodes a
     // per-node reload would be 1,000 identical queries.
-    const groups = await this.loadGroups();
+    const groups = await this.loadGroups(tx);
 
     for (const job of jobs) {
       try {
         const outcomes =
-          job.certname === null
-            ? await this.materializeAll(groups)
-            : [await this.materializeNode(job.certname, groups)];
+          job.kind === 'DELETE' && job.certname !== null
+            ? [await this.deleteNode(job.certname, tx)]
+            : job.certname === null
+              ? await this.materializeChunk(tx, job, groups)
+              : [await this.materializeNode(job.certname, groups, tx)];
 
         filesChanged += outcomes.filter((o) => o.changed).length;
         succeeded += 1;
       } catch (error) {
         failed += 1;
-        await this.recordFailure(job.dedupeKey, job.certname, job.reason, job.attempts, error);
+        await this.recordFailure(tx, job.dedupeKey, job.certname, job.reason, job.attempts, error);
       }
     }
 
@@ -154,6 +231,7 @@ export class MaterializerService {
    * The newer request wins — it reflects more recent intent.
    */
   private async recordFailure(
+    tx: TransactionClient,
     dedupeKey: string,
     certname: string | null,
     reason: string,
@@ -173,7 +251,7 @@ export class MaterializerService {
         `(attempt ${attempts}/${this.maxAttempts}): ${message}`,
     );
 
-    await this.prisma.encMaterializationJob.upsert({
+    await tx.encMaterializationJob.upsert({
       where: { dedupeKey },
       create: {
         dedupeKey,
@@ -194,10 +272,20 @@ export class MaterializerService {
   async materializeNode(
     certname: string,
     preloaded?: LoadedGroups,
+    /**
+     * What to read and write through.
+     *
+     * Defaults to the top-level client so callers outside a locked batch — the
+     * reconciler's targeted repairs, tests — keep working unchanged. Inside a
+     * batch the transaction MUST be passed, or the EncMaterialization row
+     * commits independently of the job claim and a rollback leaves the two
+     * disagreeing about what was written.
+     */
+    db: TransactionClient = this.prisma,
   ): Promise<MaterializationOutcome> {
-    const groups = preloaded ?? (await this.loadGroups());
+    const groups = preloaded ?? (await this.loadGroups(db));
 
-    const node = await this.prisma.managedNode.findUnique({ where: { certname } });
+    const node = await db.managedNode.findUnique({ where: { certname } });
 
     // Facts come from the ManagedNode projection, never a live PuppetDB call —
     // otherwise a PuppetDB outage would block classification (ADR-0003/0004).
@@ -211,7 +299,7 @@ export class MaterializerService {
 
     const changed = await this.writer.writeNode(certname, rendered.yaml, rendered.contentHash);
 
-    const existing = await this.prisma.encMaterialization.findUnique({ where: { certname } });
+    const existing = await db.encMaterialization.findUnique({ where: { certname } });
 
     // Only bump the revision when the content actually changed. Incrementing on
     // every pass would make the revision meaningless as a change signal.
@@ -221,7 +309,7 @@ export class MaterializerService {
     // ever checked in has no projection yet; its file is written, but there is
     // nothing to record against until the projector sees it.
     if (node !== null) {
-      await this.prisma.encMaterialization.upsert({
+      await db.encMaterialization.upsert({
         where: { certname },
         create: {
           certname,
@@ -250,14 +338,95 @@ export class MaterializerService {
     };
   }
 
-  /** Recompute every known node. Used by the full-reconcile job. */
-  private async materializeAll(groups: LoadedGroups): Promise<MaterializationOutcome[]> {
-    const nodes = await this.prisma.managedNode.findMany({ select: { certname: true } });
+  /**
+   * Remove a purged node's ENC file and its materialization record.
+   *
+   * Hard deletion, not a tombstone. The ENC script treats a missing node file
+   * as "fall back to default.yaml", which is a defined, safe classification —
+   * whereas a tombstone is indistinguishable to that script from a real
+   * classification, so it would silently override the default and then diverge
+   * from it, while accumulating a file per node that no longer exists.
+   *
+   * Safe to get wrong in one direction only, and it is the harmless one: the
+   * file is derived state, so a node that returns is simply rewritten.
+   */
+  private async deleteNode(
+    certname: string,
+    tx: TransactionClient,
+  ): Promise<MaterializationOutcome> {
+    await this.writer.removeNode(certname);
+
+    // May already be gone via cascade when the ManagedNode row was deleted.
+    await tx.encMaterialization.deleteMany({ where: { certname } });
+
+    this.logger.log(`Removed ENC file for purged node ${certname}.`);
+
+    return {
+      certname,
+      // A removal IS a change to what puppetserver will serve, and counting it
+      // is what makes the drain's "files changed" figure honest.
+      changed: true,
+      contentHash: '',
+      conflicts: [],
+      appliedGroupIds: [],
+    };
+  }
+
+  /**
+   * Advance a full reconcile by one bounded chunk.
+   *
+   * A full reconcile touches every node, which at ten thousand nodes is ten
+   * thousand file writes inside a single job — far longer than any lock or
+   * transaction should be held. Instead it walks the estate in certname order,
+   * writes at most `reconcileChunkSize` nodes, and re-enqueues itself carrying
+   * a cursor when more remain.
+   *
+   * Ordering by certname is what makes the cursor a cursor: a total order that
+   * is stable across chunks, so nothing is skipped or written twice even if
+   * nodes appear or disappear between them.
+   */
+  private async materializeChunk(
+    tx: TransactionClient,
+    job: { dedupeKey: string; reason: string; cursor: string | null },
+    groups: LoadedGroups,
+  ): Promise<MaterializationOutcome[]> {
+    const nodes = await tx.managedNode.findMany({
+      where: job.cursor === null ? {} : { certname: { gt: job.cursor } },
+      select: { certname: true },
+      orderBy: { certname: 'asc' },
+      take: this.pacing.reconcileChunkSize,
+    });
 
     const outcomes: MaterializationOutcome[] = [];
     for (const { certname } of nodes) {
-      outcomes.push(await this.materializeNode(certname, groups));
+      outcomes.push(await this.materializeNode(certname, groups, tx));
     }
+
+    const last = nodes.at(-1)?.certname;
+    const mightHaveMore = nodes.length === this.pacing.reconcileChunkSize && last !== undefined;
+
+    if (mightHaveMore) {
+      // Re-enqueue from where this chunk stopped. Upsert with an empty update
+      // so a NEWER full reconcile queued while this one ran is left alone —
+      // that request starts from the beginning, which is what a fresh request
+      // means.
+      await tx.encMaterializationJob.upsert({
+        where: { dedupeKey: job.dedupeKey },
+        create: {
+          dedupeKey: job.dedupeKey,
+          certname: null,
+          reason: job.reason,
+          cursor: last,
+          // Immediately eligible: pacing between batches is the drain loop's
+          // job, and a backoff here would stall a reconcile that is working.
+          nextAttemptAt: new Date(),
+        },
+        update: {},
+      });
+
+      this.logger.log(`Full reconcile advanced through ${last}; re-queued to continue.`);
+    }
+
     return outcomes;
   }
 
@@ -265,8 +434,8 @@ export class MaterializerService {
    * Load the full classification set and shape it for the pure evaluator and
    * merger. One query set per tick.
    */
-  async loadGroups(): Promise<LoadedGroups> {
-    const rows = await this.prisma.nodeGroup.findMany({
+  async loadGroups(db: TransactionClient = this.prisma): Promise<LoadedGroups> {
+    const rows = await db.nodeGroup.findMany({
       where: { isEnabled: true },
       include: { rules: true, classes: true, parameters: true, pins: true },
     });

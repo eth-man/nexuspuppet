@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
-import { EncFileWriter, assertSafeCertname } from './enc-file-writer';
+import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import { MaterializerService } from './materializer.service';
 
 /**
@@ -41,7 +41,7 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly materializer: MaterializerService,
-    private readonly writer: EncFileWriter,
+    private readonly writer: IEncFileWriter,
     private readonly drainIntervalMs: number,
     private readonly reconcileIntervalMs: number,
   ) {}
@@ -148,8 +148,11 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
       if (knownSet.has(certname)) continue;
 
       try {
-        // Defensive: a file could have been placed here by hand.
-        assertSafeCertname(certname);
+        // Validation belongs to the storage implementation, not here: what is
+        // dangerous depends on the medium. `..` traverses a filesystem; an
+        // object store cares about key shape instead. removeNode rejects an
+        // unsafe identifier itself, and the catch below turns that into a
+        // skipped file rather than a failed sweep.
         await this.writer.removeNode(certname);
         await this.prisma.encMaterialization.delete({ where: { certname } }).catch(() => undefined);
         removed += 1;

@@ -36,6 +36,39 @@ export class MaterializationService {
     });
   }
 
+  /**
+   * Queue removal of a purged node's ENC file.
+   *
+   * A SEPARATE dedupe namespace from enqueueNode. Sharing one would let a
+   * delete and a re-materialize for the same certname collapse into whichever
+   * arrived second — so a node that is purged and then returns could end up
+   * with its file deleted after it was legitimately rewritten.
+   *
+   * Both jobs coexisting is correct and ordered by createdAt: the delete runs,
+   * then the rewrite, and the node ends up classified.
+   */
+  async enqueueNodeDeletion(
+    tx: TransactionClient,
+    certname: string,
+    reason: string,
+  ): Promise<void> {
+    await tx.encMaterializationJob.upsert({
+      where: { dedupeKey: `delete:${certname}` },
+      create: { dedupeKey: `delete:${certname}`, certname, reason, kind: 'DELETE' },
+      update: { status: 'PENDING', nextAttemptAt: new Date(), reason },
+    });
+  }
+
+  async enqueueNodeDeletions(
+    tx: TransactionClient,
+    certnames: readonly string[],
+    reason: string,
+  ): Promise<void> {
+    for (const certname of certnames) {
+      await this.enqueueNodeDeletion(tx, certname, reason);
+    }
+  }
+
   async enqueueNodes(
     tx: TransactionClient,
     certnames: readonly string[],

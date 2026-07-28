@@ -120,12 +120,24 @@ describe('node projection (integration)', () => {
   // -------------------------------------------------------------------------
 
   describe('projecting the fixture estate', () => {
-    it('projects every ACTIVE node', async () => {
+    it('projects the active nodes', async () => {
       const result = await projector.project();
 
       expect(result.ranHere).toBe(true);
       expect(result.nodesSeen).toBe(50);
       expect(result.nodesUpserted).toBe(activeFixtureCount());
+      expect(await prisma.managedNode.count()).toBe(activeFixtureCount());
+    });
+
+    /**
+     * A node already deactivated the first time PuppetDB shows it to us has no
+     * classification to retain. Creating one would classify a machine that is
+     * not reporting — churn for no value. Retention applies to nodes we knew.
+     */
+    it('does not invent rows for nodes that were deactivated before we saw them', async () => {
+      await projector.project();
+
+      expect(await prisma.managedNode.count({ where: { deactivated: true } })).toBe(0);
       expect(await prisma.managedNode.count()).toBe(activeFixtureCount());
     });
 
@@ -324,7 +336,15 @@ describe('node projection (integration)', () => {
       expect(await prisma.managedNode.count()).toBeLessThan(before);
     });
 
-    it('prunes a node once it becomes deactivated', async () => {
+    /**
+     * Deactivation is NOT purging, and this is the behaviour that changed.
+     *
+     * PuppetDB deactivates a node when it stops reporting and purges it only
+     * after node-purge-ttl. A node can return by checking in again, so deleting
+     * its classification on deactivation would churn a file that is about to be
+     * needed and invent a second, competing notion of "gone".
+     */
+    it('retains a node that becomes deactivated, flagging it instead', async () => {
       await projector.project();
 
       const node = puppetdb.nodes.find((n) => n.isActive)!;
@@ -333,9 +353,47 @@ describe('node projection (integration)', () => {
 
       await projector.project();
 
-      expect(
-        await prisma.managedNode.findUnique({ where: { certname: node.certname } }),
-      ).toBeNull();
+      const row = await prisma.managedNode.findUnique({ where: { certname: node.certname } });
+      expect(row).not.toBeNull();
+      expect(row?.deactivated).toBe(true);
+    });
+
+    it('clears the flag when a deactivated node reports again', async () => {
+      const node = puppetdb.nodes.find((n) => n.isActive)!;
+      node.deactivated = new Date().toISOString();
+      node.isActive = false;
+      await projector.project();
+
+      node.deactivated = null;
+      node.isActive = true;
+      await projector.project();
+
+      const row = await prisma.managedNode.findUniqueOrThrow({
+        where: { certname: node.certname },
+      });
+      expect(row.deactivated).toBe(false);
+    });
+
+    /**
+     * Purging IS removal, and it must queue the file for deletion in the same
+     * transaction — otherwise the file keeps classifying a node that no longer
+     * exists until the next periodic reconcile.
+     */
+    it('prunes a node absent from PuppetDB and queues its file for deletion', async () => {
+      await projector.project();
+
+      const victim = puppetdb.nodes[0]!.certname;
+      puppetdb.nodes = puppetdb.nodes.filter((n) => n.certname !== victim);
+
+      await projector.project();
+
+      expect(await prisma.managedNode.findUnique({ where: { certname: victim } })).toBeNull();
+
+      const job = await prisma.encMaterializationJob.findUnique({
+        where: { dedupeKey: `delete:${victim}` },
+      });
+      expect(job?.kind).toBe('DELETE');
+      expect(job?.certname).toBe(victim);
     });
 
     it('does not prune on a first run against an empty cache', async () => {

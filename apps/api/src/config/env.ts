@@ -25,6 +25,27 @@ export const envSchema = z.object({
     .min(32, 'JWT_SECRET must be at least 32 characters. Generate: openssl rand -base64 48'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL: z.string().default('30d'),
+
+  /**
+   * Consecutive failed passwords before a local account is locked (ADR-0006).
+   *
+   * Complements LoginRateLimiter rather than duplicating it: that one is
+   * in-memory, per-replica and per-minute, so it blunts a burst but never
+   * accumulates. This is persistent and per-account, so a slow attack spread
+   * across replicas and hours still trips it.
+   *
+   * 0 disables lockout, for a deployment that would rather accept guessing than
+   * ever risk a real user being locked out.
+   */
+  LOGIN_MAX_FAILED_ATTEMPTS: z.coerce.number().int().min(0).max(100).default(5),
+  /**
+   * How long a locked account refuses passwords.
+   *
+   * Time-boxed deliberately. A permanent lock turns a guessable email address
+   * into a denial of service against a named person, recoverable only by an
+   * administrator — and if that person IS the administrator, by nobody.
+   */
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).optional(),
 
@@ -52,12 +73,51 @@ export const envSchema = z.object({
    */
   PUPPETDB_PROJECTION_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
 
+  /**
+   * How often to ask PuppetDB which nodes' FACTS changed.
+   *
+   * A fact change alters group membership with no classification edit to
+   * trigger it, so without this a node stays misclassified until the next full
+   * sweep. The poll is cheap — usually zero rows, and facts are fetched only
+   * for what comes back — which is what makes running it frequently reasonable.
+   *
+   * OUTBOUND ONLY. Nothing is exposed for puppetserver to call, so a slow or
+   * absent NexusPuppet cannot affect an agent run (ADR-0003). That is why this
+   * is a poll and not a webhook.
+   *
+   * 0 disables it; the full sweep alone then behaves exactly as before.
+   */
+  PUPPETDB_POLL_INTERVAL_MS: z.coerce.number().int().min(0).default(30_000),
+  /**
+   * How far back each poll looks beyond the newest fact timestamp it has seen.
+   *
+   * facts_timestamp comes from the agent, so clocks differ and several nodes
+   * share a boundary second; a strict comparison against the exact high-water
+   * mark drops whatever sat on it. Re-reading a few unchanged nodes costs one
+   * content hash each and writes nothing.
+   */
+  PUPPETDB_POLL_OVERLAP_MS: z.coerce.number().int().min(0).max(3_600_000).default(120_000),
+
   // ADR-0003
   ENC_OUTPUT_DIR: z.string().min(1),
   ENC_DEFAULT_ENVIRONMENT: z.string().default('production'),
   ENC_MATERIALIZER_INTERVAL_MS: durationMs(2_000),
   ENC_RECONCILE_INTERVAL_MS: durationMs(900_000),
   ENC_MAX_JOB_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(5),
+
+  /**
+   * Materializer pacing.
+   *
+   * A single rule change can enqueue work for every node in the estate. Left
+   * unpaced that is thousands of fsyncs in one burst, on a disk shared with
+   * Postgres. These bound how much happens at once and how long the advisory
+   * lock — and its transaction — is held.
+   */
+  ENC_MATERIALIZER_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(50),
+  /** Nodes rewritten per chunk of a full reconcile, which is otherwise one job of unbounded size. */
+  ENC_MATERIALIZER_RECONCILE_CHUNK: z.coerce.number().int().min(1).max(2000).default(100),
+  ENC_MATERIALIZER_BATCH_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(100),
+  ENC_MATERIALIZER_MAX_DRAIN_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
 });
 
 export type Env = z.infer<typeof envSchema>;
