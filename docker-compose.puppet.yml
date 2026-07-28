@@ -1,0 +1,134 @@
+# A real Puppet estate, locally, for commissioning.
+#
+#   sudo ./scripts/dev/puppet-stack.sh
+#
+# Everything else in this repository has only ever talked to a stand-in built
+# from the PuppetDB API documentation. This runs the actual puppetserver,
+# PuppetDB and a real agent, so the data NexusPuppet reads is what Puppet
+# genuinely produces rather than what we believed it produces.
+#
+# The agent is what populates PuppetDB. Hand-writing commands would re-encode
+# the same assumptions the fixtures already encode, and those assumptions are
+# precisely what needs testing.
+#
+# Development only. Not a deployment template — see DEPLOYMENT.md for that.
+
+services:
+  # PuppetDB's storage. Separate from NexusPuppet's own database on 5432.
+  #
+  # PostgreSQL 14, NOT 16, and this is not arbitrary. PuppetDB 7.10 emits SQL
+  # containing a parameter immediately followed by a keyword — `... = $3AND (`
+  # — which PostgreSQL accepted until 16 tightened its parser. On 16 every
+  # store_report fails with `trailing junk after parameter`, the command retries
+  # forever, and because puppet.conf sets soft_write_failure the agent reports
+  # success. The visible symptom is nodes that have facts but no reports, with
+  # nothing wrong in any Puppet log.
+  #
+  # NexusPuppet's own database is unaffected and stays on 16.
+  puppetdb-postgres:
+    image: postgres:14-alpine
+    container_name: nexuspuppet-puppetdb-postgres
+    environment:
+      POSTGRES_USER: puppetdb
+      POSTGRES_PASSWORD: puppetdb
+      POSTGRES_DB: puppetdb
+    volumes:
+      - puppetdb-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U puppetdb']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The Certificate Authority for this estate, and in stage 2 the thing that
+  # will read our ENC output.
+  puppetserver:
+    image: puppet/puppetserver:7.9.2
+    container_name: nexuspuppet-puppetserver
+    hostname: puppet
+    environment:
+      # Names the CA will put in the server certificate. `puppet` is the
+      # default name agents look for.
+      DNS_ALT_NAMES: puppet,puppetserver,localhost,127.0.0.1
+      PUPPETSERVER_HOSTNAME: puppet
+      # puppetserver defaults to a 2GB heap, which is more than this needs and
+      # more than a laptop enjoys giving up.
+      JAVA_ARGS: '-Xms512m -Xmx1g'
+      AUTOSIGN: 'true'
+      # PuppetDB needs alt names — NexusPuppet reaches it as `localhost` from
+      # outside the container network — and Puppet's CA refuses to sign a CSR
+      # carrying them unless this is on, however permissive autosign is.
+      #
+      # It must be set HERE rather than by editing ca.conf: the image's
+      # /docker-entrypoint.d/80-ca.sh rewrites that file from this variable on
+      # every start, so an edit survives exactly until the next restart.
+      CA_ALLOW_SUBJECT_ALT_NAMES: 'true'
+      # Report to PuppetDB, which is what puts run data where NexusPuppet reads.
+      PUPPETDB_SERVER_URLS: https://puppetdb:8081
+    volumes:
+      - puppet-ssl:/etc/puppetlabs/puppet/ssl
+      - puppet-ca:/etc/puppetlabs/puppetserver/ca
+      # Real Puppet code, so the ENC has an actual class to assign. A class that
+      # does not exist fails catalog compilation, which would prove only that
+      # the ENC was consulted — not that its output was usable.
+      - ./scripts/dev/puppet-code:/etc/puppetlabs/code
+      # ADR-0003: the handoff surface. READ-ONLY here; only NexusPuppet writes
+      # it. A second writer breaks the content-hash change detection that keeps
+      # a no-op from becoming estate-wide file churn.
+      - ./enc-output:/etc/puppetlabs/nexuspuppet:ro
+      - ./scripts/nexuspuppet-enc.sh:/usr/local/bin/nexuspuppet-enc.sh:ro
+      # Sets node_terminus on every start; the image re-templates puppet.conf.
+      - ./scripts/dev/puppet-entrypoint/99-nexuspuppet-enc.sh:/docker-entrypoint.d/99-nexuspuppet-enc.sh:ro
+    ports:
+      - '127.0.0.1:8140:8140'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -skf https://localhost:8140/status/v1/simple || exit 1']
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  puppetdb:
+    image: puppet/puppetdb:7.10.0
+    container_name: nexuspuppet-puppetdb
+    hostname: puppetdb
+    depends_on:
+      puppetdb-postgres:
+        condition: service_healthy
+      puppetserver:
+        condition: service_healthy
+    environment:
+      PUPPETDB_POSTGRES_HOSTNAME: puppetdb-postgres
+      PUPPETDB_USER: puppetdb
+      PUPPETDB_PASSWORD: puppetdb
+      PUPPETDB_DATABASE_NAME: puppetdb
+      PUPPETSERVER_HOSTNAME: puppet
+      CERTNAME: puppetdb
+      # localhost must be in the certificate, because NexusPuppet connects from
+      # the host as https://localhost:<port>. A certificate valid only for
+      # `puppetdb` would fail the HOSTNAME check, which looks like a trust
+      # failure but is not — the same trap the LDAP fixture hit.
+      DNS_ALT_NAMES: puppetdb,localhost,127.0.0.1
+      JAVA_ARGS: '-Xms256m -Xmx768m'
+    ports:
+      # 18081, not 8081: the fixture stand-in owns 8081 and having both would
+      # make it ambiguous which one a test actually reached.
+      - '127.0.0.1:18081:8081'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -skf http://localhost:8080/status/v1/services || exit 1']
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 90s
+
+# Named explicitly. Compose otherwise derives it from the directory name, which
+# silently changes if the project is ever renamed — and the agent has to join it
+# by name.
+networks:
+  default:
+    name: nexuspuppet-puppet
+
+volumes:
+  puppetdb-pgdata:
+  puppet-ssl:
+  puppet-ca:

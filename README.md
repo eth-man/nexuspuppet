@@ -6,11 +6,18 @@ classification.
 
 Apache-2.0. Open core — the entire product below is in this repository.
 
-> **Status: feature-complete against the intake, pending real infrastructure.**
+> **Status: verified against a real Puppet estate.**
 > Architecture, contracts, schema, the classification engine, materializer,
 > PuppetDB client and projector, authentication, and the web console are
-> implemented and tested end to end against synthetic fixtures. Not yet run
-> against a real Puppet estate — see [`fixtures/README.md`](fixtures/README.md).
+> implemented and tested. Commissioned against real puppetserver 7.9.2,
+> PuppetDB 7.10.0 and a real agent — the mTLS client, the AST queries, the
+> projection, and the full ENC path from a classification write to an applied
+> catalog all work end to end. Bring the same estate up locally with
+> `sudo ./scripts/dev/puppet-stack.sh`.
+>
+> Not yet exercised at estate scale, and the synthetic fixtures remain
+> approximate — a real node reports ~113 facts where they carry 23. See
+> [`fixtures/README.md`](fixtures/README.md).
 
 ## The defining property
 
