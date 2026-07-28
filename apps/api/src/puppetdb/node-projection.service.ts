@@ -75,6 +75,14 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
   private pollTimer: NodeJS.Timeout | null = null;
   private running = false;
   private stopping = false;
+  /**
+   * Warn once per process about projected facts no node reports.
+   *
+   * Once, not every pass: the projector runs every five minutes, and a
+   * five-minutely warning becomes something operators filter out — which is how
+   * a condition like this stays invisible in the first place.
+   */
+  private warnedAbsentFacts = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -298,6 +306,8 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
 
     let upserted = 0;
     let changed = 0;
+    /** Top-level fact names actually seen, to compare against the allow-list. */
+    const observed = new Set<string>();
 
     for (const node of nodes) {
       // Deactivated nodes ARE retained, contrary to how this once worked.
@@ -319,11 +329,14 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
       }
 
       const projected = pick(facts.get(node.certname) ?? {}, this.projectedFacts);
+      for (const name of Object.keys(projected)) observed.add(name);
 
       const didChange = await this.upsertNode(node, projected);
       upserted += 1;
       if (didChange) changed += 1;
     }
+
+    this.warnAbsentFacts(observed, nodes.length);
 
     // Everything PuppetDB still knows about, active or not. Pruning is about
     // ABSENCE, not about state: a node listed here has not been purged.
@@ -497,6 +510,35 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
    * re-materializing every deactivated node on every cycle is exactly the churn
    * this design exists to avoid.
    */
+  /**
+   * Name the projected facts NO node reports.
+   *
+   * A fact in the allow-list that nothing reports is not merely wasteful: a
+   * classification rule written against it can never match, and nothing
+   * anywhere reports an error. The group just silently classifies nothing.
+   *
+   * This is how that becomes visible. It found three in our own default —
+   * `fqdn`, `domain` and `role` — after Facter 4 dropped the legacy flat facts,
+   * which is why the default no longer contains them.
+   *
+   * Absence is only meaningful against a non-empty estate: with no nodes, every
+   * fact is trivially absent and the warning would be noise during bootstrap.
+   */
+  private warnAbsentFacts(observed: ReadonlySet<string>, nodeCount: number): void {
+    if (this.warnedAbsentFacts || nodeCount === 0 || this.projectedFacts.length === 0) return;
+
+    const absent = this.projectedFacts.filter((name) => !observed.has(name));
+    if (absent.length === 0) return;
+
+    this.warnedAbsentFacts = true;
+    this.logger.warn(
+      `PUPPETDB_PROJECTED_FACTS names ${absent.length} fact(s) that NO node reports: ` +
+        `${absent.join(', ')}. A classification rule on any of them can never match. ` +
+        'Facter 4 nests the old flat facts — fqdn and domain live under `networking` — ' +
+        'so check the path before removing the rule.',
+    );
+  }
+
   private async markDeactivated(certname: string): Promise<boolean> {
     const { count } = await this.prisma.managedNode.updateMany({
       where: { certname },

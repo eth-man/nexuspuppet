@@ -55,10 +55,28 @@ export const envSchema = z.object({
   PUPPETDB_KEY_PATH: z.string().min(1),
   PUPPETDB_CA_PATH: z.string().min(1),
   PUPPETDB_TIMEOUT_MS: durationMs(10_000),
-  /** Allow-list of facts projected into ManagedNode for rule evaluation. */
+  /**
+   * Allow-list of facts projected into ManagedNode for rule evaluation.
+   *
+   * Every name here must be a fact MODERN FACTER ACTUALLY EMITS. A name no node
+   * reports is not inert: a rule written against it can never match, and nothing
+   * reports an error — the group simply classifies nothing, forever.
+   *
+   * `fqdn`, `domain` and `role` were in this default until they were checked
+   * against real estates. Facter 4 dropped the legacy flat facts, so an OpenVox
+   * or Puppet 8 agent reports 31 top-level facts where puppet-agent 7.20 reports
+   * 113: `fqdn` and `domain` now exist ONLY under `networking`, and `role` was
+   * never a Facter fact on either. Nothing is lost by removing them —
+   * `networking.fqdn` and `networking.domain` resolve on both estates, because
+   * `networking` is projected.
+   *
+   * Before adding a name, confirm a real node reports it. `npm run test:puppetdb`
+   * names projected facts the sampled node lacks, and the projector logs any
+   * that no node reports at all.
+   */
   PUPPETDB_PROJECTED_FACTS: z
     .string()
-    .default('os,networking,processors,memory,virtual,is_virtual,fqdn,domain,kernel,role')
+    .default('os,networking,processors,memory,virtual,is_virtual,kernel')
     .transform((raw) =>
       raw
         .split(',')

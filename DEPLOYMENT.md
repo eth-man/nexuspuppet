@@ -187,15 +187,26 @@ reaches production. Do not add one.
 
 **`PUPPETDB_PROJECTED_FACTS` is an allow-list, and a rule referencing a fact
 outside it can never match.** Full fact blobs are unbounded, so only these are
-projected for rule evaluation. Add your estate's own custom facts — `role`,
-`profile`, `tier` and the like are what operators actually write rules against:
+projected for rule evaluation. Add the custom facts *your* estate reports —
+`role`, `profile` and `tier` are what operators typically write rules against,
+but only if a module on your nodes actually supplies them:
 
 ```ini
-PUPPETDB_PROJECTED_FACTS=os,networking,processors,memory,virtual,is_virtual,fqdn,domain,kernel,role,profile,tier
+PUPPETDB_PROJECTED_FACTS=os,networking,processors,memory,virtual,is_virtual,kernel,profile,tier
 ```
 
-The UI warns when a rule names an unprojected path, but only after you have
-written it. Getting this list right up front saves a confusing afternoon.
+**Add only facts your nodes actually report.** A name nothing reports is not
+inert — every rule written against it silently matches nothing, and the group
+looks identical to one whose rules legitimately match nothing. `fqdn`, `domain`
+and `role` were in this default until they were checked against real estates:
+Facter 4 dropped the legacy flat facts, so an OpenVox or Puppet 8 agent reports
+31 top-level facts where puppet-agent 7.20 reports 113. Use `networking.fqdn`
+and `networking.domain`, which resolve on both.
+
+Two things will tell you: the API logs, once per start, any projected fact that
+no node reports; and `npm run test:puppetdb` names them against a sampled node.
+The rule editor also warns when a rule references an unprojected path, but only
+after you have written the rule.
 
 **`API_INTERNAL_URL` is deliberately not `NEXT_PUBLIC_`.** The browser must never
 receive an API address, a database credential, or a certificate. It calls

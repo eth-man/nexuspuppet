@@ -17,6 +17,9 @@ coverage/
 # so the layout is documented without any key ever being committable.
 certs/*
 !certs/README.md
+# The OpenVox estate's client certificate and key. Same rule as certs/:
+# key material never reaches the repository, whatever the estate.
+certs-openvox/
 
 # ADR-0002: the private enterprise layer is fetched by scripts/enterprise.mjs
 # from NEXUSPUPPET_ENTERPRISE_REPO. It is never committed here, and this
