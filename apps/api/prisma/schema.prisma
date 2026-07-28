@@ -272,6 +272,16 @@ model EncMaterializationJob {
   lastError   String?
   /// Exponential backoff; the worker ignores jobs until this instant.
   nextAttemptAt DateTime            @default(now())
+  /// How far a full reconcile has progressed: the last certname written.
+  ///
+  /// A full reconcile touches every node in the estate, which at ten thousand
+  /// nodes is ten thousand file writes inside one job. Processing it in
+  /// bounded chunks and re-enqueueing with this cursor keeps each batch — and
+  /// so the advisory lock and its transaction — short regardless of estate
+  /// size, and makes the reconcile resumable rather than all-or-nothing.
+  ///
+  /// Null on a per-node job, and on a full reconcile that has not started.
+  cursor      String?               @db.VarChar(255)
   createdAt   DateTime              @default(now())
   startedAt   DateTime?
   completedAt DateTime?

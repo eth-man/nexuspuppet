@@ -188,6 +188,13 @@ export class AppModule {
               writer,
               env.ENC_MAX_JOB_ATTEMPTS,
               env.ENC_DEFAULT_ENVIRONMENT,
+              {
+                batchSize: env.ENC_MATERIALIZER_BATCH_SIZE,
+                reconcileChunkSize: env.ENC_MATERIALIZER_RECONCILE_CHUNK,
+                batchDelayMs: env.ENC_MATERIALIZER_BATCH_DELAY_MS,
+                maxDrainMs: env.ENC_MATERIALIZER_MAX_DRAIN_MS,
+                batchTimeoutMs: env.ENC_MATERIALIZER_MAX_DRAIN_MS,
+              },
             ),
         },
         {

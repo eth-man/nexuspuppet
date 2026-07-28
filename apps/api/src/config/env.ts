@@ -79,6 +79,20 @@ export const envSchema = z.object({
   ENC_MATERIALIZER_INTERVAL_MS: durationMs(2_000),
   ENC_RECONCILE_INTERVAL_MS: durationMs(900_000),
   ENC_MAX_JOB_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(5),
+
+  /**
+   * Materializer pacing.
+   *
+   * A single rule change can enqueue work for every node in the estate. Left
+   * unpaced that is thousands of fsyncs in one burst, on a disk shared with
+   * Postgres. These bound how much happens at once and how long the advisory
+   * lock — and its transaction — is held.
+   */
+  ENC_MATERIALIZER_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(50),
+  /** Nodes rewritten per chunk of a full reconcile, which is otherwise one job of unbounded size. */
+  ENC_MATERIALIZER_RECONCILE_CHUNK: z.coerce.number().int().min(1).max(2000).default(100),
+  ENC_MATERIALIZER_BATCH_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(100),
+  ENC_MATERIALIZER_MAX_DRAIN_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
 });
 
 export type Env = z.infer<typeof envSchema>;
