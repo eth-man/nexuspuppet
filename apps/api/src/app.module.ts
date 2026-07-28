@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import {
   AUDIT_SINK,
+  AUDIT_TRANSPORT,
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
   AUTH_PROVIDER,
@@ -30,6 +31,11 @@ import { MaterializationService } from './materialization/materialization.servic
 import { ReconcilerService } from './materialization/reconciler.service';
 import { PrismaService } from './prisma/prisma.service';
 import { AuditDeliveryOutbox } from './auth/audit-delivery.outbox';
+import {
+  AuditDeliveryWorker,
+  DEFAULT_AUDIT_PACING,
+  NoopAuditTransport,
+} from './auth/audit-delivery.worker';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthController } from './auth/auth.controller';
@@ -46,7 +52,12 @@ import {
 } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
-import type { IAuditSink, IAuthProvider, IPuppetDbClient } from '@nexuspuppet/contracts';
+import type {
+  IAuditSink,
+  IAuditTransport,
+  IAuthProvider,
+  IPuppetDbClient,
+} from '@nexuspuppet/contracts';
 
 /**
  * Root module.
@@ -90,6 +101,11 @@ export class AppModule {
       // audit trail.
       [AUDIT_SINK, { provide: AUDIT_SINK, useExisting: CORE_AUDIT_SINK }],
       [LICENSE_SERVICE, { provide: LICENSE_SERVICE, useClass: CoreLicenseService }],
+      // Core forwards audit records nowhere. That is a complete product, not a
+      // gap: the records are in Postgres and queryable. The no-op reports
+      // itself unconfigured so the worker leaves the queue alone rather than
+      // draining records into nothing.
+      [AUDIT_TRANSPORT, { provide: AUDIT_TRANSPORT, useClass: NoopAuditTransport }],
     ]);
 
     // Registered outside coreDefaults: this is not a capability the enterprise
@@ -97,6 +113,18 @@ export class AppModule {
     const coreServices: Provider[] = [
       { provide: CORE_AUDIT_SINK, useClass: PrismaAuditSink },
       AuditDeliveryOutbox,
+      {
+        // Explicit factory: the pacing argument is a plain object, which Nest
+        // would otherwise try to resolve as an injectable dependency.
+        provide: AuditDeliveryWorker,
+        inject: [PrismaService, AuditDeliveryOutbox, AUDIT_TRANSPORT],
+        useFactory: (
+          prisma: PrismaService,
+          outbox: AuditDeliveryOutbox,
+          transport: IAuditTransport,
+        ): AuditDeliveryWorker =>
+          new AuditDeliveryWorker(prisma, outbox, transport, DEFAULT_AUDIT_PACING),
+      },
     ];
 
     const { providers, registry } = CapabilityRegistry.buildProviders(

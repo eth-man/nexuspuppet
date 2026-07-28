@@ -104,4 +104,6 @@ export const ADVISORY_LOCKS = {
   ENC_RECONCILER: 8_442_002n,
   /** Held while projecting PuppetDB into ManagedNode (ADR-0004). */
   NODE_PROJECTION: 8_442_003n,
+  /** Held by the single active audit delivery worker (ADR-0005). */
+  AUDIT_DELIVERY: 8_442_004n,
 } as const;

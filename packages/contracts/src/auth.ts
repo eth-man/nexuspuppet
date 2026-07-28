@@ -299,6 +299,59 @@ export interface IAuditSink {
  */
 export type AuditTransaction = object;
 
+/**
+ * One audit record, flattened for delivery to an external system.
+ *
+ * Deliberately NOT the Prisma row. A transport lives in the enterprise layer,
+ * which has no database access and must not depend on core's schema — so this
+ * carries everything a payload needs and nothing that ties it to storage.
+ * `createdAt` is ISO-8601 rather than a Date for the same reason: it is about
+ * to be serialised.
+ */
+export interface AuditDeliveryEntry {
+  /** Stable identity of the record. A transport SHOULD dedupe on it. */
+  auditLogId: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  before: unknown;
+  after: unknown;
+  ipAddress: string | null;
+  userAgent: string | null;
+  /** ISO-8601. */
+  createdAt: string;
+}
+
+/**
+ * Sends audit records somewhere outside NexusPuppet — syslog, a SIEM, a webhook.
+ *
+ * Called by core's delivery worker OUTSIDE any database transaction, so an
+ * implementation is free to take as long as the network takes (ADR-0005).
+ *
+ * `deliver` MUST throw if the batch was not accepted. A silent failure is the
+ * one outcome that must not happen: the worker treats a return as proof of
+ * delivery and removes the records from the queue.
+ *
+ * Delivery is at-least-once. A worker that dies mid-flight re-sends when the
+ * lease expires, so implementations should be idempotent on `auditLogId`.
+ */
+export interface IAuditTransport {
+  /** Named in logs and on the settings screen, e.g. `syslog` or `webhook`. */
+  readonly name: string;
+  /**
+   * Whether this transport can actually send.
+   *
+   * A transport that is installed but unconfigured — no URL, no credentials —
+   * reports false, and the worker leaves the queue alone rather than draining
+   * records into nothing. Core's default reports false because core forwards
+   * nowhere.
+   */
+  readonly configured: boolean;
+  deliver(entries: readonly AuditDeliveryEntry[]): Promise<void>;
+}
+
 export interface LicenseStatus {
   licensed: boolean;
   /** Capabilities this deployment may use. Core returns an empty set. */

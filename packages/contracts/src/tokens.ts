@@ -29,6 +29,7 @@ const TOKENS = {
   LICENSE_SERVICE: Symbol.for('nexuspuppet.LicenseService'),
   PUPPETDB_CLIENT: Symbol.for('nexuspuppet.PuppetDbClient'),
   ENC_FILE_WRITER: Symbol.for('nexuspuppet.EncFileWriter'),
+  AUDIT_TRANSPORT: Symbol.for('nexuspuppet.AuditTransport'),
 } as const;
 
 export const AUTH_PROVIDER = TOKENS.AUTH_PROVIDER;
@@ -38,6 +39,7 @@ export const AUDIT_SINK = TOKENS.AUDIT_SINK;
 export const LICENSE_SERVICE = TOKENS.LICENSE_SERVICE;
 export const PUPPETDB_CLIENT = TOKENS.PUPPETDB_CLIENT;
 export const ENC_FILE_WRITER = TOKENS.ENC_FILE_WRITER;
+export const AUDIT_TRANSPORT = TOKENS.AUDIT_TRANSPORT;
 
 /**
  * Core's own audit sink, exposed so a replacement can COMPOSE over it.
