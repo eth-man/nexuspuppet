@@ -31,11 +31,11 @@ import { normalizeEmail } from './local-auth.provider';
 export class PrismaAuditSink implements IAuditSink {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(entry: AuditRecord, tx?: AuditTransaction): Promise<void> {
+  async record(entry: AuditRecord, tx?: AuditTransaction): Promise<string> {
     // Narrowed here rather than in the interface: what a transaction IS belongs
     // to this implementation, not to the contract every sink shares.
     const client = (tx as AuditCapableClient | undefined) ?? this.prisma;
-    await client.auditLog.create({
+    const row = await client.auditLog.create({
       data: {
         actorUserId: entry.actorUserId,
         actorEmail: entry.actorEmail,
@@ -53,12 +53,26 @@ export class PrismaAuditSink implements IAuditSink {
         ipAddress: entry.ipAddress ?? null,
         userAgent: entry.userAgent ?? null,
       },
+      select: { id: true },
     });
+    return row.id;
   }
 }
 
+/**
+ * The narrow slice of a Prisma client this sink uses.
+ *
+ * Deliberately structural rather than Prisma's own type: the transaction
+ * arrives through the contract as an opaque handle, and re-deriving Prisma's
+ * full client type here would tie the contract to the ORM.
+ *
+ * `create` is declared to return the id because the interface now returns it —
+ * a composing sink has to be able to reference the record its delegate wrote.
+ */
 export interface AuditCapableClient {
-  auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
+  auditLog: {
+    create(args: { data: Record<string, unknown>; select: { id: true } }): Promise<{ id: string }>;
+  };
 }
 
 /**

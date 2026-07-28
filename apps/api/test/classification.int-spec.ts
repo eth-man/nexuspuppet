@@ -644,7 +644,7 @@ describe('classification writes (integration)', () => {
     class RecordingAuditSink {
       entries: Array<{ action: string; entityType: string; hadTransaction: boolean }> = [];
 
-      async record(entry: AuditRecord, tx?: AuditTransaction): Promise<void> {
+      async record(entry: AuditRecord, tx?: AuditTransaction): Promise<string> {
         this.entries.push({
           action: entry.action,
           entityType: entry.entityType,
@@ -653,6 +653,9 @@ describe('classification writes (integration)', () => {
           // part of the contract rather than an implementation detail.
           hadTransaction: tx !== undefined,
         });
+        // The contract returns the stored record's id so a composing sink can
+        // reference it. This one stores nothing, so a stable stand-in will do.
+        return `recorded-${this.entries.length}`;
       }
     }
 
