@@ -46,6 +46,17 @@ model User {
   /// Identifier of the auth provider that owns this account.
   authSource   String   @default("local")
   lastLoginAt  DateTime?
+  /// Consecutive failed password attempts. Reset to zero on success.
+  ///
+  /// Persisted rather than held in memory because an in-memory counter is
+  /// per-replica: an attacker simply spreads attempts across replicas and the
+  /// threshold is never reached on any one of them.
+  failedLoginAttempts Int @default(0)
+  /// Set when the threshold is crossed; the account refuses passwords until it
+  /// passes. Null means not locked. Time-boxed on purpose — a permanent lock
+  /// turns a guessable email address into a denial of service against a real
+  /// person, with no way back that does not involve an administrator.
+  lockedUntil  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

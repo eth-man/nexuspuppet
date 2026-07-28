@@ -67,7 +67,13 @@ export class AppModule {
     const coreDefaults = new Map<CapabilityToken, Provider>([
       [PUPPETDB_CLIENT, puppetDbProvider(env)],
       [ENC_FILE_WRITER, encWriterProvider()],
-      [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useClass: LocalAuthProvider }],
+      // useExisting, not useClass: LocalAuthProvider is built by a factory
+      // below so it can receive the lockout policy from config. useClass would
+      // have Nest construct a SECOND instance through DI metadata, which fails
+      // because the policy is a plain object rather than an injectable — and
+      // would silently give the two instances different configuration if it
+      // did not.
+      [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useExisting: LocalAuthProvider }],
       [AUTHORIZATION_POLICY, { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy }],
       [USER_DIRECTORY, { provide: USER_DIRECTORY, useClass: LocalUserDirectory }],
       [AUDIT_SINK, { provide: AUDIT_SINK, useClass: PrismaAuditSink }],
@@ -105,7 +111,15 @@ export class AppModule {
         Reflector,
 
         // --- Auth (ADR-0006) ------------------------------------------------
-        LocalAuthProvider,
+        {
+          provide: LocalAuthProvider,
+          inject: [PrismaService],
+          useFactory: (prisma: PrismaService): LocalAuthProvider =>
+            new LocalAuthProvider(prisma, {
+              maxFailedAttempts: env.LOGIN_MAX_FAILED_ATTEMPTS,
+              lockoutMinutes: env.LOGIN_LOCKOUT_MINUTES,
+            }),
+        },
         LocalUserDirectory,
         UsersService,
         RbacPolicy,

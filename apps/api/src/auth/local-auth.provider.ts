@@ -22,6 +22,13 @@ import { hashPassword, needsRehash, verifyPassword } from './password';
  * permissions. Session issuance lives in TokenService and authorization in
  * RbacPolicy, so swapping the provider cannot alter either.
  */
+export interface LockoutPolicy {
+  /** Consecutive failures before locking. 0 disables lockout. */
+  maxFailedAttempts: number;
+  /** How long the lock lasts. */
+  lockoutMinutes: number;
+}
+
 @Injectable()
 export class LocalAuthProvider implements IAuthProvider {
   readonly source = 'local';
@@ -29,7 +36,10 @@ export class LocalAuthProvider implements IAuthProvider {
 
   private readonly logger = new Logger(LocalAuthProvider.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly lockout: LockoutPolicy = { maxFailedAttempts: 5, lockoutMinutes: 15 },
+  ) {}
 
   async authenticate(credentials: Credentials): Promise<AuthResult> {
     const email = normalizeEmail(credentials.email);
@@ -43,8 +53,24 @@ export class LocalAuthProvider implements IAuthProvider {
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
+    // A locked account still pays the full scrypt cost before being refused.
+    //
+    // Skipping the hash here would make a locked account answer in a
+    // millisecond while every other rejection takes ~100ms — turning lockout
+    // itself into the enumeration oracle the dummy-hash path above exists to
+    // prevent. The result is discarded on purpose.
+    if (this.isLocked(user)) {
+      await verifyPassword(credentials.password, user.passwordHash);
+      this.logger.warn(
+        `Rejected a login for ${user.email}: account is locked until ` +
+          `${user.lockedUntil?.toISOString() ?? 'unknown'}.`,
+      );
+      return { ok: false, reason: 'INVALID_CREDENTIALS' };
+    }
+
     const valid = await verifyPassword(credentials.password, user.passwordHash);
     if (!valid) {
+      await this.recordFailure(user);
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
@@ -76,10 +102,76 @@ export class LocalAuthProvider implements IAuthProvider {
 
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        lastLoginAt: new Date(),
+        // Consecutive, not cumulative: one success clears the history. A
+        // counter that only ever climbed would lock out anyone who mistyped
+        // their password five times over a year.
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
     });
 
     return { ok: true, principal: toPrincipal(user) };
+  }
+
+  /**
+   * Whether the account is currently refusing passwords.
+   *
+   * An expired lock counts as unlocked without needing a sweep: the row is
+   * tidied on the next failure or success. A background job to clear them would
+   * be a moving part earning nothing.
+   */
+  private isLocked(user: { lockedUntil: Date | null }, now: Date = new Date()): boolean {
+    return user.lockedUntil !== null && user.lockedUntil > now;
+  }
+
+  /**
+   * Count a failure and lock the account once the threshold is crossed.
+   *
+   * A failure to WRITE this must not turn into a failed login for someone with
+   * the right password, so it is best-effort and logged.
+   */
+  private async recordFailure(user: {
+    id: string;
+    email: string;
+    failedLoginAttempts: number;
+    lockedUntil: Date | null;
+  }): Promise<void> {
+    if (this.lockout.maxFailedAttempts === 0) return;
+
+    // Counted from the stored value rather than incremented blindly, so an
+    // expired lock starts a fresh streak instead of resuming an old one.
+    const attempts = this.isLocked(user) ? user.failedLoginAttempts + 1 : nextAttemptCount(user);
+    const locked = attempts >= this.lockout.maxFailedAttempts;
+
+    try {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: locked ? 0 : attempts,
+          lockedUntil: locked
+            ? new Date(Date.now() + this.lockout.lockoutMinutes * 60_000)
+            : user.lockedUntil,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not record a failed login for ${user.email}: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    if (locked) {
+      // Security-relevant and worth finding in a log. It is NOT told to the
+      // caller: the response stays identical to a wrong password, or lockout
+      // becomes a way to discover which addresses are real.
+      this.logger.warn(
+        `Locked ${user.email} for ${this.lockout.lockoutMinutes} minute(s) after ` +
+          `${this.lockout.maxFailedAttempts} consecutive failed attempts.`,
+      );
+    }
   }
 
   /** Re-resolve on refresh, so a role change or deactivation takes effect. */
@@ -177,6 +269,18 @@ function toPrincipal(user: UserRow): AuthenticatedPrincipal {
     role: user.role as UserRole,
     authSource: user.authSource,
   };
+}
+
+/**
+ * The next value of the consecutive-failure counter.
+ *
+ * Resets to 1 when a previous lock has expired: the streak that produced that
+ * lock is spent, and carrying it forward would lock the account again on the
+ * very next mistake.
+ */
+function nextAttemptCount(user: { failedLoginAttempts: number; lockedUntil: Date | null }): number {
+  const lockExpired = user.lockedUntil !== null && user.lockedUntil <= new Date();
+  return lockExpired ? 1 : user.failedLoginAttempts + 1;
 }
 
 /** Emails are compared case-insensitively; stored lowercase (ADR-0005). */

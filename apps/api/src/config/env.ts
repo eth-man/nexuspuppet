@@ -25,6 +25,27 @@ export const envSchema = z.object({
     .min(32, 'JWT_SECRET must be at least 32 characters. Generate: openssl rand -base64 48'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL: z.string().default('30d'),
+
+  /**
+   * Consecutive failed passwords before a local account is locked (ADR-0006).
+   *
+   * Complements LoginRateLimiter rather than duplicating it: that one is
+   * in-memory, per-replica and per-minute, so it blunts a burst but never
+   * accumulates. This is persistent and per-account, so a slow attack spread
+   * across replicas and hours still trips it.
+   *
+   * 0 disables lockout, for a deployment that would rather accept guessing than
+   * ever risk a real user being locked out.
+   */
+  LOGIN_MAX_FAILED_ATTEMPTS: z.coerce.number().int().min(0).max(100).default(5),
+  /**
+   * How long a locked account refuses passwords.
+   *
+   * Time-boxed deliberately. A permanent lock turns a guessable email address
+   * into a denial of service against a named person, recoverable only by an
+   * administrator — and if that person IS the administrator, by nobody.
+   */
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).optional(),
 
