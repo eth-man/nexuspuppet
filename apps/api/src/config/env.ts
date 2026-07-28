@@ -73,6 +73,31 @@ export const envSchema = z.object({
    */
   PUPPETDB_PROJECTION_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
 
+  /**
+   * How often to ask PuppetDB which nodes' FACTS changed.
+   *
+   * A fact change alters group membership with no classification edit to
+   * trigger it, so without this a node stays misclassified until the next full
+   * sweep. The poll is cheap — usually zero rows, and facts are fetched only
+   * for what comes back — which is what makes running it frequently reasonable.
+   *
+   * OUTBOUND ONLY. Nothing is exposed for puppetserver to call, so a slow or
+   * absent NexusPuppet cannot affect an agent run (ADR-0003). That is why this
+   * is a poll and not a webhook.
+   *
+   * 0 disables it; the full sweep alone then behaves exactly as before.
+   */
+  PUPPETDB_POLL_INTERVAL_MS: z.coerce.number().int().min(0).default(30_000),
+  /**
+   * How far back each poll looks beyond the newest fact timestamp it has seen.
+   *
+   * facts_timestamp comes from the agent, so clocks differ and several nodes
+   * share a boundary second; a strict comparison against the exact high-water
+   * mark drops whatever sat on it. Re-reading a few unchanged nodes costs one
+   * content hash each and writes nothing.
+   */
+  PUPPETDB_POLL_OVERLAP_MS: z.coerce.number().int().min(0).max(3_600_000).default(120_000),
+
   // ADR-0003
   ENC_OUTPUT_DIR: z.string().min(1),
   ENC_DEFAULT_ENVIRONMENT: z.string().default('production'),

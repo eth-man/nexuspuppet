@@ -164,6 +164,8 @@ export class AppModule {
               materialization,
               env.PUPPETDB_PROJECTED_FACTS,
               env.PUPPETDB_PROJECTION_INTERVAL_MS,
+              env.PUPPETDB_POLL_INTERVAL_MS,
+              env.PUPPETDB_POLL_OVERLAP_MS,
             ),
         },
 
