@@ -88,7 +88,30 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <ChangePasswordCard />
+        {/*
+          An externally-authenticated account has no local password, so the
+          change-password form can only ever fail — the API rejects it with
+          "This account does not use a local password." Offering a control that
+          cannot work is worse than offering none; say where the credential
+          actually lives instead.
+        */}
+        {principal?.authSource === 'local' ? (
+          <ChangePasswordCard />
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Password</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-ink-faint">
+                This account is authenticated by{' '}
+                <span className="font-mono text-ink">{principal?.authSource}</span>, so its password
+                is not held here. Change it in your directory; the new one takes effect at your next
+                sign-in.
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Full width: the only panel on this page with substantial content. */}
