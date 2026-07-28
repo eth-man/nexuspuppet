@@ -4,7 +4,7 @@ import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/r
 import type {
   AssignClass,
   ChangePassword,
-  CreateUser,
+  CreateUserInput,
   ManagedUser,
   UpdateUser,
   ClassificationWriteResult,
@@ -190,7 +190,7 @@ function useUserInvalidation() {
   return () => client.invalidateQueries({ queryKey: ['users'] });
 }
 
-export function useCreateUser(): UseMutationResult<ManagedUser, Error, CreateUser> {
+export function useCreateUser(): UseMutationResult<ManagedUser, Error, CreateUserInput> {
   const invalidate = useUserInvalidation();
   return useMutation({
     mutationFn: (input) => api.post<ManagedUser>('/users', input),

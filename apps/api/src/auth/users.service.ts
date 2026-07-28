@@ -2,12 +2,15 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AUTH_PROVIDER } from '@nexuspuppet/contracts';
 import type {
   AuthenticatedPrincipal,
   CreateUser,
+  IAuthProvider,
   ManagedUser,
   UpdateUser,
 } from '@nexuspuppet/contracts';
@@ -34,6 +37,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly audit: PrismaAuditSink,
     private readonly tokens: TokenService,
+    @Inject(AUTH_PROVIDER) private readonly authProvider: IAuthProvider,
   ) {}
 
   async list(): Promise<ManagedUser[]> {
@@ -47,10 +51,27 @@ export class UsersService {
     context: AuditContext,
   ): Promise<ManagedUser> {
     const email = normalizeEmail(input.email);
+    const authSource = input.authSource;
+
+    // An account whose authSource no configured provider answers to can never
+    // be authenticated. Creating one silently is how an operator ends up with a
+    // user list full of accounts that cannot log in, with no error to explain
+    // it. 'local' stays allowed regardless: dropping back to the core edition
+    // must not orphan the accounts created before it.
+    if (authSource !== 'local' && authSource !== this.authProvider.source) {
+      throw new BadRequestException(
+        `No configured provider authenticates "${authSource}". This deployment uses ` +
+          `"${this.authProvider.source}". Use that, or "local" for a password account.`,
+      );
+    }
 
     // Hashed outside the transaction: scrypt takes ~100ms by design, and
     // holding a transaction open for it would pin a connection needlessly.
-    const passwordHash = await hashPassword(input.password);
+    //
+    // An external account gets NO hash. The schema already rejects a password
+    // here; this is the second half of the same rule — the directory must be
+    // the only way in.
+    const passwordHash = input.password === undefined ? null : await hashPassword(input.password);
 
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.user.findUnique({ where: { email }, select: { id: true } });
@@ -64,13 +85,18 @@ export class UsersService {
           displayName: input.displayName,
           role: input.role,
           passwordHash,
-          authSource: 'local',
+          authSource,
         },
       });
 
       await this.record(tx, actor, context, 'user.create', created.id, null, {
         email: created.email,
         role: created.role,
+        // Which authority may now authenticate as this person. Provisioning an
+        // externally-backed account delegates that decision to a system outside
+        // this one — exactly the sort of thing an auditor has to be able to
+        // reconstruct after the fact.
+        authSource: created.authSource,
       });
 
       return toManagedUser(created);
