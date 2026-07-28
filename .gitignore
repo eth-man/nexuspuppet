@@ -13,7 +13,10 @@ coverage/
 *.pem
 *.key
 *.crt
-certs/
+# Live PuppetDB mTLS material. The directory is tracked only for its README,
+# so the layout is documented without any key ever being committable.
+certs/*
+!certs/README.md
 
 # ADR-0002: the private enterprise layer is fetched by scripts/enterprise.mjs
 # from NEXUSPUPPET_ENTERPRISE_REPO. It is never committed here, and this
