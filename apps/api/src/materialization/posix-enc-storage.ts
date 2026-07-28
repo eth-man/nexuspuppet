@@ -47,8 +47,8 @@ export function assertSafeCertname(certname: string): void {
 }
 
 @Injectable()
-export class EncFileWriter implements IEncFileWriter {
-  private readonly logger = new Logger(EncFileWriter.name);
+export class PosixEncStorage implements IEncFileWriter {
+  private readonly logger = new Logger(PosixEncStorage.name);
   private readonly nodesDir: string;
   private readonly defaultFile: string;
 

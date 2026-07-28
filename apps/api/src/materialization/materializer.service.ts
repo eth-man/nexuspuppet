@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { ClassificationConflict, PuppetValue } from '@nexuspuppet/contracts';
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
 import type { TransactionClient } from './materialization.service';
-import { EncFileWriter } from './enc-file-writer';
+import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import { matchGroups, type EvaluableGroup } from './pure/rule-evaluator';
 import { mergeGroups, type MergeableGroup } from './pure/class-merger';
 import { renderEncDocument, renderDefaultDocument } from './pure/enc-yaml-renderer';
@@ -95,7 +95,7 @@ export class MaterializerService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly writer: EncFileWriter,
+    private readonly writer: IEncFileWriter,
     private readonly maxAttempts: number,
     private readonly defaultEnvironment: string,
     private readonly pacing: MaterializerPacing = DEFAULT_PACING,

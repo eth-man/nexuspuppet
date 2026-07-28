@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { PrismaService, ADVISORY_LOCKS } from '../src/prisma/prisma.service';
-import { EncFileWriter } from '../src/materialization/enc-file-writer';
+import { PosixEncStorage } from '../src/materialization/posix-enc-storage';
 import { MaterializerService } from '../src/materialization/materializer.service';
 import { MaterializationService } from '../src/materialization/materialization.service';
 import { ReconcilerService } from '../src/materialization/reconciler.service';
@@ -34,7 +34,7 @@ jest.setTimeout(30_000);
 
 describe('ENC materialization (integration)', () => {
   let prisma: PrismaService;
-  let writer: EncFileWriter;
+  let writer: PosixEncStorage;
   let materializer: MaterializerService;
   let enqueue: MaterializationService;
   let encDir: string;
@@ -50,7 +50,7 @@ describe('ENC materialization (integration)', () => {
 
   beforeEach(async () => {
     encDir = await mkdtemp(join(tmpdir(), 'nexuspuppet-int-'));
-    writer = new EncFileWriter(encDir);
+    writer = new PosixEncStorage(encDir);
     await writer.ensureLayout();
 
     materializer = new MaterializerService(prisma, writer, 5, 'production');

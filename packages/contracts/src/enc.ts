@@ -111,10 +111,51 @@ export type MaterializationStatus = z.infer<typeof materializationStatusSchema>;
  * touch the ENC output directory. Implementations must write atomically
  * (tmp file + rename) so puppetserver can never read a partial document.
  */
+/**
+ * Where materialized classification is stored.
+ *
+ * Named for the POSIX case it was born in, and kept that way deliberately: an
+ * implementation may equally be an object store or a git repository, and
+ * renaming a published contract for a better word costs every enterprise build
+ * a rebuild for no behavioural gain.
+ *
+ * IMPLEMENTORS
+ * ------------
+ * The identifier is a Puppet certname, which originates in a certificate and
+ * must be treated as untrusted input. Validating it is the implementation's
+ * job, because what is dangerous depends on the medium: `..` traverses a
+ * filesystem, and an object store cares about key shape instead. Nothing above
+ * this interface validates on your behalf.
+ *
+ * Writes must be ATOMIC from a reader's point of view. puppetserver reads these
+ * concurrently with every agent run, and a half-written document is a failed
+ * catalog compilation on a live node.
+ *
+ * A non-filesystem implementation changes the CONSISTENCY MODEL, not just the
+ * destination: puppetserver would pull rather than read a mounted path, so
+ * there is a propagation delay between materialization and the ENC seeing it.
+ * ADR-0003 already accepts eventual consistency, but that window grows, and
+ * enlarging it deserves its own ADR rather than arriving as a side effect.
+ */
 export interface IEncFileWriter {
+  /**
+   * Prepare the destination. Called once at boot, before anything is written.
+   *
+   * On a filesystem this creates directories; elsewhere it might verify a
+   * bucket exists or a branch is checkable-out.
+   */
+  ensureLayout(): Promise<void>;
   /** @returns true if the file changed, false if content was already identical. */
   writeNode(certname: string, yaml: string, contentHash: string): Promise<boolean>;
   removeNode(certname: string): Promise<void>;
   writeDefault(yaml: string): Promise<void>;
   listMaterializedCertnames(): Promise<string[]>;
+  /**
+   * Whether the destination can currently be written to.
+   *
+   * Surfaced as a health signal: a read-only mount is a silent, total failure
+   * of classification delivery, and one that only shows up as agents quietly
+   * running old catalogues.
+   */
+  isWritable(): Promise<boolean>;
 }

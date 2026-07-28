@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaService, ADVISORY_LOCKS } from '../src/prisma/prisma.service';
 import type { TransactionClient } from '../src/materialization/materialization.service';
-import { EncFileWriter } from '../src/materialization/enc-file-writer';
+import { PosixEncStorage } from '../src/materialization/posix-enc-storage';
 import {
   MaterializerService,
   type MaterializerPacing,
@@ -55,7 +55,7 @@ const pacing = (overrides: Partial<MaterializerPacing> = {}): MaterializerPacing
 
 describe('materializer pacing (integration)', () => {
   let prisma: PrismaService;
-  let writer: EncFileWriter;
+  let writer: PosixEncStorage;
   let encDir: string;
 
   beforeAll(async () => {
@@ -69,7 +69,7 @@ describe('materializer pacing (integration)', () => {
 
   beforeEach(async () => {
     encDir = await mkdtemp(join(tmpdir(), 'nexuspuppet-pacing-'));
-    writer = new EncFileWriter(encDir);
+    writer = new PosixEncStorage(encDir);
     await writer.ensureLayout();
 
     await prisma.encMaterializationJob.deleteMany();

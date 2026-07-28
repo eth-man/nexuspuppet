@@ -2,7 +2,7 @@ import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { EncFileWriter } from '../src/materialization/enc-file-writer';
+import { PosixEncStorage } from '../src/materialization/posix-enc-storage';
 import { MaterializerService } from '../src/materialization/materializer.service';
 import { MaterializationService } from '../src/materialization/materialization.service';
 
@@ -24,7 +24,7 @@ jest.setTimeout(120_000);
 
 describe('node deletion (integration)', () => {
   let prisma: PrismaService;
-  let writer: EncFileWriter;
+  let writer: PosixEncStorage;
   let materializer: MaterializerService;
   let enqueue: MaterializationService;
   let encDir: string;
@@ -40,7 +40,7 @@ describe('node deletion (integration)', () => {
 
   beforeEach(async () => {
     encDir = await mkdtemp(join(tmpdir(), 'nexuspuppet-del-'));
-    writer = new EncFileWriter(encDir);
+    writer = new PosixEncStorage(encDir);
     await writer.ensureLayout();
     materializer = new MaterializerService(prisma, writer, 5, 'production');
     enqueue = new MaterializationService();
