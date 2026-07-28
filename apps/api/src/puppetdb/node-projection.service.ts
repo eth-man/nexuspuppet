@@ -170,9 +170,23 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
     let changed = 0;
 
     for (const node of nodes) {
-      // A deactivated or expired node must not be classified. It is pruned
-      // below rather than projected.
-      if (!node.isActive) continue;
+      // Deactivated nodes ARE retained, contrary to how this once worked.
+      //
+      // Deactivation is reversible — a node returns by checking in again — and
+      // PuppetDB purges for real on node-purge-ttl. Deleting a deactivated
+      // node's classification would invent a second, competing notion of
+      // "gone", and churn a file that is about to be needed again. Its facts
+      // are left as they were: the node is not reporting, so there is nothing
+      // newer to record.
+      if (!node.isActive) {
+        // Only nodes we already knew. A node that was ALREADY deactivated the
+        // first time PuppetDB showed it to us has no classification to retain,
+        // and inventing one would classify a machine that is not reporting —
+        // the churn this design exists to avoid. It is counted only if a row
+        // was actually touched, so the figure means what it says.
+        if (await this.markDeactivated(node.certname)) upserted += 1;
+        continue;
+      }
 
       const projected = pick(facts.get(node.certname) ?? {}, this.projectedFacts);
 
@@ -181,12 +195,14 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
       if (didChange) changed += 1;
     }
 
-    const active = nodes.filter((n) => n.isActive);
-    const pruneDecision = await this.shouldPrune(active.length);
+    // Everything PuppetDB still knows about, active or not. Pruning is about
+    // ABSENCE, not about state: a node listed here has not been purged.
+    const known = nodes.map((n) => n.certname);
+    const pruneDecision = await this.shouldPrune(nodes.length);
 
     let pruned = 0;
     if (pruneDecision.prune) {
-      pruned = await this.prune(active.map((n) => n.certname));
+      pruned = await this.prune(known);
     } else if (pruneDecision.reason !== null) {
       this.logger.warn(`Prune skipped: ${pruneDecision.reason}`);
     }
@@ -243,6 +259,9 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
         },
         update: {
           environment: node.environment,
+          // A node reporting again is no longer deactivated. Without clearing
+          // this, a returned node would stay flagged forever.
+          deactivated: false,
           facts: projected as object,
           latestReportStatus: node.latestReportStatus,
           reportTimestamp: toDate(node.reportTimestamp),
@@ -306,11 +325,54 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
    * removes the orphaned YAML, so a decommissioned node stops being classified
    * rather than keeping its last configuration forever.
    */
-  private async prune(activeCertnames: readonly string[]): Promise<number> {
-    const { count } = await this.prisma.managedNode.deleteMany({
-      where: { certname: { notIn: [...activeCertnames] } },
+  /**
+   * Remove nodes PuppetDB no longer knows about at all, and queue removal of
+   * their ENC files.
+   *
+   * One transaction, because the domain change and its outbox row must not be
+   * separable: a prune committing without its jobs leaves files classifying
+   * nodes that no longer exist, repaired only by the periodic reconcile up to
+   * fifteen minutes later.
+   *
+   * The certnames are read BEFORE the delete — afterwards there is nothing left
+   * to read, and the jobs have to name the nodes whose files they remove.
+   */
+  private async prune(knownCertnames: readonly string[]): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const doomed = await tx.managedNode.findMany({
+        where: { certname: { notIn: [...knownCertnames] } },
+        select: { certname: true },
+      });
+
+      if (doomed.length === 0) return 0;
+
+      const certnames = doomed.map((n) => n.certname);
+
+      await tx.managedNode.deleteMany({ where: { certname: { in: certnames } } });
+      await this.materialization.enqueueNodeDeletions(tx, certnames, 'node-purged');
+
+      this.logger.log(
+        `Purged ${certnames.length} node(s) absent from PuppetDB; ` +
+          'queued their ENC files for removal.',
+      );
+
+      return certnames.length;
     });
-    return count;
+  }
+
+  /**
+   * Record that a node is deactivated, retaining its facts and its file.
+   *
+   * No materialization is queued: nothing about its classification changed, and
+   * re-materializing every deactivated node on every cycle is exactly the churn
+   * this design exists to avoid.
+   */
+  private async markDeactivated(certname: string): Promise<boolean> {
+    const { count } = await this.prisma.managedNode.updateMany({
+      where: { certname },
+      data: { deactivated: true, projectedAt: new Date() },
+    });
+    return count > 0;
   }
 
   /** Page through the whole node list. Throws if any page fails. */

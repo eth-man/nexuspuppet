@@ -201,9 +201,11 @@ export class MaterializerService {
     for (const job of jobs) {
       try {
         const outcomes =
-          job.certname === null
-            ? await this.materializeChunk(tx, job, groups)
-            : [await this.materializeNode(job.certname, groups, tx)];
+          job.kind === 'DELETE' && job.certname !== null
+            ? [await this.deleteNode(job.certname, tx)]
+            : job.certname === null
+              ? await this.materializeChunk(tx, job, groups)
+              : [await this.materializeNode(job.certname, groups, tx)];
 
         filesChanged += outcomes.filter((o) => o.changed).length;
         succeeded += 1;
@@ -333,6 +335,40 @@ export class MaterializerService {
       contentHash: rendered.contentHash,
       conflicts: merged.conflicts,
       appliedGroupIds: merged.appliedGroupIds,
+    };
+  }
+
+  /**
+   * Remove a purged node's ENC file and its materialization record.
+   *
+   * Hard deletion, not a tombstone. The ENC script treats a missing node file
+   * as "fall back to default.yaml", which is a defined, safe classification —
+   * whereas a tombstone is indistinguishable to that script from a real
+   * classification, so it would silently override the default and then diverge
+   * from it, while accumulating a file per node that no longer exists.
+   *
+   * Safe to get wrong in one direction only, and it is the harmless one: the
+   * file is derived state, so a node that returns is simply rewritten.
+   */
+  private async deleteNode(
+    certname: string,
+    tx: TransactionClient,
+  ): Promise<MaterializationOutcome> {
+    await this.writer.removeNode(certname);
+
+    // May already be gone via cascade when the ManagedNode row was deleted.
+    await tx.encMaterialization.deleteMany({ where: { certname } });
+
+    this.logger.log(`Removed ENC file for purged node ${certname}.`);
+
+    return {
+      certname,
+      // A removal IS a change to what puppetserver will serve, and counting it
+      // is what makes the drain's "files changed" figure honest.
+      changed: true,
+      contentHash: '',
+      conflicts: [],
+      appliedGroupIds: [],
     };
   }
 

@@ -88,6 +88,36 @@ export class EncFileWriter implements IEncFileWriter {
     // An orphaned file would keep classifying a node forever, so a missing
     // file is success, not an error.
     await rm(this.nodeFile(certname), { force: true });
+
+    // An unlink is not durable until the PARENT DIRECTORY is synced. Without
+    // this a crash can resurrect the file, and a resurrected file classifies a
+    // node that no longer exists — indefinitely, because nothing will queue
+    // another delete for it. The write path already fsyncs for the mirror-image
+    // reason; deletion deserves the same care.
+    await this.syncDirectory(dirname(this.nodeFile(certname)));
+  }
+
+  /**
+   * Flush a directory's own metadata, making a create or unlink within it
+   * durable.
+   *
+   * Best-effort: some filesystems reject opening a directory for this, and
+   * failing a delete because the sync could not be issued would be worse than
+   * the small durability window it closes.
+   */
+  private async syncDirectory(path: string): Promise<void> {
+    try {
+      const handle = await open(path, 'r');
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      this.logger.debug(
+        `Could not fsync ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async writeDefault(yaml: string): Promise<void> {
