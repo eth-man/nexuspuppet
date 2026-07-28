@@ -50,7 +50,12 @@ test.describe('inventory', () => {
 
   test('narrows the estate by certname', async ({ page }) => {
     await page.goto('/nodes');
-    await page.getByLabel('Filter by certname').fill('db01');
+    // Derived from the anchor certname, not written here. A literal 'db01' was
+    // left behind when the fixtures were re-captured, so the filter narrowed to
+    // a node the assertion below no longer looked for.
+    await page
+      .getByLabel('Filter by certname')
+      .fill(KNOWN_CERTNAME.split('.')[0] ?? KNOWN_CERTNAME);
 
     await expect(page.getByText(/\d+ nodes? matching/)).toBeVisible();
     await expect(page.getByRole('link', { name: KNOWN_CERTNAME })).toBeVisible();

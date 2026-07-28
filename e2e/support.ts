@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 /**
@@ -31,11 +33,26 @@ export const ADMIN_PASSWORD = (() => {
 /**
  * A certname the fixtures are known to contain.
  *
- * `db01.example.com` is the first node scripts/generate-fixtures.mjs emits and
- * the one the factset fixture belongs to, so it is the safest anchor for
- * assertions about rendering.
+ * READ FROM THE FIXTURE rather than written here. It used to be the literal
+ * `db01.example.com`, which silently stopped existing the moment the fixtures
+ * were re-captured from a real estate — a whole E2E file failed on a constant
+ * nothing pointed at any more.
+ *
+ * The first entry is the captured node row verbatim and the one the factset
+ * belongs to, so it is the right anchor for assertions about rendering; taking
+ * it from the file means a re-capture cannot invalidate it.
  */
-export const KNOWN_CERTNAME = 'db01.example.com';
+export const KNOWN_CERTNAME: string = (() => {
+  const nodes = JSON.parse(
+    readFileSync(resolve(__dirname, '../fixtures/nodes-query.sample.json'), 'utf8'),
+  ) as Array<{ certname: string; deactivated: string | null; expired: string | null }>;
+
+  const active = nodes.find((n) => n.deactivated === null && n.expired === null);
+  if (active === undefined) {
+    throw new Error('no active node in fixtures/nodes-query.sample.json to anchor E2E assertions');
+  }
+  return active.certname;
+})();
 
 /**
  * Every test that creates classification state uses a unique, prefixed name.
