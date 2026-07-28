@@ -27,7 +27,8 @@
     "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
     "dev:stack": "./scripts/dev/stack.sh",
     "dev:puppetdb": "node scripts/dev/puppetdb.mjs",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:puppetdb": "node scripts/test-puppetdb.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

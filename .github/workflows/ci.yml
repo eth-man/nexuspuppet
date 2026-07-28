@@ -44,6 +44,19 @@ jobs:
             echo "::error::Static import of the enterprise package outside the loader (ADR-0002)."
             exit 1
           fi
+          # `git add -f` overrides .gitignore by design, so the ignore rules
+          # are a convenience and this is the actual guard. A leaked private
+          # key has to be reissued, not deleted — it is public the moment it
+          # is pushed.
+          if git ls-files | grep -nE '(^|/)certs/.+\.(pem|key|crt|p12|pfx)$'; then
+            echo "::error::Certificate material is committed under certs/. Reissue it — a pushed key is compromised."
+            exit 1
+          fi
+          if git grep -nI -- '-----BEGIN\( RSA\| EC\| OPENSSH\| PGP\)\? PRIVATE KEY-----' -- . ':!*.md'; then
+            echo "::error::A private key block is committed."
+            exit 1
+          fi
+
           echo "Core isolation checks passed."
 
       - run: npm ci
