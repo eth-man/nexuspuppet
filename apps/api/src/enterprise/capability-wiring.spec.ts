@@ -1,5 +1,10 @@
 import 'reflect-metadata';
-import { CAPABILITY_TOKENS, capabilityTokenName } from '@nexuspuppet/contracts';
+import {
+  AUDIT_SINK,
+  CAPABILITY_TOKENS,
+  CORE_AUDIT_SINK,
+  capabilityTokenName,
+} from '@nexuspuppet/contracts';
 
 /**
  * Every capability seam, checked structurally (ADR-0002).
@@ -179,8 +184,28 @@ describe('capability wiring', () => {
   });
 
   /** The registration that owns a token, for the assertions below. */
-  const registrationFor = (token: symbol): Registration | undefined =>
+  const registrationFor = (token: unknown): Registration | undefined =>
     registrations.find((r) => r.token === token);
+
+  /**
+   * Follow `useExisting` aliases to whatever ultimately implements a token.
+   *
+   * A seam may alias a token rather than name a class — AUDIT_SINK aliases
+   * CORE_AUDIT_SINK so an enterprise sink can compose over the core one. Without
+   * following the chain the alias looks like an unidentifiable seam, and this
+   * suite would demand it be declared factory-backed, which would be a lie.
+   *
+   * Depth-bounded: a cycle in the provider graph would otherwise hang the suite
+   * rather than fail it.
+   */
+  const resolveImplementation = (token: unknown, depth = 0): { cls: Ctor; kind: string } | null => {
+    if (depth > 8) return null;
+    const r = registrationFor(token);
+    if (r === undefined) return null;
+    if (r.implementation !== null) return { cls: r.implementation, kind: r.kind };
+    if (r.kind === 'useExisting') return resolveImplementation(r.dependencies[0], depth + 1);
+    return null;
+  };
 
   describe('completeness', () => {
     /**
@@ -228,7 +253,7 @@ describe('capability wiring', () => {
         const registration = registrationFor(token);
         expect(registration).toBeDefined();
 
-        if (registration?.implementation) return;
+        if (resolveImplementation(token) !== null) return;
 
         // Named in the failure rather than passed to expect(): Jest's expect
         // takes one argument, and a bare `undefined` here would say nothing
@@ -246,6 +271,39 @@ describe('capability wiring', () => {
     );
   });
 
+  /**
+   * CORE_AUDIT_SINK is not a capability — the enterprise layer does not replace
+   * it, it DEPENDS on it. A composing sink injects it to perform the
+   * transactional Postgres write it cannot perform itself (ADR-0002 keeps Prisma
+   * out of the enterprise package).
+   *
+   * That makes it part of the enterprise contract even though it is not in
+   * CAPABILITY_TOKENS: removing or renaming it would break a layer this
+   * repository cannot see, and nothing else here would notice.
+   */
+  describe('the core audit sink, which enterprise composes over', () => {
+    it('is registered and resolves to a concrete implementation', () => {
+      const resolved = resolveImplementation(CORE_AUDIT_SINK);
+      expect(resolved).not.toBeNull();
+      expect(resolved?.cls.name).toBe('PrismaAuditSink');
+    });
+
+    it('is what AUDIT_SINK resolves to when no enterprise layer is installed', () => {
+      // Core behaviour must be unchanged by the existence of the seam: with
+      // nothing installed, the audit sink is still the Postgres one.
+      expect(resolveImplementation(AUDIT_SINK)?.cls).toBe(
+        resolveImplementation(CORE_AUDIT_SINK)?.cls,
+      );
+    });
+
+    it('is aliased rather than constructed twice', () => {
+      // useClass here would build a SECOND PrismaAuditSink, so an enterprise
+      // sink delegating to CORE_AUDIT_SINK and core code using AUDIT_SINK would
+      // be writing through different instances.
+      expect(registrationFor(AUDIT_SINK)?.kind).toBe('useExisting');
+    });
+  });
+
   describe('no consumer bypasses a token', () => {
     /**
      * Derived, not listed. Every class a capability token constructs or
@@ -254,8 +312,8 @@ describe('capability wiring', () => {
      */
     const implementationsOfSeams = (): Array<{ cls: Ctor; token: symbol; kind: string }> =>
       CAPABILITY_TOKENS.flatMap((token) => {
-        const r = registrationFor(token);
-        return r?.implementation ? [{ cls: r.implementation, token, kind: r.kind }] : [];
+        const resolved = resolveImplementation(token);
+        return resolved ? [{ cls: resolved.cls, token, kind: resolved.kind }] : [];
       });
 
     it('has no provider or controller injecting a capability implementation', () => {
