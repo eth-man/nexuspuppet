@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type {
   AuditRecord,
+  AuditTransaction,
   CapabilityName,
   IAuditSink,
   ILicenseService,
@@ -30,8 +31,10 @@ import { normalizeEmail } from './local-auth.provider';
 export class PrismaAuditSink implements IAuditSink {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(entry: AuditRecord, tx?: AuditCapableClient): Promise<void> {
-    const client = tx ?? this.prisma;
+  async record(entry: AuditRecord, tx?: AuditTransaction): Promise<void> {
+    // Narrowed here rather than in the interface: what a transaction IS belongs
+    // to this implementation, not to the contract every sink shares.
+    const client = (tx as AuditCapableClient | undefined) ?? this.prisma;
     await client.auditLog.create({
       data: {
         actorUserId: entry.actorUserId,

@@ -6,16 +6,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AUTH_PROVIDER } from '@nexuspuppet/contracts';
+import { AUDIT_SINK, AUTH_PROVIDER } from '@nexuspuppet/contracts';
 import type {
   AuthenticatedPrincipal,
   CreateUser,
+  IAuditSink,
   IAuthProvider,
   ManagedUser,
   UpdateUser,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
-import { PrismaAuditSink } from './core-capabilities';
 import { TokenService } from './token.service';
 import { hashPassword, verifyPassword } from './password';
 import { normalizeEmail } from './local-auth.provider';
@@ -35,7 +35,7 @@ import { normalizeEmail } from './local-auth.provider';
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly audit: PrismaAuditSink,
+    @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
     private readonly tokens: TokenService,
     @Inject(AUTH_PROVIDER) private readonly authProvider: IAuthProvider,
   ) {}
@@ -256,7 +256,7 @@ export class UsersService {
         ipAddress: context.ipAddress ?? null,
         userAgent: context.userAgent ?? null,
       },
-      tx as unknown as Parameters<PrismaAuditSink['record']>[1],
+      tx,
     );
   }
 }

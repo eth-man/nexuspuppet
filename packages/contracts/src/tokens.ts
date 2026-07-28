@@ -10,22 +10,51 @@
  * resolve to different providers.
  */
 
-export const AUTH_PROVIDER = Symbol.for('nexuspuppet.AuthProvider');
-export const AUTHORIZATION_POLICY = Symbol.for('nexuspuppet.AuthorizationPolicy');
-export const USER_DIRECTORY = Symbol.for('nexuspuppet.UserDirectory');
-export const AUDIT_SINK = Symbol.for('nexuspuppet.AuditSink');
-export const LICENSE_SERVICE = Symbol.for('nexuspuppet.LicenseService');
-export const PUPPETDB_CLIENT = Symbol.for('nexuspuppet.PuppetDbClient');
-export const ENC_FILE_WRITER = Symbol.for('nexuspuppet.EncFileWriter');
+/**
+ * The single declaration of every seam.
+ *
+ * One object rather than seven independent exports, so the runtime list and the
+ * type below are DERIVED from it and cannot drift apart. Adding a seam here
+ * adds it to both, which is what lets the container tests cover a new token
+ * without anyone remembering to update them.
+ *
+ * The individual exports beneath are unchanged — same names, same Symbol.for
+ * identities — so nothing that already imports them notices.
+ */
+const TOKENS = {
+  AUTH_PROVIDER: Symbol.for('nexuspuppet.AuthProvider'),
+  AUTHORIZATION_POLICY: Symbol.for('nexuspuppet.AuthorizationPolicy'),
+  USER_DIRECTORY: Symbol.for('nexuspuppet.UserDirectory'),
+  AUDIT_SINK: Symbol.for('nexuspuppet.AuditSink'),
+  LICENSE_SERVICE: Symbol.for('nexuspuppet.LicenseService'),
+  PUPPETDB_CLIENT: Symbol.for('nexuspuppet.PuppetDbClient'),
+  ENC_FILE_WRITER: Symbol.for('nexuspuppet.EncFileWriter'),
+} as const;
 
-export type CapabilityToken =
-  | typeof AUTH_PROVIDER
-  | typeof AUTHORIZATION_POLICY
-  | typeof USER_DIRECTORY
-  | typeof AUDIT_SINK
-  | typeof LICENSE_SERVICE
-  | typeof PUPPETDB_CLIENT
-  | typeof ENC_FILE_WRITER;
+export const AUTH_PROVIDER = TOKENS.AUTH_PROVIDER;
+export const AUTHORIZATION_POLICY = TOKENS.AUTHORIZATION_POLICY;
+export const USER_DIRECTORY = TOKENS.USER_DIRECTORY;
+export const AUDIT_SINK = TOKENS.AUDIT_SINK;
+export const LICENSE_SERVICE = TOKENS.LICENSE_SERVICE;
+export const PUPPETDB_CLIENT = TOKENS.PUPPETDB_CLIENT;
+export const ENC_FILE_WRITER = TOKENS.ENC_FILE_WRITER;
+
+/**
+ * Every seam, enumerable at runtime.
+ *
+ * Exists so a test can assert properties of ALL of them — that each has a core
+ * default, and that nothing bypasses one by injecting its implementation
+ * directly. Both defects have shipped here before; enumerating the tokens is
+ * what turns finding them from an audit into a permanent guarantee.
+ */
+export const CAPABILITY_TOKENS: readonly symbol[] = Object.values(TOKENS);
+
+/** Name for a token, for messages that have to say WHICH seam is wrong. */
+export function capabilityTokenName(token: symbol): string {
+  return Object.entries(TOKENS).find(([, value]) => value === token)?.[0] ?? String(token);
+}
+
+export type CapabilityToken = (typeof TOKENS)[keyof typeof TOKENS];
 
 /**
  * Named capabilities a deployment may or may not have. Core routes for
