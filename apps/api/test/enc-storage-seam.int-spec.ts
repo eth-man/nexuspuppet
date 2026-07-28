@@ -199,6 +199,41 @@ describe('ENC storage seam (integration)', () => {
  * the module's own provider graph instead.
  */
 describe('ENC storage wiring', () => {
+  /**
+   * AppModule.bootstrap() validates the whole environment before it builds
+   * anything, so these need one that parses. Supplied explicitly rather than
+   * inherited: relying on the developer's shell having sourced .env is how a
+   * test passes locally and fails in CI, which is exactly what happened here.
+   *
+   * Values are placeholders — nothing is connected to, because only the
+   * provider graph is inspected.
+   */
+  const REQUIRED_ENV: Record<string, string> = {
+    JWT_SECRET: 'x'.repeat(48),
+    DATABASE_URL,
+    PUPPETDB_URL: 'https://puppetdb.invalid:8081',
+    PUPPETDB_CERT_PATH: '/dev/null',
+    PUPPETDB_KEY_PATH: '/dev/null',
+    PUPPETDB_CA_PATH: '/dev/null',
+    ENC_OUTPUT_DIR: '/tmp/nexuspuppet-wiring-test',
+  };
+
+  const saved: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const [key, value] of Object.entries(REQUIRED_ENV)) {
+      saved[key] = process.env[key];
+      process.env[key] = process.env[key] ?? value;
+    }
+  });
+
+  afterAll(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it('registers ENC storage only under the contracts token', async () => {
     const { AppModule } = await import('../src/app.module');
     const { ENC_FILE_WRITER } = await import('@nexuspuppet/contracts');
