@@ -53,8 +53,15 @@ export class AuthController {
   /** Advertises how to log in, so the UI renders a form or an SSO button. */
   @Public()
   @Get('mode')
-  mode(): { mode: string; source: string } {
-    return { mode: this.provider.mode ?? 'credentials', source: this.provider.source };
+  mode(): { mode: string; source: string; identifierLabel: string } {
+    return {
+      mode: this.provider.mode ?? 'credentials',
+      source: this.provider.source,
+      // Public on purpose, like the rest of this endpoint: the login form needs
+      // it before anyone has authenticated. It reveals only what a user is
+      // expected to type.
+      identifierLabel: this.provider.identifierLabel ?? 'Email',
+    };
   }
 
   /**

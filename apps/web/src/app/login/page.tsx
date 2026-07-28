@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 interface AuthMode {
   mode: 'credentials' | 'redirect';
   source: string;
+  /** What to call the identifier — 'Email' locally, 'Username' for AD. */
+  identifierLabel?: string;
 }
 
 /**
@@ -32,6 +34,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
+  const identifierLabel = authMode?.identifierLabel ?? 'Email';
   const [modeError, setModeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -109,11 +112,11 @@ export default function LoginPage() {
             className="space-y-3 rounded border border-line-soft bg-panel p-3"
           >
             <div className="space-y-1">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{identifierLabel}</Label>
               <Input
                 id="email"
                 name="email"
-                type="email"
+                type={identifierLabel === 'Email' ? 'email' : 'text'}
                 autoComplete="username"
                 required
                 autoFocus
