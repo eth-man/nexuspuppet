@@ -100,6 +100,55 @@ export interface IAuthProvider {
 
   /** Required for mode 'redirect': complete it from the callback parameters. */
   completeRedirect?(params: Record<string, string>): Promise<AuthResult>;
+
+  /**
+   * Describe this provider's configuration for an administrator.
+   *
+   * Optional: a provider with nothing worth showing may omit it, and core falls
+   * back to reporting only the source. Whatever is returned is rendered in a
+   * browser — see AuthProviderDescription for what must never appear in it.
+   */
+  describe?(): AuthProviderDescription;
+}
+
+/** A directory group and the role it grants. */
+export interface RoleMapping {
+  /** The group as the directory names it — a DN for LDAP, a claim value for OIDC. */
+  group: string;
+  role: UserRole;
+}
+
+/**
+ * What an authentication provider will tell an administrator about itself.
+ *
+ * Exists so the console can show WHO GETS WHICH ROLE without core knowing what
+ * LDAP is. A provider decides what is safe to surface; core renders it blindly.
+ *
+ * IMPLEMENTORS — THIS IS DISPLAYED IN A BROWSER. It must never contain a bind
+ * password, a client secret, a token, or a private key. `details` is for
+ * connection facts an administrator needs in order to recognise a
+ * misconfiguration — a URL, a search base — not for credentials. When in doubt,
+ * leave it out: an operator can read the deployment's environment, and a
+ * secret rendered in a page ends up in screenshots and support tickets.
+ */
+export interface AuthProviderDescription {
+  /** Matches IAuthProvider.source. */
+  source: string;
+  /**
+   * Group-to-role mappings applied at each login, in the provider's own order.
+   * Empty for a provider that does not derive roles from group membership.
+   */
+  roleMappings: RoleMapping[];
+  /**
+   * Whether someone who authenticates but matches no mapping is REFUSED.
+   *
+   * The alternative — granting a default role — silently gives everyone the
+   * directory contains access to the estate inventory, so an administrator
+   * needs to be able to see which behaviour is in force.
+   */
+  refusesUnmappedUsers: boolean;
+  /** Display-safe connection facts. Never secrets. */
+  details: Array<{ label: string; value: string }>;
 }
 
 /** Actions the authorization policy arbitrates. Extended only alongside a new controller. */

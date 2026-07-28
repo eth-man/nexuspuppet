@@ -2,6 +2,7 @@
 
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type {
+  AuthProviderDescription,
   DeploymentCapabilities,
   FactPathIndex,
   ManagedUser,
@@ -200,6 +201,21 @@ export function useAuthMode(): UseQueryResult<{ mode: string; source: string }> 
   return useQuery({
     queryKey: ['auth-mode'],
     queryFn: ({ signal }) => api.get<{ mode: string; source: string }>('/auth/mode', signal),
+    staleTime: Infinity,
+  });
+}
+
+/**
+ * The active provider's configuration, for an administrator.
+ *
+ * Requires settings:manage, so it is fetched only when the caller has it —
+ * asking otherwise produces a 403 in the console for no benefit.
+ */
+export function useAuthProvider(enabled: boolean): UseQueryResult<AuthProviderDescription> {
+  return useQuery({
+    queryKey: ['auth-provider'],
+    queryFn: ({ signal }) => api.get<AuthProviderDescription>('/auth/provider', signal),
+    enabled,
     staleTime: Infinity,
   });
 }

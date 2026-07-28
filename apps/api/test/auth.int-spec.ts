@@ -4,7 +4,10 @@ import { LocalAuthProvider, normalizeEmail } from '../src/auth/local-auth.provid
 import { TokenService } from '../src/auth/token.service';
 import { RbacPolicy } from '../src/auth/rbac.policy';
 import { BootstrapService } from '../src/auth/core-capabilities';
+import type { IAuthProvider } from '@nexuspuppet/contracts';
 import { hashPassword } from '../src/auth/password';
+import { AuthController } from '../src/auth/auth.controller';
+import { LoginRateLimiter } from '../src/auth/core-capabilities';
 
 /**
  * Auth integration tests against a REAL PostgreSQL.
@@ -409,6 +412,46 @@ describe('auth (integration)', () => {
 
       expect(policy.can(fromSso, 'classification:write')).toBe(true);
       expect(policy.can(fromSso, 'users:manage')).toBe(false);
+    });
+  });
+
+  /**
+   * GET /auth/provider — how the console shows an administrator which directory
+   * groups grant which role, without core knowing what a directory is.
+   */
+  describe('provider description', () => {
+    it('falls back to the source alone when a provider does not describe itself', () => {
+      // Core's LocalAuthProvider has no describe(): there are no group mappings
+      // to explain. The endpoint must still answer, so the UI can decide to
+      // render nothing rather than handling an error.
+      const controller = new AuthController(provider, tokens, new LoginRateLimiter());
+
+      expect(controller.describeProvider()).toEqual({
+        source: 'local',
+        roleMappings: [],
+        refusesUnmappedUsers: false,
+        details: [],
+      });
+    });
+
+    it('returns whatever a provider that does describe itself supplies', () => {
+      const describing: IAuthProvider = {
+        source: 'ldap',
+        mode: 'credentials',
+        authenticate: (c) => provider.authenticate(c),
+        resolve: (id) => provider.resolve(id),
+        describe: () => ({
+          source: 'ldap',
+          roleMappings: [{ group: 'cn=ops,dc=x', role: 'OPERATOR' as const }],
+          refusesUnmappedUsers: true,
+          details: [{ label: 'Directory', value: 'ldaps://d.example.com' }],
+        }),
+      };
+      const controller = new AuthController(describing, tokens, new LoginRateLimiter());
+
+      expect(controller.describeProvider().roleMappings).toEqual([
+        { group: 'cn=ops,dc=x', role: 'OPERATOR' },
+      ]);
     });
   });
 });
