@@ -1,42 +1,126 @@
 # NexusPuppet
 
-A web console for Puppet estates running open-source `puppetserver` + PuppetDB:
-read-only inventory and run-report visibility, plus a native ENC for node
-classification.
+**A web console and node classifier for Puppet and OpenVox that physically cannot cause an outage.** It never sits on the critical path of a Puppet run — classification is materialized to YAML files on disk, so agents keep converging even if every NexusPuppet container is dead.
 
-Apache-2.0. Open core — the entire product below is in this repository.
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![CI](https://github.com/eth-man/nexuspuppet/actions/workflows/ci.yml/badge.svg)](https://github.com/eth-man/nexuspuppet/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.12-brightgreen.svg)](package.json)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-> **Status: verified against a real Puppet estate.**
-> Architecture, contracts, schema, the classification engine, materializer,
-> PuppetDB client and projector, authentication, and the web console are
-> implemented and tested. Commissioned against real puppetserver 7.9.2,
-> PuppetDB 7.10.0 and a real agent — the mTLS client, the AST queries, the
-> projection, and the full ENC path from a classification write to an applied
-> catalog all work end to end. Bring the same estate up locally with
-> `sudo ./scripts/dev/puppet-stack.sh`.
->
-> Not yet exercised at estate scale, and the synthetic fixtures remain
-> approximate — a real node reports ~113 facts where they carry 23. See
-> [`fixtures/README.md`](fixtures/README.md).
+<!-- INSERT_DEMO_GIF_HERE -->
 
-## The defining property
+![NexusPuppet dashboard](docs/images/dashboard.png)
 
-**NexusPuppet cannot cause a Puppet outage.**
+<!-- INSERT_DASHBOARD_SCREENSHOT_HERE — replace the image above with your own if you prefer -->
 
-A conventional ENC is an HTTP endpoint `puppetserver` calls during every catalog
-compilation, for every node, on every run — putting a monitoring console on the
-critical path of fleet-wide configuration management.
+<details>
+<summary><b>More screenshots</b> — inventory, classification, reports</summary>
 
-NexusPuppet instead *materializes* classification to YAML files on a shared
-volume. `puppetserver` reads them with a dependency-free `cat`. Stop the
-containers, drop the database, deploy a broken image: agents keep converging
-against the last known good state on disk.
+### Node inventory
+![Node inventory](docs/images/nodes.png)
 
-The cost is that classification changes are eventually consistent, typically
-sub-second. For infrastructure tooling that is the right trade. See
-[ADR-0003](docs/architecture/adr/0003-enc-generate-dont-serve.md).
+### Classification: a group, its rules and its classes
+![Classification group](docs/images/classification-detail.png)
 
-## Layout
+### Why a node has the classes it has
+![Node classification](docs/images/node-detail.png)
+
+### Run reports, down to the failing resource
+![Report detail](docs/images/report-detail.png)
+
+</details>
+
+---
+
+## Why NexusPuppet
+
+**🛡️ Zero outage risk — by construction, not by uptime.**
+A conventional ENC is an HTTP endpoint `puppetserver` calls during *every* catalog compilation, for *every* node, on *every* run. That puts a console on the critical path of fleet-wide configuration management. NexusPuppet writes YAML to a shared volume instead, and `puppetserver` reads it with a dependency-free `cat`. Stop the containers, drop the database, deploy a broken image — agents keep converging against the last known good state. ([ADR-0003](docs/architecture/adr/0003-enc-generate-dont-serve.md))
+
+**🔌 Puppet *and* OpenVox, no configuration change.**
+[OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet. `openvoxdb` serves the same API and identifies as `PuppetDB`, so everything just works — and that was verified, not assumed: a live `openvoxdb 8.15.0` checked against a live `PuppetDB 7.10.0` across every AST operator, every mapped field, and the paging the reconciler depends on.
+
+**🔒 Read-only by design, safe by default.**
+PuppetDB is never written to. Queries are built as a parameterised AST, never string-interpolated PQL, so injection is structurally impossible rather than escaped-and-hoped-for. The web tier holds no database credentials at all.
+
+**📖 Genuinely open core.**
+Everything in this repository is Apache-2.0 and is a complete, usable product. The optional enterprise layer (SSO, scoped RBAC, licensing) is discovered at runtime — there is no submodule, no URL, and no compile-time reference to it anywhere in this repo. CI proves on every commit that core builds and passes with no enterprise layer present.
+
+---
+
+## Quickstart — try it in 2 minutes, no Puppet required
+
+The fastest path runs the whole console against a **PuppetDB stand-in serving real captured fixture data over real mTLS**. You need Docker and Node ≥ 22.12; you do *not* need Postgres, puppetserver, or any Puppet infrastructure.
+
+```bash
+git clone https://github.com/eth-man/nexuspuppet.git
+cd nexuspuppet
+
+docker compose -f docker-compose.dev.yml up -d          # Postgres, in Docker
+
+cp .env.example .env
+# Fill in the three values that have no safe default. Edited in place rather
+# than appended, so .env keeps exactly one line per key.
+sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
+sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet?schema=public|" .env
+sed -i "s|^BOOTSTRAP_ADMIN_PASSWORD=.*|BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -base64 24)|" .env
+
+npm install && npm run build
+npm run db:migrate
+npm run dev:stack
+```
+
+Open **<http://localhost:3000>** and sign in as `admin@example.com` with the
+`BOOTSTRAP_ADMIN_PASSWORD` you just generated (`grep BOOTSTRAP_ADMIN_PASSWORD .env`).
+
+That gives you a PuppetDB stand-in on `:8081`, the API on `:3001`, and the console on `:3000`. Throwaway certificates are generated on first run into `scripts/dev/certs/` (gitignored). The stand-in evaluates the same query AST the API emits, so filtering, sorting and pagination behave exactly as a real PuppetDB would.
+
+> **New here?** The [**User Guide**](docs/USER_GUIDE.md) walks through the console, node classification, and run reports — start there once the stack is up.
+
+### Want a *real* Puppet estate locally?
+
+One command brings up a genuine `puppetserver` + PuppetDB + agent in Docker, issues NexusPuppet a certificate, and wires the ENC:
+
+```bash
+sudo ./scripts/dev/puppet-stack.sh
+```
+
+Or the OpenVox equivalent, with a compatibility report at the end:
+
+```bash
+sudo ./scripts/dev/openvox-stack.sh && ./scripts/dev/openvox-compat.sh
+```
+
+---
+
+## Documentation
+
+| | |
+|---|---|
+| 📘 [**User Guide**](docs/USER_GUIDE.md) | Using the console: inventory, classification, reports, administration |
+| 🚀 [**Deployment**](DEPLOYMENT.md) | A fresh on-prem VM, end to end — certificates, `.env`, migrations, puppetserver wiring, TLS, backups |
+| 🧭 [**Roadmap**](ROADMAP.md) | What is built, what is next, and where to help |
+| 🤝 [**Contributing**](CONTRIBUTING.md) | Local development, tests, architecture boundaries, how to open a PR |
+| 🏛 [**Architecture**](docs/architecture/README.md) | C4 diagrams and eleven ADRs recording the binding decisions |
+
+---
+
+## How it works
+
+```
+        ┌──────────────┐         mTLS, read-only          ┌──────────────┐
+        │  NexusPuppet │ ───────────────────────────────► │   PuppetDB   │
+        │     API      │      facts, reports, nodes       │  / openvoxdb │
+        └──────┬───────┘                                  └──────────────┘
+               │ writes YAML
+               ▼
+        ┌──────────────┐         plain file read          ┌──────────────┐
+        │  ENC volume  │ ◄─────────────────────────────── │ puppetserver │
+        │  (*.yaml)    │        `cat`, no network         │              │
+        └──────────────┘                                  └──────────────┘
+```
+
+**There is no arrow from `puppetserver` back to NexusPuppet.** That absence is the whole design. The cost is that classification changes are eventually consistent — typically sub-second — and for infrastructure tooling that is the right trade.
 
 ```
 apps/api             NestJS      business logic, authz, PuppetDB proxy, ENC materializer
@@ -46,127 +130,13 @@ packages/enterprise  (absent)    optional private layer, loaded at runtime
 docs/architecture    C4 + ADRs   binding decisions
 ```
 
-## Quick start
-
-```bash
-npm install
-cp .env.example .env          # then fill in JWT_SECRET and DATABASE_URL
-npm run build
-npm test
-```
-
-Requires Node ≥ 22.12. Postgres is needed only once you run migrations.
-
-Start the development database, then migrate:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d   # Postgres only, port 5432
-npm run db:generate                              # after any schema.prisma change
-npm run db:migrate                               # apply migrations locally
-```
-
-Integration tests use a **separate** database and truncate tables, so they can
-never disturb a running stack:
-
-```bash
-npm run db:test:setup --workspace @nexuspuppet/api   # once
-npm run test:int --workspace @nexuspuppet/api
-```
-
-`docker-compose.yml` is the full stack and builds both app images — use it for
-deployment, not for the edit-run loop.
-
-### Rotating the admin password
-
-`BOOTSTRAP_ADMIN_PASSWORD` seeds the first administrator and only applies while
-the users table is empty. To change the password afterwards:
-
-```bash
-node scripts/dev/rotate-admin-password.mjs
-cat ~/.nexuspuppet/admin-password
-```
-
-It generates 192 bits of entropy, changes the password through
-`POST /account/password` — which verifies the old one, writes the audit row and
-revokes every other session in one transaction — verifies the new password works
-*before* storing it, then writes it to a `0600` file and updates `.env` so the
-dev stack and the E2E suite keep working.
-
-The password is never printed, never passed as an argument, and never exported.
-Command lines are readable by any other process on the machine via `ps`, and
-they land in shell history. To supply the current password when `.env` has none,
-pipe it in:
-
-```bash
-read -rs CUR && printf %s "$CUR" | node scripts/dev/rotate-admin-password.mjs
-```
-
-## Running it without Puppet
-
-The console can be driven end to end against the synthetic fixtures, with no
-Puppet infrastructure at all:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d   # Postgres
-cp .env.example .env                             # set JWT_SECRET, DATABASE_URL
-npm run build
-npm run db:migrate
-npm run dev:stack
-```
-
-That starts a PuppetDB stand-in on `:8081` serving `/fixtures` over **real
-mTLS**, the API on `:3001`, and the console on `:3000`. Throwaway certificates
-are generated on first run into `scripts/dev/certs/` (gitignored).
-
-The stand-in evaluates the same query AST the API emits, so filtering, sorting,
-and pagination behave as a real PuppetDB would. It is a development harness, not
-a PuppetDB implementation — see [`fixtures/README.md`](fixtures/README.md) for
-what synthetic data cannot tell you.
-
-## Tests
-
-```bash
-npm test                                   # unit
-npm run test:int --workspace @nexuspuppet/api   # integration, needs Postgres
-npm run test:e2e                           # browser, needs a running stack
-```
-
-The unit and integration suites are the usual thing. Two notes on the others:
-
-**Integration tests truncate tables**, so they run against their own
-`nexuspuppet_test` database and never `DATABASE_URL`. Run
-`npm run db:test:setup --workspace @nexuspuppet/api` once first. The transactional
-outbox and the advisory lock cannot be verified against a mock — a mock confirms
-whatever the code already believes.
-
-**E2E tests drive a real browser** against a stack you have already started with
-`npm run dev:stack`. They are deliberately thin on styling assertions and thick
-on behaviour that breaks silently: that a classification write answers `202` and
-never `200`, that the console reports materialization as *queued* rather than
-applied, that a rule change queues a **full** reconcile, and that regex
-metacharacters in a filter are matched literally instead of returning the whole
-estate.
-
-They create node groups prefixed `e2e-` and sweep them both before and after,
-so a run against a stack you are also using by hand is safe.
-
-In CI, [`scripts/ci/e2e-stack.sh`](scripts/ci/e2e-stack.sh) boots the whole stack
-from **built artifacts** — `next start`, not `next dev` — waits for the first
-projection to land, and then runs the suite. On failure it dumps the service logs
-and uploads traces and screenshots.
-
-## Deploying it
-
-[`DEPLOYMENT.md`](DEPLOYMENT.md) covers a fresh on-prem VM end to end:
-issuing and injecting the PuppetDB mTLS certificates, `.env`, migrations,
-fetching the private enterprise layer, wiring puppetserver, TLS, backups,
-upgrades, and what to expect on first contact with a real estate.
+---
 
 ## Connecting it to Puppet
 
 1. Mount the ENC volume **read-only** on your puppetserver.
 2. Install [`scripts/nexuspuppet-enc.sh`](scripts/nexuspuppet-enc.sh).
-3. Configure the node terminus:
+3. Point the node terminus at it:
 
 ```ini
 # /etc/puppetlabs/puppet/puppet.conf
@@ -175,57 +145,38 @@ node_terminus  = exec
 external_nodes = /usr/local/bin/nexuspuppet-enc.sh
 ```
 
-That script makes no network calls and depends on nothing but `/bin/sh`. That is
-deliberate — do not "improve" it into an API client.
+That script makes no network calls and depends on nothing but `/bin/sh`. That is deliberate — please do not "improve" it into an API client.
 
-### Puppet and OpenVox
+**Running OpenVox?** Nothing changes, with one deployment note: `openvoxdb` requires the `pg_trgm` PostgreSQL extension and will not start without it. See [DEPLOYMENT.md](DEPLOYMENT.md#puppet-or-openvox).
 
-Both work, with no configuration change.
-[OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet;
-`openvoxdb` serves the same `/pdb/query/v4` API and identifies itself as
-`PuppetDB`. Verified against a live `openvoxdb 8.15.0` alongside a live
-`PuppetDB 7.10.0` — every AST operator, every mapped field, the paging the
-reconciler needs. Stand it up yourself with `scripts/dev/openvox-stack.sh` and
-check it with `scripts/dev/openvox-compat.sh`.
+---
 
-One deployment note: openvoxdb requires the `pg_trgm` PostgreSQL extension and
-will not start without it. See [DEPLOYMENT.md](DEPLOYMENT.md#puppet-or-openvox).
+## Project status
 
-## Architecture
+Verified against a real estate, not just a test suite. The architecture, contracts, schema, classification engine, materializer, PuppetDB client and projector, authentication and web console are implemented and tested — commissioned against a real `puppetserver 7.9.2`, `PuppetDB 7.10.0` and a real agent. The mTLS client, the AST queries, the projection, and the full ENC path from a classification write to an applied catalog all work end to end.
 
-Start with [`docs/architecture/README.md`](docs/architecture/README.md), then the
-diagrams: [context](docs/architecture/c4-l1-context.md) ·
-[containers](docs/architecture/c4-l2-container.md) ·
-[API components](docs/architecture/c4-l3-component-api.md).
+Test fixtures are **captured from a real estate**, not generated from documentation — see [`fixtures/README.md`](fixtures/README.md) for exactly what is captured, what is synthesised, and what a single-node capture still cannot tell you.
 
-Eleven ADRs record the binding decisions. The four worth reading before your
-first PR:
+**Not yet exercised at estate scale.** If you run this against a large fleet, [we would like to hear what breaks](https://github.com/eth-man/nexuspuppet/issues).
 
-| | |
-|---|---|
-| [0002](docs/architecture/adr/0002-open-core-runtime-discovery.md) | Open core via runtime discovery — never import the enterprise package |
-| [0003](docs/architecture/adr/0003-enc-generate-dont-serve.md) | The ENC generates files; it does not serve requests |
-| [0004](docs/architecture/adr/0004-puppetdb-read-only-mtls.md) | PuppetDB is read-only; never interpolate user input into PQL |
-| [0009](docs/architecture/adr/0009-classification-merge-semantics.md) | Merge semantics — union classes, last-writer-wins, no deep merge |
-
-Working conventions are in [`CLAUDE.md`](CLAUDE.md).
+---
 
 ## Open core
 
-The enterprise layer (SSO, scoped RBAC, licensing) lives in a separate private
-repository. This repository contains no reference to it — no submodule, no URL.
-It is fetched by an environment-driven script and discovered at runtime:
+The enterprise layer lives in a separate private repository. This one contains no reference to it. It is fetched by an environment-driven script and discovered at runtime:
 
 ```bash
 NEXUSPUPPET_ENTERPRISE_REPO=... npm run enterprise:fetch && npm install
 ```
 
-Without that variable the script is a no-op and you get the core edition. CI
-proves on every commit that the public repository builds, typechecks, lints, and
-tests with no enterprise layer present.
+Without that variable the script is a no-op and you get the core edition — a complete product, not a demo. See [ADR-0002](docs/architecture/adr/0002-open-core-runtime-discovery.md).
+
+---
 
 ## Contributing
 
-Sign off commits with `git commit -s` (DCO). Run `npm run lint` before opening a
-PR — it enforces the architectural boundaries above, so a lint failure there is a
-design problem rather than a style one.
+Contributions are welcome — see [**CONTRIBUTING.md**](CONTRIBUTING.md) for local setup, the test suites, and the architectural boundaries `npm run lint` enforces. New here? [**ROADMAP.md**](ROADMAP.md) has a good-first-issues section.
+
+## License
+
+[Apache-2.0](LICENSE).
