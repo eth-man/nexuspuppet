@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import {
   AUDIT_SINK,
+  AUDIT_DELIVERY_OUTBOX,
   AUDIT_TRANSPORT,
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
@@ -113,6 +114,10 @@ export class AppModule {
     const coreServices: Provider[] = [
       { provide: CORE_AUDIT_SINK, useClass: PrismaAuditSink },
       AuditDeliveryOutbox,
+      // Aliased under a contracts token so a forwarding capability can inject
+      // it. The enterprise layer cannot name the class (ADR-0002), and this is
+      // the only part of the delivery machinery it needs to reach.
+      { provide: AUDIT_DELIVERY_OUTBOX, useExisting: AuditDeliveryOutbox },
       {
         // Explicit factory: the pacing argument is a plain object, which Nest
         // would otherwise try to resolve as an injectable dependency.

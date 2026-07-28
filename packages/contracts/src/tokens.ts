@@ -57,6 +57,16 @@ export const AUDIT_TRANSPORT = TOKENS.AUDIT_TRANSPORT;
 export const CORE_AUDIT_SINK = Symbol.for('nexuspuppet.CoreAuditSink');
 
 /**
+ * The queue that carries an audit record to an external system.
+ *
+ * Also NOT a capability: core owns the storage and the worker, and a
+ * capability that forwards records uses this to enqueue them. It exists as a
+ * token because the enterprise layer cannot import core's class — ADR-0002 —
+ * and needs some way to reach it.
+ */
+export const AUDIT_DELIVERY_OUTBOX = Symbol.for('nexuspuppet.AuditDeliveryOutbox');
+
+/**
  * Every seam, enumerable at runtime.
  *
  * Exists so a test can assert properties of ALL of them — that each has a core

@@ -280,7 +280,15 @@ export interface AuditRecord {
  * to a SIEM.
  */
 export interface IAuditSink {
-  record(entry: AuditRecord, tx?: AuditTransaction): Promise<void>;
+  /**
+   * @returns the stable id of the stored record.
+   *
+   * Returned rather than void because a sink that COMPOSES over another has to
+   * be able to refer to what the delegate wrote — to queue it for delivery, to
+   * correlate it, to reference it in an external system. Without this a
+   * wrapping sink can observe that a record was written and never say which.
+   */
+  record(entry: AuditRecord, tx?: AuditTransaction): Promise<string>;
 }
 
 /**
@@ -322,6 +330,21 @@ export interface AuditDeliveryEntry {
   userAgent: string | null;
   /** ISO-8601. */
   createdAt: string;
+}
+
+/**
+ * Queues an audit record for delivery to an external system.
+ *
+ * The only part of the delivery machinery a capability touches. Core owns the
+ * table, the leases, the retries and the worker; a forwarding sink decides
+ * WHICH records are worth sending and enqueues those.
+ *
+ * `enqueue` MUST be called inside the same transaction as the record it refers
+ * to (ADR-0005). Outside it, a crash between the two leaves a committed change
+ * that no external system will ever hear about.
+ */
+export interface IAuditDeliveryOutbox {
+  enqueue(tx: AuditTransaction, auditLogId: string): Promise<void>;
 }
 
 /**
