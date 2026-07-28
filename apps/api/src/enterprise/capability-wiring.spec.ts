@@ -33,7 +33,8 @@ import { CAPABILITY_TOKENS, capabilityTokenName } from '@nexuspuppet/contracts';
  */
 const REQUIRED_ENV: Record<string, string> = {
   JWT_SECRET: 'x'.repeat(48),
-  DATABASE_URL: 'postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public',
+  DATABASE_URL:
+    'postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public',
   PUPPETDB_URL: 'https://puppetdb.invalid:8081',
   PUPPETDB_CERT_PATH: '/dev/null',
   PUPPETDB_KEY_PATH: '/dev/null',
@@ -69,7 +70,11 @@ interface Registration {
 const isCtor = (value: unknown): value is Ctor => typeof value === 'function';
 
 const nameOf = (value: unknown): string =>
-  isCtor(value) ? value.name : typeof value === 'symbol' ? capabilityTokenName(value) : String(value);
+  isCtor(value)
+    ? value.name
+    : typeof value === 'symbol'
+      ? capabilityTokenName(value)
+      : String(value);
 
 /** Constructor dependencies of a decorated class, @Inject() overrides applied. */
 function classDependencies(cls: Ctor): unknown[] {
@@ -200,7 +205,9 @@ describe('capability wiring', () => {
       const seen = new Map<unknown, number>();
       for (const r of registrations) seen.set(r.token, (seen.get(r.token) ?? 0) + 1);
 
-      const duplicated = [...seen.entries()].filter(([, count]) => count > 1).map(([t]) => nameOf(t));
+      const duplicated = [...seen.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([t]) => nameOf(t));
       expect(duplicated).toEqual([]);
     });
   });
@@ -320,8 +327,10 @@ describe('capability wiring', () => {
         if (!isCtor(cls)) continue;
 
         if (registrations.some((r) => r.token === cls)) {
-          violations.push(`${className} is registered in the container as well as behind ` +
-            `${capabilityTokenName(token)}, so it can be injected around the token`);
+          violations.push(
+            `${className} is registered in the container as well as behind ` +
+              `${capabilityTokenName(token)}, so it can be injected around the token`,
+          );
         }
 
         for (const consumer of all) {
