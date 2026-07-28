@@ -32,8 +32,26 @@ export interface AuthenticatedPrincipal {
   scopedEnvironments?: string[];
 }
 
+/**
+ * What the caller submits to log in.
+ *
+ * The field is NOT validated as an email address. Active Directory users
+ * commonly sign in with a `sAMAccountName` — `jdoe`, or `CORP\\jdoe` — and a
+ * strict email check rejects those at the API boundary with a 400, before the
+ * provider that understands them ever sees the request. The identifier's
+ * meaning belongs to the provider: core's local accounts treat it as an email
+ * and normalise it, LDAP matches it against whatever `LDAP_SEARCH_FILTER`
+ * names.
+ *
+ * It keeps the name `email` because that is what it is for every provider core
+ * ships, and renaming the wire field would break every existing client for a
+ * case that only arises with the enterprise layer installed.
+ *
+ * Length is still bounded: an unbounded identifier is a free memcpy into
+ * whatever the directory does with it.
+ */
 export const credentialsSchema = z.object({
-  email: z.string().email(),
+  email: z.string().min(1).max(255),
   password: z.string().min(1).max(1024),
 });
 export type Credentials = z.infer<typeof credentialsSchema>;
@@ -85,6 +103,15 @@ export interface RedirectChallenge {
 export interface IAuthProvider {
   /** Stable identifier recorded on the principal and in audit records. */
   readonly source: string;
+
+  /**
+   * What to call the identifier on the login form — 'Email', 'Username'.
+   *
+   * A form labelled "Email" in front of a directory that expects
+   * `sAMAccountName` tells every user to type the wrong thing. Defaults to
+   * 'Email', which is correct for local accounts and for the usual LDAP setup.
+   */
+  readonly identifierLabel?: string;
 
   /** Defaults to 'credentials' when absent, so existing providers keep working. */
   readonly mode?: AuthMode;
