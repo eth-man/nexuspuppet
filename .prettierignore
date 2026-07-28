@@ -7,3 +7,8 @@ packages/enterprise
 *.md
 apps/api/src/generated
 apps/web/next-env.d.ts
+
+# Captured PuppetDB responses. These are DATA, not authored code: they must stay
+# byte-identical to what scripts/capture-fixtures.mjs writes, so that a
+# re-capture produces a diff reflecting the estate rather than a reformat.
+fixtures/*.sample.json

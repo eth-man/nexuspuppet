@@ -178,6 +178,19 @@ external_nodes = /usr/local/bin/nexuspuppet-enc.sh
 That script makes no network calls and depends on nothing but `/bin/sh`. That is
 deliberate — do not "improve" it into an API client.
 
+### Puppet and OpenVox
+
+Both work, with no configuration change.
+[OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet;
+`openvoxdb` serves the same `/pdb/query/v4` API and identifies itself as
+`PuppetDB`. Verified against a live `openvoxdb 8.15.0` alongside a live
+`PuppetDB 7.10.0` — every AST operator, every mapped field, the paging the
+reconciler needs. Stand it up yourself with `scripts/dev/openvox-stack.sh` and
+check it with `scripts/dev/openvox-compat.sh`.
+
+One deployment note: openvoxdb requires the `pg_trgm` PostgreSQL extension and
+will not start without it. See [DEPLOYMENT.md](DEPLOYMENT.md#puppet-or-openvox).
+
 ## Architecture
 
 Start with [`docs/architecture/README.md`](docs/architecture/README.md), then the

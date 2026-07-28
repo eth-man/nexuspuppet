@@ -176,8 +176,8 @@ describe('node projection (integration)', () => {
       const row = await prisma.managedNode.findFirst();
       const facts = row?.facts as Record<string, Record<string, unknown>>;
 
-      expect(facts['os']?.['family']).toBe('RedHat');
-      expect(facts['networking']?.['domain']).toBe('example.com');
+      expect(facts['os']?.['family']).toBe('Debian');
+      expect(facts['networking']?.['domain']).toBe('nexuspuppet.test');
     });
 
     it('records environment, status, and the projection timestamp', async () => {
@@ -487,11 +487,14 @@ describe('node projection (integration)', () => {
    * (`fqdn`, `domain`, `role`) until they were checked against a real estate.
    *
    * Note which names these tests use. `role`, `fqdn` and `domain` would NOT
-   * work here, because the synthetic factset in /fixtures contains all three —
-   * it was written from the API documentation rather than from a node, and it
-   * is where those names entered the default in the first place. `dmi` and
-   * `mountpoints` are real Facter facts the fixture happens to lack, which is
-   * exactly the condition under test.
+   * work: the captured factset contains all three. `fqdn` and `domain` because
+   * puppet-agent 7.20 still emits the legacy flat facts (the Puppet 8 and
+   * OpenVox agents do not, which is why they are out of the shipped default),
+   * and `role` because this estate now supplies it as an external fact.
+   *
+   * `ec2_metadata` and `solaris_zones` are real Facter facts that appear only
+   * on platforms this node is not — an EC2 instance and a Solaris host — so
+   * they are genuinely absent, which is the condition under test.
    */
   describe('facts no node reports', () => {
     const warnings = (spy: jest.SpyInstance): string =>
@@ -502,7 +505,7 @@ describe('node projection (integration)', () => {
         prisma,
         puppetdb as unknown as IPuppetDbClient,
         new MaterializationService(),
-        [...PROJECTED, 'dmi', 'mountpoints'],
+        [...PROJECTED, 'ec2_metadata', 'solaris_zones'],
         0,
       );
       const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -511,8 +514,8 @@ describe('node projection (integration)', () => {
         await withGhost.project();
 
         const text = warnings(spy);
-        expect(text).toContain('dmi');
-        expect(text).toContain('mountpoints');
+        expect(text).toContain('ec2_metadata');
+        expect(text).toContain('solaris_zones');
         // The facts that ARE reported must not be named, or the warning becomes
         // a list of everything and tells the operator nothing.
         expect(text).not.toContain('kernel');
@@ -566,7 +569,7 @@ describe('node projection (integration)', () => {
         prisma,
         puppetdb as unknown as IPuppetDbClient,
         new MaterializationService(),
-        [...PROJECTED, 'dmi'],
+        [...PROJECTED, 'ec2_metadata'],
         0,
       );
       const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -594,7 +597,7 @@ describe('node projection (integration)', () => {
         data: {
           name: 'redhat',
           strategy: 'ALL_RULES',
-          rules: { create: [{ factPath: 'os.family', operator: 'EQUALS', value: 'RedHat' }] },
+          rules: { create: [{ factPath: 'os.family', operator: 'EQUALS', value: 'Debian' }] },
         },
         include: { rules: true },
       });
@@ -611,7 +614,7 @@ describe('node projection (integration)', () => {
               rank: group.rank,
               strategy: 'ALL_RULES',
               isEnabled: true,
-              rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'RedHat' }],
+              rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'Debian' }],
               pinnedCertnames: [],
             },
           ]).length > 0,

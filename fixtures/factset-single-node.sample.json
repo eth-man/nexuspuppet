@@ -1,107 +1,280 @@
 [
   {
-    "certname": "db01.example.com",
-    "environment": "production",
-    "timestamp": "2026-07-27T08:55:00.000Z",
-    "producer_timestamp": "2026-07-27T08:54:58.000Z",
-    "producer": "puppetserver01.example.com",
-    "hash": "1668e131ccc0d2ac4cb4ba19faeeca0cfbcf9f02",
+    "timestamp": "2026-07-28T19:54:13.529Z",
     "facts": {
-      "href": "/pdb/query/v4/factsets/db01.example.com/facts",
       "data": [
         {
-          "name": "aio_agent_version",
-          "value": "8.10.0"
+          "name": "id",
+          "value": "root"
         },
         {
-          "name": "architecture",
-          "value": "x86_64"
+          "name": "os",
+          "value": {
+            "name": "Ubuntu",
+            "distro": {
+              "id": "Ubuntu",
+              "release": {
+                "full": "18.04",
+                "major": "18.04"
+              },
+              "codename": "bionic",
+              "description": "Ubuntu 18.04.6 LTS"
+            },
+            "family": "Debian",
+            "release": {
+              "full": "18.04",
+              "major": "18.04"
+            },
+            "selinux": {
+              "enabled": false
+            },
+            "hardware": "x86_64",
+            "architecture": "amd64"
+          }
         },
         {
-          "name": "clientcert",
-          "value": "db01.example.com"
+          "name": "dmi",
+          "value": {
+            "bios": {
+              "vendor": "LENOVO",
+              "version": "N2XET46W (1.36 )",
+              "release_date": "06/02/2026"
+            },
+            "board": {
+              "product": "20T4001JUS",
+              "asset_tag": "Not Available",
+              "manufacturer": "LENOVO",
+              "serial_number": "L1HF09H009G"
+            },
+            "chassis": {
+              "type": "Notebook",
+              "asset_tag": "No Asset Information"
+            },
+            "product": {
+              "name": "20T4001JUS",
+              "uuid": "ea6d85cc-335f-11b2-a85c-b027106f3642",
+              "serial_number": "PF24X7Z0"
+            },
+            "manufacturer": "LENOVO"
+          }
         },
         {
-          "name": "clientversion",
-          "value": "8.10.0"
-        },
-        {
-          "name": "domain",
-          "value": "example.com"
+          "name": "gid",
+          "value": "root"
         },
         {
           "name": "fqdn",
-          "value": "db01.example.com"
+          "value": "agent01.nexuspuppet.test"
         },
         {
-          "name": "hostname",
-          "value": "db01"
+          "name": "path",
+          "value": "/opt/puppetlabs/server/bin:/opt/puppetlabs/puppet/bin:/opt/puppetlabs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         },
         {
-          "name": "is_virtual",
-          "value": true
+          "name": "role",
+          "value": "web"
+        },
+        {
+          "name": "ruby",
+          "value": {
+            "sitedir": "/opt/puppetlabs/puppet/lib/ruby/site_ruby/2.7.0",
+            "version": "2.7.6",
+            "platform": "x86_64-linux"
+          }
+        },
+        {
+          "name": "uuid",
+          "value": "ec2f4a1c-0000-4000-8000-000000000000"
+        },
+        {
+          "name": "disks",
+          "value": {
+            "sda": {
+              "size": "476.94 GiB",
+              "type": "hdd",
+              "model": "ESD-S1C",
+              "vendor": "ROG",
+              "size_bytes": 512110190592
+            },
+            "sdb": {
+              "size": "1.86 TiB",
+              "type": "hdd",
+              "model": "DISK01",
+              "vendor": "SABRENT",
+              "size_bytes": 2050408636416
+            },
+            "nvme0n1": {
+              "size": "476.94 GiB",
+              "type": "ssd",
+              "model": "SAMSUNG MZVLB512HBJQ-000L7",
+              "size_bytes": 512110190592
+            }
+          }
+        },
+        {
+          "name": "augeas",
+          "value": {
+            "version": "1.13.0"
+          }
+        },
+        {
+          "name": "domain",
+          "value": "nexuspuppet.test"
         },
         {
           "name": "kernel",
           "value": "Linux"
         },
         {
-          "name": "kernelmajversion",
-          "value": "5.14"
-        },
-        {
-          "name": "kernelrelease",
-          "value": "5.14.0-427.40.1.el9_4.x86_64"
-        },
-        {
-          "name": "kernelversion",
-          "value": "5.14.0"
-        },
-        {
           "name": "memory",
           "value": {
-            "system": {
-              "available": "12.04 GiB",
-              "available_bytes": 12928204800,
-              "capacity": "24.75%",
-              "total": "15.61 GiB",
-              "total_bytes": 16763875328,
-              "used": "3.86 GiB",
-              "used_bytes": 4148412416
-            },
             "swap": {
-              "available": "4.00 GiB",
-              "available_bytes": 4294967296,
-              "capacity": "0.00%",
-              "total": "4.00 GiB",
-              "total_bytes": 4294967296,
-              "used": "0 bytes",
-              "used_bytes": 0
+              "used": "570.59 MiB",
+              "total": "8.00 GiB",
+              "capacity": "6.97%",
+              "available": "7.44 GiB",
+              "used_bytes": 598302720,
+              "total_bytes": 8589930496,
+              "available_bytes": 7991627776
+            },
+            "system": {
+              "used": "6.03 GiB",
+              "total": "22.63 GiB",
+              "capacity": "26.65%",
+              "available": "16.60 GiB",
+              "used_bytes": 6476509184,
+              "total_bytes": 24299659264,
+              "available_bytes": 17823150080
             }
           }
         },
         {
+          "name": "uptime",
+          "value": "1 day"
+        },
+        {
+          "name": "netmask",
+          "value": "255.255.0.0"
+        },
+        {
+          "name": "network",
+          "value": "172.20.0.0"
+        },
+        {
+          "name": "selinux",
+          "value": false
+        },
+        {
+          "name": "trusted",
+          "value": {
+            "domain": "nexuspuppet.test",
+            "certname": "agent01.nexuspuppet.test",
+            "external": {},
+            "hostname": "agent01",
+            "extensions": {},
+            "authenticated": "remote"
+          }
+        },
+        {
+          "name": "virtual",
+          "value": "docker"
+        },
+        {
+          "name": "hostname",
+          "value": "agent01"
+        },
+        {
+          "name": "identity",
+          "value": {
+            "gid": 0,
+            "uid": 0,
+            "user": "root",
+            "group": "root",
+            "privileged": true
+          }
+        },
+        {
+          "name": "osfamily",
+          "value": "Debian"
+        },
+        {
+          "name": "swapfree",
+          "value": "7.44 GiB"
+        },
+        {
+          "name": "swapsize",
+          "value": "8.00 GiB"
+        },
+        {
+          "name": "timezone",
+          "value": "UTC"
+        },
+        {
+          "name": "ipaddress",
+          "value": "172.20.0.5"
+        },
+        {
+          "name": "lsbdistid",
+          "value": "Ubuntu"
+        },
+        {
+          "name": "scope6_lo",
+          "value": "host"
+        },
+        {
+          "name": "clientcert",
+          "value": "agent01.nexuspuppet.test"
+        },
+        {
+          "name": "clientnoop",
+          "value": false
+        },
+        {
+          "name": "interfaces",
+          "value": "eth0,lo"
+        },
+        {
+          "name": "is_virtual",
+          "value": true
+        },
+        {
+          "name": "macaddress",
+          "value": "02:00:00:00:00:01"
+        },
+        {
+          "name": "memoryfree",
+          "value": "16.60 GiB"
+        },
+        {
+          "name": "memorysize",
+          "value": "22.63 GiB"
+        },
+        {
+          "name": "netmask_lo",
+          "value": "255.0.0.0"
+        },
+        {
+          "name": "network_lo",
+          "value": "127.0.0.0"
+        },
+        {
           "name": "networking",
           "value": {
-            "domain": "example.com",
-            "fqdn": "db01.example.com",
-            "hostname": "db01",
+            "ip": "172.20.0.5",
+            "mac": "c6:09:a1:62:12:c6",
+            "fqdn": "agent01.nexuspuppet.test",
+            "domain": "nexuspuppet.test",
+            "netmask": "255.255.0.0",
+            "network": "172.20.0.0",
+            "primary": "eth0",
+            "hostname": "agent01",
             "interfaces": {
-              "eth0": {
-                "bindings": [
-                  {
-                    "address": "10.20.30.41",
-                    "netmask": "255.255.255.0",
-                    "network": "10.20.30.0"
-                  }
-                ],
-                "ip": "10.20.30.41",
-                "mac": "52:54:00:1a:2b:3c",
-                "mtu": 1500,
-                "netmask": "255.255.255.0",
-                "network": "10.20.30.0"
-              },
               "lo": {
+                "ip": "127.0.0.1",
+                "ip6": "::1",
+                "scope6": "host",
+                "netmask": "255.0.0.0",
+                "network": "127.0.0.0",
                 "bindings": [
                   {
                     "address": "127.0.0.1",
@@ -109,86 +282,967 @@
                     "network": "127.0.0.0"
                   }
                 ],
-                "ip": "127.0.0.1",
-                "mtu": 65536,
-                "netmask": "255.0.0.0",
-                "network": "127.0.0.0"
+                "netmask6": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+                "network6": "::1",
+                "bindings6": [
+                  {
+                    "flags": [
+                      "permanent"
+                    ],
+                    "scope6": "host",
+                    "address": "::1",
+                    "netmask": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+                    "network": "::1"
+                  }
+                ]
+              },
+              "eth0": {
+                "ip": "172.20.0.5",
+                "mac": "c6:09:a1:62:12:c6",
+                "netmask": "255.255.0.0",
+                "network": "172.20.0.0",
+                "bindings": [
+                  {
+                    "address": "172.20.0.5",
+                    "netmask": "255.255.0.0",
+                    "network": "172.20.0.0"
+                  }
+                ]
               }
-            },
-            "ip": "10.20.30.41",
-            "mac": "52:54:00:1a:2b:3c",
-            "mtu": 1500,
-            "primary": "eth0"
-          }
-        },
-        {
-          "name": "os",
-          "value": {
-            "architecture": "x86_64",
-            "family": "RedHat",
-            "hardware": "x86_64",
-            "name": "RedHat",
-            "release": {
-              "full": "9.4",
-              "major": "9",
-              "minor": "4"
-            },
-            "selinux": {
-              "config_mode": "enforcing",
-              "enabled": true,
-              "enforced": true
             }
           }
         },
         {
-          "name": "processors",
+          "name": "partitions",
           "value": {
-            "cores": 4,
-            "count": 8,
-            "isa": "x86_64",
-            "models": [
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz",
-              "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz"
-            ],
-            "physicalcount": 1,
-            "threads": 2
+            "/dev/sda1": {
+              "size": "476.94 GiB",
+              "size_bytes": 512108789760
+            },
+            "/dev/sdb1": {
+              "size": "1.86 TiB",
+              "size_bytes": 2050407587840
+            },
+            "/dev/loop0": {
+              "size": "4.00 KiB",
+              "size_bytes": 4096,
+              "backing_file": "/var/lib/snapd/snaps/bare_5.snap"
+            },
+            "/dev/loop1": {
+              "size": "66.85 MiB",
+              "size_bytes": 70094848,
+              "backing_file": "/var/lib/snapd/snaps/core24_1587.snap"
+            },
+            "/dev/loop2": {
+              "size": "66.80 MiB",
+              "size_bytes": 70049792,
+              "backing_file": "/var/lib/snapd/snaps/core24_1643.snap"
+            },
+            "/dev/loop3": {
+              "size": "19.65 MiB",
+              "size_bytes": 20602880,
+              "backing_file": "/var/lib/snapd/snaps/desktop-security-center_150.snap"
+            },
+            "/dev/loop4": {
+              "size": "19.96 MiB",
+              "size_bytes": 20930560,
+              "backing_file": "/var/lib/snapd/snaps/desktop-security-center_151.snap"
+            },
+            "/dev/loop5": {
+              "size": "252.44 MiB",
+              "size_bytes": 264699904,
+              "backing_file": "/var/lib/snapd/snaps/firefox_8633.snap"
+            },
+            "/dev/loop6": {
+              "size": "16.50 MiB",
+              "size_bytes": 17301504,
+              "backing_file": "/var/lib/snapd/snaps/firmware-updater_226.snap"
+            },
+            "/dev/loop7": {
+              "size": "91.69 MiB",
+              "size_bytes": 96141312,
+              "backing_file": "/var/lib/snapd/snaps/gtk-common-themes_1535.snap"
+            },
+            "/dev/loop8": {
+              "size": "257.59 MiB",
+              "size_bytes": 270102528,
+              "backing_file": "/var/lib/snapd/snaps/firefox_8664.snap"
+            },
+            "/dev/loop9": {
+              "size": "606.08 MiB",
+              "size_bytes": 635518976,
+              "backing_file": "/var/lib/snapd/snaps/gnome-46-2404_153.snap"
+            },
+            "/dev/loop10": {
+              "size": "394.98 MiB",
+              "size_bytes": 414167040,
+              "backing_file": "/var/lib/snapd/snaps/mesa-2404_1165.snap"
+            },
+            "/dev/loop11": {
+              "size": "18.83 MiB",
+              "size_bytes": 19746816,
+              "backing_file": "/var/lib/snapd/snaps/prompting-client_222.snap"
+            },
+            "/dev/loop12": {
+              "size": "401.98 MiB",
+              "size_bytes": 421507072,
+              "backing_file": "/var/lib/snapd/snaps/mesa-2404_1839.snap"
+            },
+            "/dev/loop13": {
+              "size": "18.82 MiB",
+              "size_bytes": 19738624,
+              "backing_file": "/var/lib/snapd/snaps/prompting-client_204.snap"
+            },
+            "/dev/loop14": {
+              "size": "50.10 MiB",
+              "size_bytes": 52531200,
+              "backing_file": "/var/lib/snapd/snaps/snapd_27406.snap"
+            },
+            "/dev/loop15": {
+              "size": "15.69 MiB",
+              "size_bytes": 16449536,
+              "backing_file": "/var/lib/snapd/snaps/snap-store_1367.snap"
+            },
+            "/dev/loop16": {
+              "size": "50.10 MiB",
+              "size_bytes": 52535296,
+              "backing_file": "/var/lib/snapd/snaps/snapd_27591.snap"
+            },
+            "/dev/loop17": {
+              "size": "828.00 KiB",
+              "size_bytes": 847872,
+              "backing_file": "/var/lib/snapd/snaps/snapd-desktop-integration_387.snap"
+            },
+            "/dev/loop18": {
+              "size": "828.00 KiB",
+              "size_bytes": 847872,
+              "backing_file": "/var/lib/snapd/snaps/snapd-desktop-integration_391.snap"
+            },
+            "/dev/loop19": {
+              "size": "149.05 GiB",
+              "size_bytes": 160041885696,
+              "backing_file": "/opt/projects/aware-forensics/scratch-nvme/toshiba-mk1676gsx-160gb-002b-28jul26.dd"
+            },
+            "/dev/nvme0n1p1": {
+              "size": "16.00 MiB",
+              "size_bytes": 16777216
+            },
+            "/dev/nvme0n1p2": {
+              "size": "260.00 MiB",
+              "size_bytes": 272629760
+            },
+            "/dev/nvme0n1p3": {
+              "size": "237.72 GiB",
+              "size_bytes": 255247515648
+            },
+            "/dev/nvme0n1p4": {
+              "size": "1.12 GiB",
+              "size_bytes": 1205862400
+            },
+            "/dev/nvme0n1p5": {
+              "size": "2.00 GiB",
+              "size_bytes": 2147483648
+            },
+            "/dev/nvme0n1p6": {
+              "size": "235.72 GiB",
+              "size_bytes": 253100032000
+            },
+            "/dev/mapper/dm_crypt-0": {
+              "size": "235.70 GiB",
+              "size_bytes": 253083254784
+            },
+            "/dev/mapper/ubuntu--vg-ubuntu--lv": {
+              "size": "235.70 GiB",
+              "mount": "/etc/resolv.conf",
+              "size_bytes": 253080109056
+            }
           }
         },
         {
+          "name": "processor0",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor1",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor2",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor3",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor4",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor5",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor6",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processor7",
+          "value": "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+        },
+        {
+          "name": "processors",
+          "value": {
+            "isa": "x86_64",
+            "cores": 4,
+            "count": 8,
+            "speed": "3.40 GHz",
+            "models": [
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz",
+              "Intel(R) Core(TM) i7-10510U CPU @ 1.80GHz"
+            ],
+            "threads": 2,
+            "physicalcount": 1
+          }
+        },
+        {
+          "name": "bios_vendor",
+          "value": "LENOVO"
+        },
+        {
+          "name": "chassistype",
+          "value": "Notebook"
+        },
+        {
+          "name": "filesystems",
+          "value": "ext2,ext3,ext4,squashfs,vfat"
+        },
+        {
+          "name": "hardwareisa",
+          "value": "x86_64"
+        },
+        {
+          "name": "mountpoints",
+          "value": {
+            "/": {
+              "size": "230.94 GiB",
+              "used": "169.70 GiB",
+              "device": "overlay",
+              "options": [
+                "rw",
+                "relatime",
+                "lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/254/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/153/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/152/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/151/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/150/fs",
+                "upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/255/fs",
+                "workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/255/work",
+                "nouserxattr"
+              ],
+              "capacity": "77.44%",
+              "available": "49.44 GiB",
+              "filesystem": "overlay",
+              "size_bytes": 247970869248,
+              "used_bytes": 182215204864,
+              "available_bytes": 53084884992
+            },
+            "/dev": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "rw",
+                "nosuid",
+                "size=65536k",
+                "mode=755",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/dev/pts": {
+              "size": "0 bytes",
+              "used": "0 bytes",
+              "device": "devpts",
+              "options": [
+                "rw",
+                "nosuid",
+                "noexec",
+                "relatime",
+                "gid=5",
+                "mode=620",
+                "ptmxmode=666"
+              ],
+              "capacity": "100%",
+              "available": "0 bytes",
+              "filesystem": "devpts",
+              "size_bytes": 0,
+              "used_bytes": 0,
+              "available_bytes": 0
+            },
+            "/dev/shm": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "shm",
+              "options": [
+                "rw",
+                "nosuid",
+                "nodev",
+                "noexec",
+                "relatime",
+                "size=65536k",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/etc/hosts": {
+              "size": "230.94 GiB",
+              "used": "169.70 GiB",
+              "device": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+              "options": [
+                "rw",
+                "relatime"
+              ],
+              "capacity": "77.44%",
+              "available": "49.44 GiB",
+              "filesystem": "ext4",
+              "size_bytes": 247970869248,
+              "used_bytes": 182215204864,
+              "available_bytes": 53084884992
+            },
+            "/proc/acpi": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/proc/keys": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "rw",
+                "nosuid",
+                "size=65536k",
+                "mode=755",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/proc/scsi": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/dev/mqueue": {
+              "size": "0 bytes",
+              "used": "0 bytes",
+              "device": "mqueue",
+              "options": [
+                "rw",
+                "nosuid",
+                "nodev",
+                "noexec",
+                "relatime"
+              ],
+              "capacity": "100%",
+              "available": "0 bytes",
+              "filesystem": "mqueue",
+              "size_bytes": 0,
+              "used_bytes": 0,
+              "available_bytes": 0
+            },
+            "/proc/kcore": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "rw",
+                "nosuid",
+                "size=65536k",
+                "mode=755",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/proc/asound": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/etc/hostname": {
+              "size": "230.94 GiB",
+              "used": "169.70 GiB",
+              "device": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+              "options": [
+                "rw",
+                "relatime"
+              ],
+              "capacity": "77.44%",
+              "available": "49.44 GiB",
+              "filesystem": "ext4",
+              "size_bytes": 247970869248,
+              "used_bytes": 182215204864,
+              "available_bytes": 53084884992
+            },
+            "/sys/firmware": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/etc/resolv.conf": {
+              "size": "230.94 GiB",
+              "used": "169.70 GiB",
+              "device": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+              "options": [
+                "rw",
+                "relatime"
+              ],
+              "capacity": "77.44%",
+              "available": "49.44 GiB",
+              "filesystem": "ext4",
+              "size_bytes": 247970869248,
+              "used_bytes": 182215204864,
+              "available_bytes": 53084884992
+            },
+            "/proc/interrupts": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "rw",
+                "nosuid",
+                "size=65536k",
+                "mode=755",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/proc/timer_list": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "rw",
+                "nosuid",
+                "size=65536k",
+                "mode=755",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/proc/latency_stats": {
+              "size": "64.00 MiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "rw",
+                "nosuid",
+                "size=65536k",
+                "mode=755",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "64.00 MiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 67108864,
+              "used_bytes": 0,
+              "available_bytes": 67108864
+            },
+            "/etc/puppetlabs/puppet/ssl": {
+              "size": "230.94 GiB",
+              "used": "169.70 GiB",
+              "device": "/dev/mapper/ubuntu--vg-ubuntu--lv",
+              "options": [
+                "rw",
+                "relatime"
+              ],
+              "capacity": "77.44%",
+              "available": "49.44 GiB",
+              "filesystem": "ext4",
+              "size_bytes": 247970869248,
+              "used_bytes": 182215204864,
+              "available_bytes": 53084884992
+            },
+            "/sys/devices/virtual/powercap": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu0/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu1/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu2/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu3/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu4/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu5/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu6/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            },
+            "/sys/devices/system/cpu/cpu7/thermal_throttle": {
+              "size": "11.32 GiB",
+              "used": "0 bytes",
+              "device": "tmpfs",
+              "options": [
+                "ro",
+                "relatime",
+                "inode64"
+              ],
+              "capacity": "0%",
+              "available": "11.32 GiB",
+              "filesystem": "tmpfs",
+              "size_bytes": 12149829632,
+              "used_bytes": 0,
+              "available_bytes": 12149829632
+            }
+          }
+        },
+        {
+          "name": "netmask6_lo",
+          "value": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
+        },
+        {
+          "name": "network6_lo",
+          "value": "::1"
+        },
+        {
+          "name": "productname",
+          "value": "20T4001JUS"
+        },
+        {
+          "name": "rubysitedir",
+          "value": "/opt/puppetlabs/puppet/lib/ruby/site_ruby/2.7.0"
+        },
+        {
+          "name": "rubyversion",
+          "value": "2.7.6"
+        },
+        {
+          "name": "swapfree_mb",
+          "value": 7621.41015625
+        },
+        {
+          "name": "swapsize_mb",
+          "value": 8191.99609375
+        },
+        {
+          "name": "uptime_days",
+          "value": 1
+        },
+        {
+          "name": "architecture",
+          "value": "amd64"
+        },
+        {
+          "name": "bios_version",
+          "value": "N2XET46W (1.36 )"
+        },
+        {
+          "name": "blockdevices",
+          "value": "nvme0n1,sdb,sda"
+        },
+        {
+          "name": "dhcp_servers",
+          "value": {
+            "system": ""
+          }
+        },
+        {
+          "name": "fips_enabled",
+          "value": false
+        },
+        {
+          "name": "ipaddress_lo",
+          "value": "127.0.0.1"
+        },
+        {
+          "name": "manufacturer",
+          "value": "LENOVO"
+        },
+        {
+          "name": "netmask_eth0",
+          "value": "255.255.0.0"
+        },
+        {
+          "name": "network_eth0",
+          "value": "172.20.0.0"
+        },
+        {
+          "name": "rubyplatform",
+          "value": "x86_64-linux"
+        },
+        {
+          "name": "serialnumber",
+          "value": "0000000000"
+        },
+        {
+          "name": "uptime_hours",
+          "value": 36
+        },
+        {
+          "name": "augeasversion",
+          "value": "1.13.0"
+        },
+        {
+          "name": "boardassettag",
+          "value": "Not Available"
+        },
+        {
+          "name": "clientversion",
+          "value": "7.20.0"
+        },
+        {
+          "name": "facterversion",
+          "value": "4.2.13"
+        },
+        {
+          "name": "hardwaremodel",
+          "value": "x86_64"
+        },
+        {
+          "name": "ipaddress6_lo",
+          "value": "::1"
+        },
+        {
+          "name": "kernelrelease",
+          "value": "7.0.0-28-generic"
+        },
+        {
+          "name": "kernelversion",
+          "value": "7.0.0"
+        },
+        {
+          "name": "load_averages",
+          "value": {
+            "1m": 0.46,
+            "5m": 0.33,
+            "15m": 0.35
+          }
+        },
+        {
+          "name": "memoryfree_mb",
+          "value": 16997.48046875
+        },
+        {
+          "name": "memorysize_mb",
+          "value": 23173.9609375
+        },
+        {
           "name": "puppetversion",
-          "value": "8.10.0"
+          "value": "7.20.0"
         },
         {
-          "name": "role",
-          "value": "db"
+          "name": "system_uptime",
+          "value": {
+            "days": 1,
+            "hours": 36,
+            "uptime": "1 day",
+            "seconds": 130272
+          }
         },
         {
-          "name": "timezone",
-          "value": "UTC"
+          "name": "ipaddress_eth0",
+          "value": "172.20.0.5"
         },
         {
-          "name": "virtual",
-          "value": "kvm"
+          "name": "lsbdistrelease",
+          "value": "18.04"
         },
         {
-          "name": "selinux_mode",
-          "value": "enforcing"
+          "name": "processorcount",
+          "value": 8
         },
         {
-          "name": "rack_position",
-          "value": "0755"
+          "name": "uptime_seconds",
+          "value": 130272
         },
         {
-          "name": "maintenance_window",
-          "value": "yes"
+          "name": "chassisassettag",
+          "value": "No Asset Information"
+        },
+        {
+          "name": "lsbdistcodename",
+          "value": "bionic"
+        },
+        {
+          "name": "macaddress_eth0",
+          "value": "02:00:00:00:00:01"
+        },
+        {
+          "name": "operatingsystem",
+          "value": "Ubuntu"
+        },
+        {
+          "name": "boardproductname",
+          "value": "20T4001JUS"
+        },
+        {
+          "name": "kernelmajversion",
+          "value": "7.0"
+        },
+        {
+          "name": "aio_agent_version",
+          "value": "7.20.0"
+        },
+        {
+          "name": "bios_release_date",
+          "value": "06/02/2026"
+        },
+        {
+          "name": "boardmanufacturer",
+          "value": "LENOVO"
+        },
+        {
+          "name": "boardserialnumber",
+          "value": "0000000000"
+        },
+        {
+          "name": "lsbmajdistrelease",
+          "value": "18.04"
+        },
+        {
+          "name": "lsbdistdescription",
+          "value": "Ubuntu 18.04.6 LTS"
+        },
+        {
+          "name": "blockdevice_sda_size",
+          "value": 512110190592
+        },
+        {
+          "name": "blockdevice_sdb_size",
+          "value": 2050408636416
+        },
+        {
+          "name": "blockdevice_sda_model",
+          "value": "ESD-S1C"
+        },
+        {
+          "name": "blockdevice_sdb_model",
+          "value": "DISK01"
+        },
+        {
+          "name": "blockdevice_sda_vendor",
+          "value": "ROG"
+        },
+        {
+          "name": "blockdevice_sdb_vendor",
+          "value": "SABRENT"
+        },
+        {
+          "name": "operatingsystemrelease",
+          "value": "18.04"
+        },
+        {
+          "name": "physicalprocessorcount",
+          "value": 1
+        },
+        {
+          "name": "blockdevice_nvme0n1_size",
+          "value": 512110190592
+        },
+        {
+          "name": "blockdevice_nvme0n1_model",
+          "value": "SAMSUNG MZVLB512HBJQ-000L7"
+        },
+        {
+          "name": "operatingsystemmajrelease",
+          "value": "18.04"
         }
-      ]
-    }
+      ],
+      "href": "/pdb/query/v4/factsets/agent01.nexuspuppet.test/facts"
+    },
+    "certname": "agent01.nexuspuppet.test",
+    "hash": "890f987efb71478131bd8d216d45116c4bb4b06b",
+    "producer_timestamp": "2026-07-28T19:54:13.498Z",
+    "producer": "puppet",
+    "environment": "production"
   }
 ]

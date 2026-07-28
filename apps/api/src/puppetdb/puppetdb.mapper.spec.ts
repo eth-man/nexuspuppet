@@ -123,7 +123,7 @@ describe('mapReport', () => {
   it('maps the successful report', () => {
     expect(success.status).toBe('changed');
     expect(success.noop).toBe(false);
-    expect(success.puppetVersion).toBe('8.10.0');
+    expect(success.puppetVersion).toBe('7.20.0');
   });
 
   it('maps the failed report', () => {
@@ -139,16 +139,22 @@ describe('mapReport', () => {
 
     for (const report of [success, failure]) {
       expect(estate.has(report.certname)).toBe(true);
-      // And the node's advertised latest_report_hash resolves to this report,
-      // so the inventory's "view report" link works.
-      expect(estate.get(report.certname)?.['latest_report_hash']).toBe(report.hash);
     }
+
+    // A node advertises ONE latest_report_hash, and with a real capture both
+    // reports belong to the same node — so only the newer can be its latest.
+    // The synthetic estate gave every node its own report and could assert
+    // this for both, which was a property of the fiction, not of PuppetDB.
+    expect(estate.get(failure.certname)?.['latest_report_hash']).toBe(failure.hash);
   });
 
   // PuppetDB carries no duration field. Deriving it is the mapper's job.
   it('derives duration from start and end time', () => {
-    expect(success.durationSeconds).toBe(12);
-    expect(failure.durationSeconds).toBe(47);
+    // Sub-second and awkward, because these are real runs against a container
+    // rather than the round numbers a generator produces. Millisecond
+    // precision is the behaviour under test, so the untidy values are the point.
+    expect(success.durationSeconds).toBe(1.324);
+    expect(failure.durationSeconds).toBe(1.403);
   });
 
   it('keeps configuration_version as a string even when numeric', () => {
@@ -179,15 +185,22 @@ describe('mapResourceEvent', () => {
   it('maps every event in the failed report', () => {
     const mapped = data.map(mapResourceEvent);
     expect(mapped).toHaveLength(4);
-    expect(mapped.map((e) => e.status).sort()).toEqual(['failure', 'noop', 'skipped', 'skipped']);
+    expect(mapped.map((e) => e.status).sort()).toEqual([
+      'failure',
+      'success',
+      'success',
+      'success',
+    ]);
   });
 
   it('preserves the failure message an operator triages from', () => {
     const failed = data.map(mapResourceEvent).find((e) => e.status === 'failure');
-    expect(failed?.resourceType).toBe('Package');
-    expect(failed?.message).toContain('Unable to find a match');
-    expect(failed?.file).toContain('postgres.pp');
-    expect(failed?.line).toBe(18);
+    expect(failed?.resourceType).toBe('Exec');
+    // Puppet's own wording, captured rather than imagined. An operator
+    // searches for this string; a paraphrase would not be found.
+    expect(failed?.message).toContain('returned 1 instead of one of [0]');
+    expect(failed?.file).toContain('base.pp');
+    expect(failed?.line).toBe(16);
   });
 
   // The dependency chain is what explains why a run failed the way it did.
@@ -195,17 +208,34 @@ describe('mapResourceEvent', () => {
     const failed = data.map(mapResourceEvent).find((e) => e.status === 'failure');
     expect(failed?.containmentPath).toEqual([
       'Stage[main]',
-      'Profile::Db::Postgres',
-      'Package[postgresql16-server]',
+      'Profile::Base',
+      'Exec[nexuspuppet-fixture-failure]',
     ]);
-    expect(failed?.containingClass).toBe('Profile::Db::Postgres');
+    expect(failed?.containingClass).toBe('Profile::Base');
   });
 
+  /**
+   * Constructed here, not taken from the capture, and the distinction is the
+   * point. A resource is skipped only when a dependency fails, which this
+   * estate does not produce, so no captured event has this shape. The
+   * synthetic fixture DID contain one — which made an invented shape look
+   * like an observed one. Building it in the test is honest about its origin.
+   */
   it('tolerates the all-null fields of a skipped event', () => {
-    const skipped = data.map(mapResourceEvent).find((e) => e.status === 'skipped');
-    expect(skipped?.property).toBeNull();
-    expect(skipped?.message).toBeNull();
-    expect(skipped?.correctiveChange).toBeNull();
+    const skipped = mapResourceEvent({
+      status: 'skipped',
+      resource_type: 'Service',
+      resource_title: 'postgresql',
+      property: null,
+      message: null,
+      corrective_change: null,
+      containment_path: ['Stage[main]'],
+    });
+
+    expect(skipped.status).toBe('skipped');
+    expect(skipped.property).toBeNull();
+    expect(skipped.message).toBeNull();
+    expect(skipped.correctiveChange).toBeNull();
   });
 
   it('defaults an unrecognised status to skipped rather than throwing', () => {
@@ -222,9 +252,9 @@ describe('mapReportSummary', () => {
     const metrics = (failureReports[0] as Raw)['metrics'] as Raw;
     const summary = mapReportSummary(metrics['data']);
 
-    expect(summary.resourcesTotal).toBe(214);
+    expect(summary.resourcesTotal).toBe(11);
     expect(summary.resourcesFailed).toBe(1);
-    expect(summary.resourcesSkipped).toBe(2);
+    expect(summary.resourcesSkipped).toBe(0);
     expect(summary.eventsTotal).toBe(4);
   });
 
@@ -250,14 +280,21 @@ describe('mapFactsetToFacts', () => {
 
   it('preserves structured fact values', () => {
     const os = facts['os'] as Record<string, unknown>;
-    expect(os['family']).toBe('RedHat');
-    expect((os['release'] as Record<string, unknown>)['major']).toBe('9');
+    expect(os['family']).toBe('Debian');
+    expect((os['release'] as Record<string, unknown>)['major']).toBe('18.04');
   });
 
   // These are the values that break naive YAML emitters downstream in the ENC.
   it('preserves strings that look like other types', () => {
-    expect(facts['rack_position']).toBe('0755');
-    expect(facts['maintenance_window']).toBe('yes');
+    // Real facts. The previous version asserted `rack_position: '0755'` and
+    // `maintenance_window: 'yes'`, both invented. Facter genuinely emits
+    // version numbers as strings, and coercing '7.0' to a number would lose
+    // the distinction between 7.0 and 7.10 — the hazard is real without
+    // needing to be made up.
+    expect(facts['kernelmajversion']).toBe('7.0');
+    expect(typeof facts['kernelmajversion']).toBe('string');
+    const osFact = facts['os'] as Record<string, unknown>;
+    expect((osFact['release'] as Record<string, unknown>)['major']).toBe('18.04');
   });
 
   it('returns an empty object for a malformed factset', () => {
