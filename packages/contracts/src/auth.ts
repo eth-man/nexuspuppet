@@ -230,18 +230,59 @@ export interface ILicenseService {
  * than offering edits that the provider will reject.
  */
 
-export const createUserSchema = z.object({
-  email: z.string().email().max(255),
-  displayName: z.string().min(1).max(128),
-  role: userRoleSchema,
+export const createUserSchema = z
+  .object({
+    email: z.string().email().max(255),
+    displayName: z.string().min(1).max(128),
+    role: userRoleSchema,
+    /**
+     * Which authority owns this account's credentials. `local` means a password
+     * held here; anything else names an external provider (LDAP, SAML, OIDC).
+     *
+     * External providers authenticate a person against a directory but still
+     * need a row here, because `AuthenticatedPrincipal.userId` is a foreign key
+     * from refresh_tokens and audit_logs. Without a way to create one, an LDAP
+     * deployment has no accounts and nobody can log in at all.
+     */
+    authSource: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z][a-z0-9_-]*$/, 'authSource must be lowercase alphanumeric')
+      .default('local'),
+    /**
+     * Long minimum rather than a composition rule. Length dominates entropy, and
+     * character-class rules mostly produce `Password1!` — memorised, reused, and
+     * no stronger than a longer passphrase.
+     */
+    password: z.string().min(12).max(1024).optional(),
+  })
+  .refine((input) => input.authSource !== 'local' || input.password !== undefined, {
+    message: 'A local account requires a password.',
+    path: ['password'],
+  })
   /**
-   * Long minimum rather than a composition rule. Length dominates entropy, and
-   * character-class rules mostly produce `Password1!` — memorised, reused, and
-   * no stronger than a longer passphrase.
+   * An externally-authenticated account must NOT carry a password hash. If it
+   * did, the account would remain usable through local authentication after the
+   * directory revoked the person's access — and would silently become a
+   * password login again if the deployment ever dropped back to the core
+   * edition. The directory must be the only way in.
    */
-  password: z.string().min(12).max(1024),
-});
+  .refine((input) => input.authSource === 'local' || input.password === undefined, {
+    message: 'An externally-authenticated account must not be given a password.',
+    path: ['password'],
+  });
+/** The VALIDATED shape, as the API sees it after parsing: authSource resolved. */
 export type CreateUser = z.infer<typeof createUserSchema>;
+/**
+ * What a CALLER supplies, with authSource still optional.
+ *
+ * Distinct from CreateUser because `.default('local')` makes the field required
+ * on the way out and optional on the way in. Without this, every caller that
+ * only wants a plain local account would have to spell out `authSource:
+ * 'local'`.
+ */
+export type CreateUserInput = z.input<typeof createUserSchema>;
 
 export const updateUserSchema = z.object({
   displayName: z.string().min(1).max(128).optional(),

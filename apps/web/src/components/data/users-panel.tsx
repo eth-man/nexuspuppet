@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Plus, UserX } from 'lucide-react';
 import type { ManagedUser, UserRole } from '@nexuspuppet/contracts';
-import { useUsers } from '@/lib/queries';
+import { useAuthMode, useUsers } from '@/lib/queries';
 import { useCreateUser, useDeactivateUser, useUpdateUser } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
@@ -42,6 +42,22 @@ export function UsersPanel() {
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<UserRole>('VIEWER');
   const [password, setPassword] = useState('');
+  /**
+   * Which authority owns this account's credentials.
+   *
+   * Keyed off the DEPLOYMENT's active provider, not the current user's
+   * authSource. An administrator with a local account on an LDAP deployment
+   * must still be able to provision directory accounts — reading it off the
+   * principal would hide the option from exactly the person who needs it.
+   *
+   * In core mode this is 'local', so nothing external is offered at all and the
+   * dialog is unchanged.
+   */
+  const authMode = useAuthMode();
+  const externalSource =
+    authMode.data !== undefined && authMode.data.source !== 'local' ? authMode.data.source : null;
+  const [authSource, setAuthSource] = useState('local');
+  const isLocal = authSource === 'local';
   const [error, setError] = useState<string | null>(null);
 
   if (!manages) return null;
@@ -173,7 +189,11 @@ export function UsersPanel() {
         open={open}
         onClose={() => setOpen(false)}
         title="New user"
-        description="Local account. The user can change their own password after signing in."
+        description={
+          isLocal
+            ? 'Local account. The user can change their own password after signing in.'
+            : `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.`
+        }
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
@@ -182,11 +202,16 @@ export function UsersPanel() {
             <Button
               variant="primary"
               size="sm"
-              disabled={create.isPending || password.length < 12}
+              disabled={create.isPending || (isLocal && password.length < 12)}
               onClick={() => {
                 setError(null);
                 create.mutate(
-                  { email, displayName, role, password },
+                  // An external account is created with no password at all: a
+                  // stored hash would keep it usable through local auth after
+                  // the directory revoked access.
+                  isLocal
+                    ? { email, displayName, role, authSource, password }
+                    : { email, displayName, role, authSource },
                   {
                     onSuccess: () => {
                       setOpen(false);
@@ -194,6 +219,7 @@ export function UsersPanel() {
                       setDisplayName('');
                       setPassword('');
                       setRole('VIEWER');
+                      setAuthSource('local');
                     },
                     onError: (caught) => {
                       setOpen(false);
@@ -243,6 +269,23 @@ export function UsersPanel() {
                 ))}
               </Select>
             </div>
+            {externalSource !== null && (
+              <div className="space-y-1">
+                <Label htmlFor="newAuthSource">Authentication</Label>
+                <Select
+                  id="newAuthSource"
+                  value={authSource}
+                  onChange={(e) => setAuthSource(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="local">local (password)</option>
+                  <option value={externalSource}>{externalSource}</option>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          {isLocal ? (
             <div className="space-y-1">
               <Label htmlFor="newPassword">Password</Label>
               <Input
@@ -256,7 +299,12 @@ export function UsersPanel() {
                   `Password1!` — memorised, reused, and no stronger. */}
               <p className="text-[11px] text-ink-faint">At least 12 characters.</p>
             </div>
-          </div>
+          ) : (
+            <p className="text-[11px] text-ink-faint">
+              No password is set here. The email above must match the directory entry, or the person
+              will authenticate successfully and still be refused.
+            </p>
+          )}
         </div>
       </Dialog>
     </Card>

@@ -50,7 +50,7 @@ describe('user administration (integration)', () => {
       accessTtl: '15m',
       refreshTtl: '30d',
     });
-    users = new UsersService(prisma, new PrismaAuditSink(prisma), tokens);
+    users = new UsersService(prisma, new PrismaAuditSink(prisma), tokens, provider);
   });
 
   const makeUser = async (email: string, role: 'VIEWER' | 'OPERATOR' | 'ADMIN', isActive = true) =>
@@ -87,6 +87,7 @@ describe('user administration (integration)', () => {
           email: 'New.Operator@Example.com',
           displayName: 'New Operator',
           role: 'OPERATOR',
+          authSource: 'local',
           password: 'a-sufficiently-long-password',
         },
         principalFor(admin),
@@ -113,6 +114,7 @@ describe('user administration (integration)', () => {
             email: 'TAKEN@example.com',
             displayName: 'Clash',
             role: 'VIEWER',
+            authSource: 'local',
             password: 'a-sufficiently-long-password',
           },
           principalFor(admin),
@@ -128,6 +130,7 @@ describe('user administration (integration)', () => {
           email: 'audited@example.com',
           displayName: 'Audited',
           role: 'VIEWER',
+          authSource: 'local',
           password: 'a-sufficiently-long-password',
         },
         principalFor(admin),
@@ -337,6 +340,107 @@ describe('user administration (integration)', () => {
       const entry = await prisma.auditLog.findFirst({ where: { action: 'user.password.reset' } });
       expect(entry).not.toBeNull();
       expect(JSON.stringify(entry)).not.toContain('reset-by-the-admin-123');
+    });
+  });
+
+  /**
+   * Provisioning for an external directory (ADR-0006).
+   *
+   * An LDAP/SAML provider authenticates a person against a directory but still
+   * needs a row here, because AuthenticatedPrincipal.userId is a foreign key
+   * from refresh_tokens and audit_logs. Without a way to create one, an LDAP
+   * deployment has no accounts at all and nobody can sign in.
+   */
+  describe('externally-authenticated accounts', () => {
+    const externalProvider = {
+      source: 'ldap',
+      mode: 'credentials' as const,
+      authenticate: async () => ({ ok: false as const, reason: 'INVALID_CREDENTIALS' as const }),
+      resolve: async () => null,
+    };
+
+    let ldapUsers: UsersService;
+    beforeEach(() => {
+      ldapUsers = new UsersService(prisma, new PrismaAuditSink(prisma), tokens, externalProvider);
+    });
+
+    it('creates an account with no password hash', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      const created = await ldapUsers.create(
+        {
+          email: 'dir@example.com',
+          displayName: 'Directory User',
+          role: 'VIEWER',
+          authSource: 'ldap',
+        },
+        principalFor(admin),
+        CTX,
+      );
+
+      expect(created.authSource).toBe('ldap');
+
+      // A stored hash would keep the account usable through local auth after
+      // the directory revoked access, and would silently become a password
+      // login again if the deployment dropped back to the core edition.
+      const row = await prisma.user.findUniqueOrThrow({ where: { email: 'dir@example.com' } });
+      expect(row.passwordHash).toBeNull();
+    });
+
+    /**
+     * An account whose authSource no provider answers to can never be
+     * authenticated. Creating one silently is how an operator ends up with a
+     * user list full of accounts that cannot log in and no error explaining it.
+     */
+    it('refuses an authSource no configured provider answers to', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      await expect(
+        ldapUsers.create(
+          { email: 'saml@example.com', displayName: 'SAML', role: 'VIEWER', authSource: 'saml' },
+          principalFor(admin),
+          CTX,
+        ),
+      ).rejects.toThrow(/No configured provider authenticates/);
+    });
+
+    it('still allows local accounts, so dropping back to core orphans nobody', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      const created = await ldapUsers.create(
+        {
+          email: 'fallback@example.com',
+          displayName: 'Fallback',
+          role: 'VIEWER',
+          authSource: 'local',
+          password: 'a-sufficiently-long-password',
+        },
+        principalFor(admin),
+        CTX,
+      );
+
+      expect(created.authSource).toBe('local');
+    });
+
+    it('records which authority owns the account in the audit trail', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      await ldapUsers.create(
+        {
+          email: 'audited@example.com',
+          displayName: 'Audited',
+          role: 'VIEWER',
+          authSource: 'ldap',
+        },
+        principalFor(admin),
+        CTX,
+      );
+
+      const entry = await prisma.auditLog.findFirst({
+        where: { action: 'user.create' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(JSON.stringify(entry?.after)).toContain('ldap');
     });
   });
 });
