@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -473,6 +474,113 @@ describe('node projection (integration)', () => {
 
       const facts = (await prisma.managedNode.findFirst())?.facts as Record<string, unknown>;
       expect('puppetversion' in facts).toBe(false);
+    });
+  });
+
+  /**
+   * Naming a fact nothing reports.
+   *
+   * The allow-list is written by hand and drifts against Facter. A name no node
+   * reports makes every rule on it silently unmatchable, and the only signal is
+   * a group that classifies nothing — indistinguishable from a group whose
+   * rules genuinely match nothing. Our own default carried three such names
+   * (`fqdn`, `domain`, `role`) until they were checked against a real estate.
+   *
+   * Note which names these tests use. `role`, `fqdn` and `domain` would NOT
+   * work here, because the synthetic factset in /fixtures contains all three —
+   * it was written from the API documentation rather than from a node, and it
+   * is where those names entered the default in the first place. `dmi` and
+   * `mountpoints` are real Facter facts the fixture happens to lack, which is
+   * exactly the condition under test.
+   */
+  describe('facts no node reports', () => {
+    const warnings = (spy: jest.SpyInstance): string =>
+      spy.mock.calls.map((c) => String(c[0])).join(' | ');
+
+    it('names the projected facts absent from every node', async () => {
+      const withGhost = new NodeProjectionService(
+        prisma,
+        puppetdb as unknown as IPuppetDbClient,
+        new MaterializationService(),
+        [...PROJECTED, 'dmi', 'mountpoints'],
+        0,
+      );
+      const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      try {
+        await withGhost.project();
+
+        const text = warnings(spy);
+        expect(text).toContain('dmi');
+        expect(text).toContain('mountpoints');
+        // The facts that ARE reported must not be named, or the warning becomes
+        // a list of everything and tells the operator nothing.
+        expect(text).not.toContain('kernel');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('stays silent when every projected fact is reported', async () => {
+      const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      try {
+        await projector.project();
+        expect(warnings(spy)).not.toContain('NO node reports');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    /**
+     * Every fact is trivially absent from an empty estate. Warning there would
+     * fire on every fresh install, before a single agent has checked in, and
+     * teach operators to ignore it.
+     */
+    it('stays silent when the estate is empty', async () => {
+      puppetdb.nodes = [];
+      const withGhost = new NodeProjectionService(
+        prisma,
+        puppetdb as unknown as IPuppetDbClient,
+        new MaterializationService(),
+        ['definitely_not_a_fact'],
+        0,
+      );
+      const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      try {
+        await withGhost.project();
+        expect(warnings(spy)).not.toContain('definitely_not_a_fact');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    /**
+     * Once per process. The projector runs every five minutes; a warning that
+     * repeats at that rate becomes something operators filter, which is how the
+     * condition stays invisible.
+     */
+    it('warns once, not on every pass', async () => {
+      const withGhost = new NodeProjectionService(
+        prisma,
+        puppetdb as unknown as IPuppetDbClient,
+        new MaterializationService(),
+        [...PROJECTED, 'dmi'],
+        0,
+      );
+      const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      try {
+        await withGhost.project();
+        await withGhost.project();
+        await withGhost.project();
+
+        const named = spy.mock.calls.filter((c) => String(c[0]).includes('NO node reports'));
+        expect(named).toHaveLength(1);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

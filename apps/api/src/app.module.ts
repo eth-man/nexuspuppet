@@ -44,7 +44,7 @@ import {
 } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
-import type { IAuthProvider, IPuppetDbClient } from '@nexuspuppet/contracts';
+import type { IAuditSink, IAuthProvider, IPuppetDbClient } from '@nexuspuppet/contracts';
 
 /**
  * Root module.
@@ -183,7 +183,20 @@ export class AppModule {
         // --- Materialization (ADR-0003) -------------------------------------
         { provide: PrismaService, useFactory: () => new PrismaService(env.DATABASE_URL) },
         MaterializationService,
-        ClassificationService,
+        // A factory, because the unprojected-fact warning needs the SAME
+        // projected list the projector uses, from validated config. It used to
+        // read process.env directly and switch itself off when the operator
+        // relied on the default — which is the default deployment.
+        {
+          provide: ClassificationService,
+          inject: [PrismaService, MaterializationService, AUDIT_SINK],
+          useFactory: (
+            prisma: PrismaService,
+            materialization: MaterializationService,
+            audit: IAuditSink,
+          ): ClassificationService =>
+            new ClassificationService(prisma, materialization, audit, env.PUPPETDB_PROJECTED_FACTS),
+        },
         {
           provide: MaterializerService,
           inject: [PrismaService, ENC_FILE_WRITER],

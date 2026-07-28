@@ -32,6 +32,17 @@ const ACTOR: AuthenticatedPrincipal = {
 
 const CTX = { ipAddress: '10.0.0.1', userAgent: 'jest' };
 
+/**
+ * The projected fact allow-list these tests classify against.
+ *
+ * Passed EXPLICITLY to the constructor rather than set in process.env. The
+ * service used to read the environment itself, which meant the unprojected-fact
+ * warning silently disabled itself whenever an operator relied on the config
+ * default — the default deployment. Tests that configured it through the
+ * environment could not have caught that, because they always set it.
+ */
+const PROJECTED = ['os', 'networking', 'kernel'];
+
 jest.setTimeout(30_000);
 
 describe('classification writes (integration)', () => {
@@ -52,6 +63,7 @@ describe('classification writes (integration)', () => {
       prisma,
       new MaterializationService(),
       new PrismaAuditSink(prisma),
+      PROJECTED,
     );
 
     await prisma.encMaterializationJob.deleteMany();
@@ -356,7 +368,6 @@ describe('classification writes (integration)', () => {
     // A rule on an unprojected fact can NEVER match. Silently never matching is
     // the worst outcome, so it must be surfaced (ADR-0004).
     it('warns when a rule references a fact outside the projection', async () => {
-      process.env['PUPPETDB_PROJECTED_FACTS'] = 'os,networking';
       const group = (await create('rules')).group;
 
       const result = await service.replaceRules(
@@ -367,11 +378,9 @@ describe('classification writes (integration)', () => {
       );
 
       expect(result.warnings.join(' ')).toContain('can never match');
-      delete process.env['PUPPETDB_PROJECTED_FACTS'];
     });
 
     it('does not warn for a projected fact', async () => {
-      process.env['PUPPETDB_PROJECTED_FACTS'] = 'os,networking';
       const group = (await create('rules')).group;
 
       const result = await service.replaceRules(
@@ -382,7 +391,67 @@ describe('classification writes (integration)', () => {
       );
 
       expect(result.warnings).toEqual([]);
+    });
+
+    /**
+     * The regression that prompted this change.
+     *
+     * The check read process.env directly, so with PUPPETDB_PROJECTED_FACTS
+     * unset — the DEFAULT deployment, where Zod supplies the default further
+     * down — it saw an empty list and returned no warnings at all. The safety
+     * net switched itself off in exactly the configuration most people run.
+     *
+     * The variable is explicitly removed here, so this fails if the service
+     * ever reaches for the environment again.
+     */
+    it('still warns when the environment variable is unset', async () => {
+      const saved = process.env['PUPPETDB_PROJECTED_FACTS'];
       delete process.env['PUPPETDB_PROJECTED_FACTS'];
+      try {
+        const configured = new ClassificationService(
+          prisma,
+          new MaterializationService(),
+          new PrismaAuditSink(prisma),
+          PROJECTED,
+        );
+        const group = (await create('rules')).group;
+
+        const result = await configured.replaceRules(
+          group.id,
+          { rules: [{ factPath: 'role', operator: 'EQUALS', value: 'web' }] },
+          ACTOR,
+          CTX,
+        );
+
+        expect(result.warnings.join(' ')).toContain('can never match');
+      } finally {
+        if (saved === undefined) delete process.env['PUPPETDB_PROJECTED_FACTS'];
+        else process.env['PUPPETDB_PROJECTED_FACTS'] = saved;
+      }
+    });
+
+    /**
+     * An empty list means projection is DISABLED, a legitimate deployment — a
+     * replica that only serves HTTP. Warning on every rule there would be noise
+     * about a system working as configured.
+     */
+    it('does not warn when projection is disabled', async () => {
+      const disabled = new ClassificationService(
+        prisma,
+        new MaterializationService(),
+        new PrismaAuditSink(prisma),
+        [],
+      );
+      const group = (await create('rules')).group;
+
+      const result = await disabled.replaceRules(
+        group.id,
+        { rules: [{ factPath: 'anything.at.all', operator: 'EQUALS', value: 'x' }] },
+        ACTOR,
+        CTX,
+      );
+
+      expect(result.warnings).toEqual([]);
     });
 
     // Pinning a not-yet-provisioned node is legitimate, but it will not
@@ -589,7 +658,12 @@ describe('classification writes (integration)', () => {
 
     it('delivers classification events to a substituted sink', async () => {
       const sink = new RecordingAuditSink();
-      const substituted = new ClassificationService(prisma, new MaterializationService(), sink);
+      const substituted = new ClassificationService(
+        prisma,
+        new MaterializationService(),
+        sink,
+        PROJECTED,
+      );
 
       await substituted.create(
         {
@@ -615,7 +689,12 @@ describe('classification writes (integration)', () => {
      */
     it('routes the event to the substitute rather than to Postgres', async () => {
       const sink = new RecordingAuditSink();
-      const substituted = new ClassificationService(prisma, new MaterializationService(), sink);
+      const substituted = new ClassificationService(
+        prisma,
+        new MaterializationService(),
+        sink,
+        PROJECTED,
+      );
 
       await substituted.create(
         {

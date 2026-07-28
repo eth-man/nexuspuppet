@@ -69,6 +69,16 @@ export class ClassificationService {
     private readonly prisma: PrismaService,
     private readonly materialization: MaterializationService,
     @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
+    /**
+     * The SAME list the projector uses, from validated config.
+     *
+     * Required rather than defaulted, so every construction site has to state
+     * it. A default would silently restore the bug this replaced: the check
+     * used to read process.env directly, which is empty whenever an operator
+     * relies on the config default — so the safety net switched itself off in
+     * precisely the default deployment.
+     */
+    private readonly projectedFacts: readonly string[],
   ) {}
 
   // -------------------------------------------------------------------------
@@ -350,7 +360,7 @@ export class ClassificationService {
       return this.result(
         toDetail(after),
         { scope: 'full-reconcile', certnames: [] },
-        await this.warnUnprojectedFacts(input),
+        this.warnUnprojectedFacts(input),
       );
     });
   }
@@ -596,12 +606,10 @@ export class ClassificationService {
    * (ADR-0004). Silently never matching is the worst outcome, so it is surfaced
    * as a warning rather than left to be discovered.
    */
-  private async warnUnprojectedFacts(input: ReplaceRules): Promise<string[]> {
-    const projected = (process.env['PUPPETDB_PROJECTED_FACTS'] ?? '')
-      .split(',')
-      .map((f) => f.trim())
-      .filter((f) => f.length > 0);
-
+  private warnUnprojectedFacts(input: ReplaceRules): string[] {
+    // An empty list now means what it says — projection is disabled — rather
+    // than "the environment variable was not set explicitly".
+    const projected = this.projectedFacts;
     if (projected.length === 0) return [];
 
     const warnings: string[] = [];
