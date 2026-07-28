@@ -68,7 +68,17 @@ services:
     volumes:
       - puppet-ssl:/etc/puppetlabs/puppet/ssl
       - puppet-ca:/etc/puppetlabs/puppetserver/ca
-      - puppet-code:/etc/puppetlabs/code
+      # Real Puppet code, so the ENC has an actual class to assign. A class that
+      # does not exist fails catalog compilation, which would prove only that
+      # the ENC was consulted — not that its output was usable.
+      - ./scripts/dev/puppet-code:/etc/puppetlabs/code
+      # ADR-0003: the handoff surface. READ-ONLY here; only NexusPuppet writes
+      # it. A second writer breaks the content-hash change detection that keeps
+      # a no-op from becoming estate-wide file churn.
+      - ./enc-output:/etc/puppetlabs/nexuspuppet:ro
+      - ./scripts/nexuspuppet-enc.sh:/usr/local/bin/nexuspuppet-enc.sh:ro
+      # Sets node_terminus on every start; the image re-templates puppet.conf.
+      - ./scripts/dev/puppet-entrypoint/99-nexuspuppet-enc.sh:/docker-entrypoint.d/99-nexuspuppet-enc.sh:ro
     ports:
       - '127.0.0.1:8140:8140'
     healthcheck:
@@ -122,4 +132,3 @@ volumes:
   puppetdb-pgdata:
   puppet-ssl:
   puppet-ca:
-  puppet-code:
