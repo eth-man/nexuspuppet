@@ -1,0 +1,127 @@
+# An OpenVox estate, locally, to find out whether NexusPuppet works against it.
+#
+#   sudo ./scripts/dev/openvox-stack.sh
+#
+# OpenVox is Vox Pupuli's fork of Puppet — openvoxserver, openvoxdb and
+# openvoxagent replacing puppetserver, puppetdb and puppet-agent. openvoxdb is
+# described as a drop-in replacement exposing the same /pdb/query/v4 API.
+#
+# "Described as" is the reason this file exists. NexusPuppet's entire read path
+# is PuppetDB's query API and its AST dialect, so "compatible" has to be
+# demonstrated rather than accepted. This runs a real OpenVox estate with a real
+# agent reporting into it, and then points the SAME connection test — including
+# the real PuppetDbClient — at it. Any divergence shows up as a named failure
+# instead of a surprise in production.
+#
+# Runs ALONGSIDE docker-compose.puppet.yml on different ports and its own
+# network, deliberately: comparing the two answers requires both to exist at
+# once, and a shared port would make it ambiguous which estate a result came
+# from — the same trap that put openvoxdb on 18082 rather than 8081.
+#
+# Development only. Not a deployment template — see DEPLOYMENT.md.
+
+services:
+  # PostgreSQL 17, matching the upstream OpenVox compose.
+  #
+  # NOT the 14 that docker-compose.puppet.yml is pinned to. That pin works
+  # around a PuppetDB 7.10 bug — it emits `... = $3AND (`, which PostgreSQL 16
+  # rejects as trailing junk after a parameter, so every store_report fails
+  # silently and nodes have facts but no reports. openvoxdb is forked from
+  # PuppetDB 8, where that is fixed. If reports go missing here, this pin is the
+  # first thing to suspect.
+  openvoxdb-postgres:
+    image: postgres:17-alpine
+    container_name: nexuspuppet-openvoxdb-postgres
+    environment:
+      POSTGRES_USER: openvoxdb
+      POSTGRES_PASSWORD: openvoxdb
+      POSTGRES_DB: openvoxdb
+    volumes:
+      - openvoxdb-pgdata:/var/lib/postgresql/data
+      # openvoxdb refuses to start without pg_trgm, and creating an extension
+      # needs superuser — which openvoxdb's own role is not. postgres runs this
+      # as the superuser on first initialisation. See the file for the symptom.
+      - ./scripts/dev/openvox-postgres-init.sql:/docker-entrypoint-initdb.d/10-extensions.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openvoxdb']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  openvoxserver:
+    image: ghcr.io/openvoxproject/openvoxserver:latest
+    container_name: nexuspuppet-openvoxserver
+    hostname: puppet
+    environment:
+      # `puppet` stays the CA's name even on OpenVox: the agent's compiled-in
+      # default server is still `puppet`, and the fork did not change it.
+      DNS_ALT_NAMES: puppet,openvoxserver,localhost,127.0.0.1
+      OPENVOXSERVER_HOSTNAME: puppet
+      AUTOSIGN: 'true'
+      # openvoxdb needs alt names — NexusPuppet reaches it as `localhost` from
+      # outside the container network — and the CA refuses to sign a CSR
+      # carrying them unless this is on, however permissive autosign is. Learned
+      # the hard way on the Puppet stack; the fork inherits the behaviour.
+      CA_ALLOW_SUBJECT_ALT_NAMES: 'true'
+      OPENVOXDB_SERVER_URLS: https://openvoxdb:8081
+      OPENVOXSERVER_JAVA_ARGS: '-Xms512m -Xmx1g'
+    volumes:
+      - openvox-ssl:/etc/puppetlabs/puppet/ssl
+      - openvox-ca:/etc/puppetlabs/puppetserver/ca
+      # The SAME Puppet code the Puppet stack uses, unmodified. If a catalog
+      # compiles here from manifests written for Puppet, that is a compatibility
+      # result in its own right and worth having for free.
+      - ./scripts/dev/puppet-code:/etc/puppetlabs/code
+    ports:
+      # 8141, not 8140: docker-compose.puppet.yml owns 8140.
+      - '127.0.0.1:8141:8140'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -skf https://localhost:8140/status/v1/simple || exit 1']
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  openvoxdb:
+    image: ghcr.io/openvoxproject/openvoxdb:latest
+    container_name: nexuspuppet-openvoxdb
+    hostname: openvoxdb
+    depends_on:
+      openvoxdb-postgres:
+        condition: service_healthy
+      openvoxserver:
+        condition: service_healthy
+    environment:
+      OPENVOXDB_POSTGRES_HOSTNAME: openvoxdb-postgres
+      OPENVOXDB_POSTGRES_USER: openvoxdb
+      OPENVOXDB_POSTGRES_PASSWORD: openvoxdb
+      OPENVOXDB_POSTGRES_DATABASE: openvoxdb
+      OPENVOXSERVER_HOSTNAME: puppet
+      CERTNAME: openvoxdb
+      # localhost must be in the certificate: NexusPuppet connects from the host
+      # as https://localhost:<port>, and a certificate valid only for `openvoxdb`
+      # fails the HOSTNAME check. That looks like a trust failure and is not —
+      # the same trap the LDAP fixture hit.
+      DNS_ALT_NAMES: openvoxdb,localhost,127.0.0.1
+    ports:
+      # 18082: 8081 belongs to the fixture stand-in and 18081 to real PuppetDB.
+      # Three PuppetDB-shaped things on one host is exactly how a test ends up
+      # proving something about the wrong one.
+      - '127.0.0.1:18082:8081'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -skf http://localhost:8080/status/v1/services || exit 1']
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 90s
+
+# Named explicitly. Compose otherwise derives it from the directory name, which
+# silently changes if the project is renamed — and the agent joins it by name.
+networks:
+  default:
+    name: nexuspuppet-openvox
+
+volumes:
+  openvoxdb-pgdata:
+  openvox-ssl:
+  openvox-ca:
