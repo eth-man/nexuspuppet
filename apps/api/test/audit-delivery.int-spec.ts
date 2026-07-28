@@ -29,6 +29,9 @@ const ACTOR: AuthenticatedPrincipal = {
 
 jest.setTimeout(30_000);
 
+/** Long enough that nothing in these tests races its own lease. */
+const LEASE_MS = 60_000;
+
 describe('audit delivery outbox (integration)', () => {
   let prisma: PrismaService;
   let outbox: AuditDeliveryOutbox;
@@ -152,7 +155,7 @@ describe('audit delivery outbox (integration)', () => {
     it('returns the audit record alongside the job', async () => {
       await writeAndEnqueue('nodegroup.create');
 
-      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10));
+      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
 
       expect(claimed).toHaveLength(1);
       // The enterprise layer has no database access, so everything it needs to
@@ -166,10 +169,14 @@ describe('audit delivery outbox (integration)', () => {
     it('respects the batch size', async () => {
       for (const n of ['a', 'b', 'c', 'd', 'e']) await writeAndEnqueue(`action.${n}`);
 
-      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 2));
+      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 2, LEASE_MS));
 
       expect(claimed).toHaveLength(2);
-      expect(await prisma.auditDeliveryJob.count()).toBe(3);
+      // All five rows remain — leasing hides a batch, it does not remove it.
+      expect(await prisma.auditDeliveryJob.count()).toBe(5);
+      // The unleased remainder is still available to the next pass.
+      const rest = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+      expect(rest).toHaveLength(3);
     });
 
     it('does not claim a job whose backoff has not elapsed', async () => {
@@ -179,27 +186,87 @@ describe('audit delivery outbox (integration)', () => {
         data: { nextAttemptAt: new Date(Date.now() + 600_000) },
       });
 
-      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10));
+      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
 
       expect(claimed).toHaveLength(0);
       expect(await prisma.auditDeliveryJob.count()).toBe(1);
     });
 
     /**
-     * Claim-by-DELETE, so a batch that fails mid-flight must put its work back
-     * rather than lose it. This is the same discipline the ENC outbox uses and
-     * the reason claiming runs on the caller's transaction.
+     * The lease is what a rollback undoes.
+     *
+     * Claiming pushes `nextAttemptAt` out rather than deleting, so a batch that
+     * rolls back leaves the row exactly as it was and immediately due again —
+     * and, crucially, a worker that DIES rather than rolling back still leaves
+     * the row, to become visible when the lease expires. A delete would have
+     * destroyed those records permanently.
      */
-    it('restores claimed jobs when the batch rolls back', async () => {
+    it('restores the lease when the batch rolls back', async () => {
       await writeAndEnqueue('nodegroup.create');
 
       await expect(
         prisma.$transaction(async (tx) => {
-          await outbox.claim(tx, 10);
+          await outbox.claim(tx, 10, LEASE_MS);
           throw new Error('delivery batch aborted');
         }),
       ).rejects.toThrow('delivery batch aborted');
 
+      expect(await prisma.auditDeliveryJob.count()).toBe(1);
+      // Due again right away, because the lease never committed.
+      const reclaimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+      expect(reclaimed).toHaveLength(1);
+    });
+
+    /**
+     * A committed lease hides the batch from a second worker for its duration,
+     * which is what stops two replicas sending the same records at once.
+     */
+    it('hides a leased batch from another worker until the lease expires', async () => {
+      await writeAndEnqueue('nodegroup.create');
+
+      const first = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+      expect(first).toHaveLength(1);
+
+      const second = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+      expect(second).toHaveLength(0);
+      // Still queued — leased, not taken.
+      expect(await prisma.auditDeliveryJob.count()).toBe(1);
+    });
+
+    /**
+     * The window a delete would have lost. A worker that claims and then dies
+     * leaves the record queued; it simply becomes visible again.
+     */
+    it('returns a record whose lease expired without delivery', async () => {
+      const id = await writeAndEnqueue('nodegroup.create');
+      await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+
+      // The worker died. Time passes.
+      await prisma.auditDeliveryJob.update({
+        where: { auditLogId: id },
+        data: { nextAttemptAt: new Date(Date.now() - 1000) },
+      });
+
+      const reclaimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+      expect(reclaimed).toHaveLength(1);
+      expect(reclaimed[0]?.auditLogId).toBe(id);
+    });
+  });
+
+  describe('completing a delivery', () => {
+    it('removes only the records the transport accepted', async () => {
+      const a = await writeAndEnqueue('action.a');
+      await writeAndEnqueue('action.b');
+
+      const removed = await outbox.complete([a]);
+
+      expect(removed).toBe(1);
+      expect(await prisma.auditDeliveryJob.count()).toBe(1);
+    });
+
+    it('is a no-op for an empty batch', async () => {
+      await writeAndEnqueue('action.a');
+      expect(await outbox.complete([])).toBe(0);
       expect(await prisma.auditDeliveryJob.count()).toBe(1);
     });
   });
@@ -207,8 +274,9 @@ describe('audit delivery outbox (integration)', () => {
   describe('failure handling', () => {
     it('reschedules a failed delivery with a backoff and the reason', async () => {
       await writeAndEnqueue('nodegroup.create');
-      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10));
-      expect(await prisma.auditDeliveryJob.count()).toBe(0);
+      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
+      // Leased, so still present — only a successful delivery removes it.
+      expect(await prisma.auditDeliveryJob.count()).toBe(1);
 
       await outbox.reschedule(claimed[0]!, 'connect ECONNREFUSED 10.0.0.9:514', 30_000);
 
@@ -230,7 +298,7 @@ describe('audit delivery outbox (integration)', () => {
 
       for (let i = 0; i < 25; i += 1) {
         await prisma.auditDeliveryJob.updateMany({ data: { nextAttemptAt: new Date() } });
-        const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10));
+        const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
         expect(claimed).toHaveLength(1);
         await outbox.reschedule(claimed[0]!, 'still down', 0);
       }
@@ -245,7 +313,7 @@ describe('audit delivery outbox (integration)', () => {
      */
     it('survives the audit record being pruned mid-flight', async () => {
       const id = await writeAndEnqueue('nodegroup.create');
-      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10));
+      const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
       await prisma.auditLog.delete({ where: { id } });
 
       await expect(outbox.reschedule(claimed[0]!, 'gone', 1000)).resolves.toBeUndefined();

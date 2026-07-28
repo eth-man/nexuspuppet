@@ -87,17 +87,29 @@ export class AuditDeliveryOutbox {
   }
 
   /**
-   * Take a batch of due deliveries, oldest first.
+   * Lease a batch of due deliveries, oldest first.
    *
-   * Claim-by-DELETE inside the caller's transaction, the same discipline the ENC
-   * outbox uses: a job is either delivered or its claim rolls back and it stays
-   * queued. There is no state where a worker has taken work and forgotten it.
+   * LEASED, NOT DELETED, and the distinction matters more here than in the ENC
+   * outbox. That one claims by delete because it does its work — writing a file
+   * — inside the same transaction, so a crash rolls the claim back with it.
+   *
+   * Delivery cannot work that way: the network call has to happen OUTSIDE the
+   * transaction, or a slow SIEM holds a pooled connection and its locks open.
+   * That leaves a window between the claim committing and the delivery
+   * finishing, and a delete would make a crash in that window destroy audit
+   * records permanently — the exact compliance gap the retry policy below
+   * exists to avoid.
+   *
+   * So a claim pushes `nextAttemptAt` out by the lease instead. A worker that
+   * dies mid-delivery leaves rows that simply become visible again when the
+   * lease expires. Delivery is at-least-once; a SIEM can dedupe on
+   * `auditLogId`, and cannot recover a record nobody sent.
    *
    * The audit record is loaded with the job, so a caller — including one in the
    * enterprise layer, which has no database access — receives everything it
    * needs to build a payload.
    */
-  async claim(tx: TransactionClient, limit: number): Promise<PendingDelivery[]> {
+  async claim(tx: TransactionClient, limit: number, leaseMs: number): Promise<PendingDelivery[]> {
     const jobs = await tx.auditDeliveryJob.findMany({
       where: { nextAttemptAt: { lte: new Date() } },
       orderBy: { createdAt: 'asc' },
@@ -107,7 +119,10 @@ export class AuditDeliveryOutbox {
 
     if (jobs.length === 0) return [];
 
-    await tx.auditDeliveryJob.deleteMany({ where: { id: { in: jobs.map((j) => j.id) } } });
+    await tx.auditDeliveryJob.updateMany({
+      where: { id: { in: jobs.map((j) => j.id) } },
+      data: { nextAttemptAt: new Date(Date.now() + leaseMs) },
+    });
 
     return jobs.map((job) => ({
       jobId: job.id,
@@ -129,11 +144,25 @@ export class AuditDeliveryOutbox {
   }
 
   /**
-   * Put a failed delivery back with a backoff.
+   * Remove deliveries that were accepted by the external system.
    *
-   * Re-created rather than updated, because `claim` already deleted it. Runs on
-   * the top-level client, not the caller's transaction: the point is to record
-   * the failure even when the batch that produced it is rolling back.
+   * The only thing that deletes a job. Runs on the top-level client because it
+   * happens after the network call, outside any transaction.
+   */
+  async complete(auditLogIds: readonly string[]): Promise<number> {
+    if (auditLogIds.length === 0) return 0;
+    const { count } = await this.prisma.auditDeliveryJob.deleteMany({
+      where: { auditLogId: { in: [...auditLogIds] } },
+    });
+    return count;
+  }
+
+  /**
+   * Return a failed delivery to the queue with a backoff.
+   *
+   * Updates the leased row rather than re-creating it — the lease left it in
+   * place — and shortens the lease to the backoff so a failure retries on its
+   * own schedule rather than waiting out a lease sized for a slow success.
    *
    * There is no attempt LIMIT. A dropped audit record is a compliance gap, and
    * an operator would rather find a backlog than discover that events were
@@ -142,15 +171,9 @@ export class AuditDeliveryOutbox {
   async reschedule(delivery: PendingDelivery, error: string, backoffMs: number): Promise<void> {
     const attempts = delivery.attempts + 1;
     try {
-      await this.prisma.auditDeliveryJob.upsert({
+      await this.prisma.auditDeliveryJob.update({
         where: { auditLogId: delivery.auditLogId },
-        create: {
-          auditLogId: delivery.auditLogId,
-          attempts,
-          nextAttemptAt: new Date(Date.now() + backoffMs),
-          lastError: error.slice(0, 1000),
-        },
-        update: {
+        data: {
           attempts,
           nextAttemptAt: new Date(Date.now() + backoffMs),
           lastError: error.slice(0, 1000),
