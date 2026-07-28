@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import {
   AUDIT_SINK,
+  CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
   AUTH_PROVIDER,
   ENC_FILE_WRITER,
@@ -28,6 +29,7 @@ import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
 import { ReconcilerService } from './materialization/reconciler.service';
 import { PrismaService } from './prisma/prisma.service';
+import { AuditDeliveryOutbox } from './auth/audit-delivery.outbox';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthController } from './auth/auth.controller';
@@ -77,9 +79,25 @@ export class AppModule {
       [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useExisting: LocalAuthProvider }],
       [AUTHORIZATION_POLICY, { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy }],
       [USER_DIRECTORY, { provide: USER_DIRECTORY, useClass: LocalUserDirectory }],
-      [AUDIT_SINK, { provide: AUDIT_SINK, useClass: PrismaAuditSink }],
+      // An ALIAS onto CORE_AUDIT_SINK, not a second construction of it.
+      //
+      // Core behaviour is unchanged: AUDIT_SINK still resolves to the Postgres
+      // sink. What changes is that the core sink now has a stable token of its
+      // own, so a replacement registered under AUDIT_SINK can COMPOSE over it —
+      // delegate the transactional write, then forward — instead of having to
+      // own a write it cannot perform (ADR-0002 keeps Prisma out of the
+      // enterprise layer). An estate that gains a SIEM must not lose its local
+      // audit trail.
+      [AUDIT_SINK, { provide: AUDIT_SINK, useExisting: CORE_AUDIT_SINK }],
       [LICENSE_SERVICE, { provide: LICENSE_SERVICE, useClass: CoreLicenseService }],
     ]);
+
+    // Registered outside coreDefaults: this is not a capability the enterprise
+    // layer may replace, it is a core service the enterprise layer may depend on.
+    const coreServices: Provider[] = [
+      { provide: CORE_AUDIT_SINK, useClass: PrismaAuditSink },
+      AuditDeliveryOutbox,
+    ];
 
     const { providers, registry } = CapabilityRegistry.buildProviders(
       coreDefaults,
@@ -107,6 +125,7 @@ export class AppModule {
         AccountController,
       ],
       providers: [
+        ...coreServices,
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
         Reflector,

@@ -40,6 +40,21 @@ export const PUPPETDB_CLIENT = TOKENS.PUPPETDB_CLIENT;
 export const ENC_FILE_WRITER = TOKENS.ENC_FILE_WRITER;
 
 /**
+ * Core's own audit sink, exposed so a replacement can COMPOSE over it.
+ *
+ * Deliberately NOT a capability token: the enterprise layer does not replace
+ * this, it depends on it. An enterprise sink registered under AUDIT_SINK
+ * delegates the transactional Postgres write here and then does its own thing —
+ * forwarding to a SIEM — without needing database access it must not have
+ * (ADR-0002 forbids enterprise reaching core internals, including Prisma).
+ *
+ * The alternative was an enterprise sink that OWNS the write, which would mean
+ * replacing the local audit trail rather than adding to it. An estate should not
+ * lose its Postgres audit log because it gained a SIEM.
+ */
+export const CORE_AUDIT_SINK = Symbol.for('nexuspuppet.CoreAuditSink');
+
+/**
  * Every seam, enumerable at runtime.
  *
  * Exists so a test can assert properties of ALL of them — that each has a core

@@ -32,33 +32,33 @@ enum UserRole {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
+  id                  String    @id @default(uuid()) @db.Uuid
   /// Normalised to lowercase on write. Plain text rather than citext so the
   /// schema needs no Postgres extension at migrate time.
-  email        String   @unique
-  displayName  String
+  email               String    @unique
+  displayName         String
   /// scrypt$N$r$p$salt$hash — self-describing so parameters can be raised
   /// later and verified per-record. Null when an external directory owns
   /// authentication (enterprise LDAP/SAML).
-  passwordHash String?
-  role         UserRole @default(VIEWER)
-  isActive     Boolean  @default(true)
+  passwordHash        String?
+  role                UserRole  @default(VIEWER)
+  isActive            Boolean   @default(true)
   /// Identifier of the auth provider that owns this account.
-  authSource   String   @default("local")
-  lastLoginAt  DateTime?
+  authSource          String    @default("local")
+  lastLoginAt         DateTime?
   /// Consecutive failed password attempts. Reset to zero on success.
   ///
   /// Persisted rather than held in memory because an in-memory counter is
   /// per-replica: an attacker simply spreads attempts across replicas and the
   /// threshold is never reached on any one of them.
-  failedLoginAttempts Int @default(0)
+  failedLoginAttempts Int       @default(0)
   /// Set when the threshold is crossed; the account refuses passwords until it
   /// passes. Null means not locked. Time-boxed on purpose — a permanent lock
   /// turns a guessable email address into a denial of service against a real
   /// person, with no way back that does not involve an administrator.
-  lockedUntil  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
@@ -69,19 +69,19 @@ model User {
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @db.Uuid
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// SHA-256 of the opaque token. The plaintext is never stored.
-  tokenHash String    @unique
+  tokenHash  String    @unique
   /// Rotation family. Reuse of a consumed token revokes the entire family.
-  familyId  String    @db.Uuid
-  expiresAt DateTime
+  familyId   String    @db.Uuid
+  expiresAt  DateTime
   consumedAt DateTime?
-  revokedAt DateTime?
-  userAgent String?
-  ipAddress String?
-  createdAt DateTime  @default(now())
+  revokedAt  DateTime?
+  userAgent  String?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
 
   @@index([userId])
   @@index([familyId])
@@ -99,15 +99,15 @@ model RefreshToken {
 /// PuppetDB — otherwise a PuppetDB outage would block classification changes,
 /// reintroducing exactly the coupling ADR-0003 removes.
 model ManagedNode {
-  certname        String    @id @db.VarChar(255)
-  environment     String?
+  certname           String    @id @db.VarChar(255)
+  environment        String?
   /// The PROJECTED fact subset (an allow-list), not the full fact blob.
   /// Full facts are unbounded; mirroring them here would be a large, useless table.
-  facts           Json      @default("{}")
+  facts              Json      @default("{}")
   latestReportStatus String?
-  reportTimestamp DateTime?
-  factsTimestamp  DateTime?
-  expired         Boolean   @default(false)
+  reportTimestamp    DateTime?
+  factsTimestamp     DateTime?
+  expired            Boolean   @default(false)
   /// PuppetDB has deactivated this node but has NOT purged it.
   ///
   /// Two different states, and only one is permanent: a deactivated node
@@ -117,10 +117,10 @@ model ManagedNode {
   /// notion of "gone" would mean two systems disagreeing about node lifecycle.
   ///
   /// Retained but not re-materialized: the file stays, the churn does not.
-  deactivated     Boolean   @default(false)
+  deactivated        Boolean   @default(false)
   /// When this row was last refreshed from PuppetDB. Surfaced in the UI as
   /// "facts as of <t>" so operators can see staleness rather than guess at it.
-  projectedAt     DateTime  @default(now())
+  projectedAt        DateTime  @default(now())
 
   materialization EncMaterialization?
 
@@ -167,17 +167,17 @@ model NodeGroup {
 
   /// Hierarchy contributes ordering, not value inheritance: a child is always
   /// evaluated after its ancestors and therefore overrides them.
-  parentId    String?       @db.Uuid
-  parent      NodeGroup?    @relation("GroupHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children    NodeGroup[]   @relation("GroupHierarchy")
+  parentId String?     @db.Uuid
+  parent   NodeGroup?  @relation("GroupHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children NodeGroup[] @relation("GroupHierarchy")
 
-  rules       NodeGroupRule[]
-  classes     NodeGroupClass[]
-  parameters  NodeGroupParameter[]
-  pins        NodeGroupPin[]
+  rules      NodeGroupRule[]
+  classes    NodeGroupClass[]
+  parameters NodeGroupParameter[]
+  pins       NodeGroupPin[]
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([rank, id])
   @@index([parentId])
@@ -204,16 +204,16 @@ model NodeGroupRule {
 
 /// Explicit static membership, used with MatchStrategy.PINNED.
 model NodeGroupPin {
-  groupId   String      @db.Uuid
-  group     NodeGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId   String    @db.Uuid
+  group     NodeGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   /// Deliberately a PLAIN COLUMN with no foreign key to ManagedNode.
   ///
   /// Pinning a node that has not yet checked in is a legitimate operation — it
   /// may be provisioned tomorrow — and ManagedNode is an explicitly disposable
   /// cache (ADR-0004) that must be truncatable without dropping operator
   /// intent. A foreign key here would forbid both.
-  certname  String      @db.VarChar(255)
-  createdAt DateTime    @default(now())
+  certname  String    @db.VarChar(255)
+  createdAt DateTime  @default(now())
 
   @@id([groupId, certname])
   @@index([certname])
@@ -281,20 +281,20 @@ enum MaterializationStatus {
 /// Either both land or neither does, so a crash between commit and file write
 /// loses nothing — the job is still PENDING on restart.
 model EncMaterializationJob {
-  id          String                @id @default(uuid()) @db.Uuid
+  id            String                @id @default(uuid()) @db.Uuid
   /// Null means a full reconcile of every node.
-  certname    String?               @db.VarChar(255)
+  certname      String?               @db.VarChar(255)
   /// Whether to write this node's file or remove it.
-  kind        EncJobKind            @default(MATERIALIZE)
+  kind          EncJobKind            @default(MATERIALIZE)
   /// Collapses redundant work: many edits to one group before the worker runs
   /// should produce one materialization, not N. Upserted on this key.
-  dedupeKey   String                @unique
-  reason      String                @db.VarChar(255)
-  status      MaterializationStatus @default(PENDING)
-  attempts    Int                   @default(0)
-  lastError   String?
+  dedupeKey     String                @unique
+  reason        String                @db.VarChar(255)
+  status        MaterializationStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  lastError     String?
   /// Exponential backoff; the worker ignores jobs until this instant.
-  nextAttemptAt DateTime            @default(now())
+  nextAttemptAt DateTime              @default(now())
   /// How far a full reconcile has progressed: the last certname written.
   ///
   /// A full reconcile touches every node in the estate, which at ten thousand
@@ -304,10 +304,10 @@ model EncMaterializationJob {
   /// size, and makes the reconcile resumable rather than all-or-nothing.
   ///
   /// Null on a per-node job, and on a full reconcile that has not started.
-  cursor      String?               @db.VarChar(255)
-  createdAt   DateTime              @default(now())
-  startedAt   DateTime?
-  completedAt DateTime?
+  cursor        String?               @db.VarChar(255)
+  createdAt     DateTime              @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
 
   @@index([status, nextAttemptAt])
   @@index([certname])
@@ -320,19 +320,19 @@ model EncMaterializationJob {
 /// rewrite the file, which is why EncYamlRenderer is required to be
 /// deterministic down to key ordering (ADR-0009).
 model EncMaterialization {
-  certname       String      @id @db.VarChar(255)
-  node           ManagedNode @relation(fields: [certname], references: [certname], onDelete: Cascade)
+  certname        String      @id @db.VarChar(255)
+  node            ManagedNode @relation(fields: [certname], references: [certname], onDelete: Cascade)
   /// SHA-256 of the rendered YAML.
-  contentHash    String      @db.VarChar(64)
+  contentHash     String      @db.VarChar(64)
   /// Monotonic per node; increments only when content actually changes.
-  revision       Int         @default(1)
+  revision        Int         @default(1)
   /// Path relative to ENC_OUTPUT_DIR, e.g. `nodes/web01.example.com.yaml`.
-  relativePath   String
+  relativePath    String
   /// Groups applied, in merge order. Answers "why is this node classified this way?"
-  appliedGroupIds String[]   @db.Uuid
+  appliedGroupIds String[]    @db.Uuid
   /// Conflicts detected during merge. Warnings, not errors — surfaced in the UI (ADR-0009).
-  conflicts      Json        @default("[]")
-  writtenAt      DateTime    @default(now())
+  conflicts       Json        @default("[]")
+  writtenAt       DateTime    @default(now())
 
   @@index([writtenAt])
   @@index([contentHash])
@@ -345,24 +345,59 @@ model EncMaterialization {
 
 /// Written inside the same transaction as the change it records (ADR-0005).
 model AuditLog {
-  id           String   @id @default(uuid()) @db.Uuid
-  actorUserId  String?  @db.Uuid
-  actor        User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @db.Uuid
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
   /// Denormalised so the record survives user deletion.
-  actorEmail   String?
-  action       String   @db.VarChar(128)
-  entityType   String   @db.VarChar(64)
-  entityId     String?
-  before       Json?
-  after        Json?
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime @default(now())
+  actorEmail  String?
+  action      String   @db.VarChar(128)
+  entityType  String   @db.VarChar(64)
+  entityId    String?
+  before      Json?
+  after       Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  deliveryJob AuditDeliveryJob?
 
   @@index([createdAt])
   @@index([entityType, entityId])
   @@index([actorUserId])
   @@map("audit_logs")
+}
+
+/// Outbox for forwarding an audit record to an external system (ADR-0005).
+///
+/// A SIEM sink cannot take part in the transaction that produced the record:
+/// doing HTTP inside `prisma.$transaction` holds a connection and its locks open
+/// for the duration of a network call, and a rollback would leave the SIEM told
+/// about a change that never happened.
+///
+/// So delivery is decoupled the same way ENC materialization is. The row is
+/// written in the SAME transaction as the change and its audit record; a worker
+/// drains it afterwards. There is no committed change without a queued delivery.
+///
+/// Core writes nothing here unless a capability that forwards audit records is
+/// installed. The table exists in core because only core owns the schema —
+/// the enterprise layer cannot add a migration.
+model AuditDeliveryJob {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// Cascades: if audit retention removes the record, an undelivered job for it
+  /// is meaningless. Forwarding is best-effort against a retention window.
+  auditLogId String   @unique @db.Uuid
+  auditLog   AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+
+  attempts      Int      @default(0)
+  /// Claim-by-delete needs a schedule so a failed attempt backs off rather than
+  /// spinning. A row is only visible to a worker once this passes.
+  nextAttemptAt DateTime @default(now())
+  /// Kept for the operator, not for the retry logic.
+  lastError     String?
+  createdAt     DateTime @default(now())
+
+  @@index([nextAttemptAt])
+  @@map("audit_delivery_jobs")
 }
 
 model AppSetting {
