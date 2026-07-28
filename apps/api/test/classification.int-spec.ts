@@ -1,4 +1,4 @@
-import type { AuthenticatedPrincipal } from '@nexuspuppet/contracts';
+import type { AuditRecord, AuditTransaction, AuthenticatedPrincipal } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { MaterializationService } from '../src/materialization/materialization.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
@@ -556,6 +556,85 @@ describe('classification writes (integration)', () => {
       const explanation = await service.explain('never-heard-of-it');
       expect(explanation.materialization).toBeNull();
       expect(explanation.factsAsOf).toBeNull();
+    });
+  });
+
+  /**
+   * The AUDIT_SINK seam, end to end.
+   *
+   * The structural test in capability-wiring.spec.ts proves nothing INJECTS
+   * PrismaAuditSink any more. This proves the consequence that actually
+   * matters: a sink registered by the enterprise layer genuinely receives
+   * classification events. Before the fix it would have been constructed,
+   * held by the container, and never called — a SIEM reporting silence for an
+   * estate that was being reclassified, which is worse than no SIEM at all
+   * because silence reads as "no changes".
+   */
+  describe('the audit seam', () => {
+    /** Records what it is given, and writes nothing. */
+    class RecordingAuditSink {
+      entries: Array<{ action: string; entityType: string; hadTransaction: boolean }> = [];
+
+      async record(entry: AuditRecord, tx?: AuditTransaction): Promise<void> {
+        this.entries.push({
+          action: entry.action,
+          entityType: entry.entityType,
+          // ADR-0005: the audit row commits with the change. A sink that is
+          // handed no transaction cannot honour that, so the handle arriving is
+          // part of the contract rather than an implementation detail.
+          hadTransaction: tx !== undefined,
+        });
+      }
+    }
+
+    it('delivers classification events to a substituted sink', async () => {
+      const sink = new RecordingAuditSink();
+      const substituted = new ClassificationService(prisma, new MaterializationService(), sink);
+
+      await substituted.create(
+        {
+          name: 'audited-group',
+          rank: 100,
+          strategy: 'ALL_RULES',
+          environment: null,
+          isEnabled: true,
+          parentId: null,
+        } as Parameters<ClassificationService['create']>[0],
+        ACTOR,
+        CTX,
+      );
+
+      expect(sink.entries).toHaveLength(1);
+      expect(sink.entries[0]?.entityType).toBe('NodeGroup');
+      expect(sink.entries[0]?.hadTransaction).toBe(true);
+    });
+
+    /**
+     * The substituted sink writes nothing to Postgres, so an empty AuditLog is
+     * what proves the event went THERE rather than to the core sink as well.
+     */
+    it('routes the event to the substitute rather than to Postgres', async () => {
+      const sink = new RecordingAuditSink();
+      const substituted = new ClassificationService(prisma, new MaterializationService(), sink);
+
+      await substituted.create(
+        {
+          name: 'not-in-postgres',
+          rank: 100,
+          strategy: 'ALL_RULES',
+          environment: null,
+          isEnabled: true,
+          parentId: null,
+        } as Parameters<ClassificationService['create']>[0],
+        ACTOR,
+        CTX,
+      );
+
+      expect(sink.entries).toHaveLength(1);
+      expect(await prisma.auditLog.count()).toBe(0);
+      // The change itself still landed: substituting the sink must not make the
+      // write a no-op.
+      expect(await prisma.nodeGroup.count({ where: { name: 'not-in-postgres' } })).toBe(1);
     });
   });
 });

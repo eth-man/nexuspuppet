@@ -121,11 +121,21 @@ export class AppModule {
               lockoutMinutes: env.LOGIN_LOCKOUT_MINUTES,
             }),
         },
-        LocalUserDirectory,
         UsersService,
-        RbacPolicy,
-        PrismaAuditSink,
-        CoreLicenseService,
+        // RbacPolicy, LocalUserDirectory, PrismaAuditSink and CoreLicenseService
+        // are NOT registered here. They reach the container only through their
+        // capability tokens above (ADR-0002).
+        //
+        // Registering a class as well as aliasing it is what makes a seam
+        // decorative: the class stays injectable, so a consumer can take it
+        // directly and an enterprise override is constructed and never called.
+        // With useClass it is worse — Nest builds a SECOND instance, and the two
+        // diverge. AUDIT_SINK had exactly that defect: every user-administration
+        // and classification event bypassed the token.
+        //
+        // LocalAuthProvider above is the one exception, and only because
+        // useExisting aliases a provider that must already exist.
+        // capability-wiring.spec.ts enforces all of this.
         // Explicit factory: the constructor's defaulted numeric parameters
         // would otherwise be treated by Nest as injectable dependencies.
         { provide: LoginRateLimiter, useFactory: (): LoginRateLimiter => new LoginRateLimiter() },

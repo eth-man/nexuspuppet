@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AUDIT_SINK } from '@nexuspuppet/contracts';
 import type {
   AssignClass,
   AuthenticatedPrincipal,
@@ -16,13 +18,13 @@ import type {
   NodeClassificationExplanation,
   ClassificationConflict,
   FactPathIndex,
+  IAuditSink,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   MaterializationService,
   type TransactionClient,
 } from '../materialization/materialization.service';
-import { PrismaAuditSink } from '../auth/core-capabilities';
 
 /**
  * All classification writes (ADR-0003, ADR-0005, ADR-0009).
@@ -66,7 +68,7 @@ export class ClassificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly materialization: MaterializationService,
-    private readonly audit: PrismaAuditSink,
+    @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -655,7 +657,7 @@ export class ClassificationService {
         ipAddress: context.ipAddress ?? null,
         userAgent: context.userAgent ?? null,
       },
-      tx as unknown as Parameters<PrismaAuditSink['record']>[1],
+      tx,
     );
   }
 

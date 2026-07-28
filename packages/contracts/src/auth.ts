@@ -280,8 +280,24 @@ export interface AuditRecord {
  * to a SIEM.
  */
 export interface IAuditSink {
-  record(entry: AuditRecord): Promise<void>;
+  record(entry: AuditRecord, tx?: AuditTransaction): Promise<void>;
 }
+
+/**
+ * The database transaction an audited change is being made in (ADR-0005).
+ *
+ * Opaque on purpose: contracts must stay dependency-free, so it cannot name a
+ * Prisma client. The core sink narrows it to one; a sink that forwards to a
+ * SIEM ignores it and writes after the fact.
+ *
+ * This parameter is why the seam was inert. The interface used to take only the
+ * record, while a classification change and its audit row must commit together
+ * — so both callers reached past the token for the concrete class that did
+ * accept a transaction, and an enterprise sink registered under AUDIT_SINK
+ * would never have been called. An interface that understates its contract does
+ * not get used.
+ */
+export type AuditTransaction = object;
 
 export interface LicenseStatus {
   licensed: boolean;
