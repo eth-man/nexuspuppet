@@ -18,6 +18,7 @@ import {
   type Credentials,
   type IAuthProvider,
 } from '@nexuspuppet/contracts';
+import type { AuthProviderDescription } from '@nexuspuppet/contracts';
 import type { Response } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { permissionsFor } from './rbac.policy';
@@ -54,6 +55,32 @@ export class AuthController {
   @Get('mode')
   mode(): { mode: string; source: string } {
     return { mode: this.provider.mode ?? 'credentials', source: this.provider.source };
+  }
+
+  /**
+   * The provider's configuration, for an administrator.
+   *
+   * Deliberately NOT @Public, unlike /auth/mode: group DNs and a directory URL
+   * are internal topology, and an unauthenticated caller has no business
+   * learning how the estate maps groups to privilege. Gated on settings:manage
+   * rather than users:manage — this is deployment configuration, not user
+   * administration.
+   *
+   * Core renders whatever the provider returns without interpreting it, which
+   * is what lets an LDAP layer explain itself without core knowing what LDAP is
+   * (ADR-0002).
+   */
+  @RequirePermission('settings:manage')
+  @Get('provider')
+  describeProvider(): AuthProviderDescription {
+    return (
+      this.provider.describe?.() ?? {
+        source: this.provider.source,
+        roleMappings: [],
+        refusesUnmappedUsers: false,
+        details: [],
+      }
+    );
   }
 
   @Public()

@@ -5,6 +5,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { QueryError, Spinner } from '@/components/states';
+import { AuthProviderPanel } from '@/components/data/auth-provider-panel';
 import { UsersPanel } from '@/components/data/users-panel';
 import { ChangePasswordCard } from '@/components/data/change-password';
 
@@ -113,6 +114,10 @@ export default function SettingsPage() {
           </Card>
         )}
       </div>
+
+      {/* Who the directory says may do what. Renders only when a provider
+          actually maps groups to roles, so core deployments are unchanged. */}
+      <AuthProviderPanel />
 
       {/* Full width: the only panel on this page with substantial content. */}
       <UsersPanel />
