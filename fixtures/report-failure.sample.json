@@ -1,206 +1,498 @@
 [
   {
-    "hash": "d4f6393eef1f77eb23fd08aefc05dcc8b5830af2",
-    "certname": "app10.example.com",
-    "puppet_version": "8.10.0",
-    "report_format": 12,
-    "transaction_uuid": "4810f7d5-cd32-4d09-3585-79eba95e9f25",
-    "catalog_uuid": "dfeb0f5b-7ab4-da8e-8c33-8504761aee25",
-    "code_id": null,
-    "job_id": null,
-    "cached_catalog_status": "not_used",
-    "environment": "production",
-    "status": "failed",
+    "catalog_uuid": "aeb27a78-155c-44e1-9e3a-08ce3c2d8e79",
+    "receive_time": "2026-07-28T19:54:14.051Z",
+    "producer": "puppet",
+    "hash": "29ca50e918e0bbd65ffb9405c129a4cb1a1380ba",
+    "transaction_uuid": "0fd40af6-ee3e-4517-bcef-b59d83029893",
+    "puppet_version": "7.20.0",
     "noop": false,
-    "noop_pending": false,
     "corrective_change": null,
-    "start_time": "2026-07-27T08:45:00.000Z",
-    "end_time": "2026-07-27T08:45:47.000Z",
-    "producer_timestamp": "2026-07-27T08:45:48.000Z",
-    "producer": "puppetserver01.example.com",
-    "receive_time": "2026-07-27T08:45:49.000Z",
-    "configuration_version": "1753000900",
-    "resource_events": {
-      "href": "/pdb/query/v4/reports/d4f6393eef1f77eb23fd08aefc05dcc8b5830af2/events",
+    "logs": {
       "data": [
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T19:54:12.950+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Using environment 'production'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T19:54:12.985+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Retrieving pluginfacts"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice",
+            "file",
+            "pluginfacts"
+          ],
+          "time": "2026-07-28T19:54:13.027+00:00",
+          "level": "notice",
+          "source": "/File[/opt/puppetlabs/puppet/cache/facts.d]/mode",
+          "message": "mode changed '0755' to '0775'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice",
+            "file",
+            "pluginfacts"
+          ],
+          "time": "2026-07-28T19:54:13.055+00:00",
+          "level": "notice",
+          "source": "/File[/opt/puppetlabs/puppet/cache/facts.d/README.md]/ensure",
+          "message": "defined content as '{sha256}7f598a295163ad9e42ed363cc7800637c2ca1eb50c1a440ffe5ec72b9d198898'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice",
+            "file",
+            "pluginfacts"
+          ],
+          "time": "2026-07-28T19:54:13.076+00:00",
+          "level": "notice",
+          "source": "/File[/opt/puppetlabs/puppet/cache/facts.d/role.txt]/ensure",
+          "message": "defined content as '{sha256}0491b051e261379373d613f61088f12c677d63c2377fc66e11c4a473ee66e9d3'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T19:54:13.077+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Retrieving plugin"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T19:54:13.948+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Caching catalog for agent01.nexuspuppet.test"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T19:54:13.952+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Applying configuration version '1785268453'"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp",
+          "line": 7,
+          "tags": [
+            "notice",
+            "file",
+            "class",
+            "profile::base",
+            "profile",
+            "base"
+          ],
+          "time": "2026-07-28T19:54:13.963+00:00",
+          "level": "notice",
+          "source": "/Stage[main]/Profile::Base/File[/tmp/nexuspuppet-enc-proof]/ensure",
+          "message": "defined content as '{sha256}185bbbc31609609a8390c015de0f87b3bec37787cef70d7eabcf21421cc359a5'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "err"
+          ],
+          "time": "2026-07-28T19:54:13.970+00:00",
+          "level": "err",
+          "source": "Puppet",
+          "message": "'/bin/false' returned 1 instead of one of [0]"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp",
+          "line": 16,
+          "tags": [
+            "err",
+            "exec",
+            "nexuspuppet-fixture-failure",
+            "class",
+            "profile::base",
+            "profile",
+            "base"
+          ],
+          "time": "2026-07-28T19:54:13.972+00:00",
+          "level": "err",
+          "source": "/Stage[main]/Profile::Base/Exec[nexuspuppet-fixture-failure]/returns",
+          "message": "change from 'notrun' to ['0'] failed: '/bin/false' returned 1 instead of one of [0]"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info",
+            "class",
+            "profile::base",
+            "profile",
+            "base"
+          ],
+          "time": "2026-07-28T19:54:13.972+00:00",
+          "level": "info",
+          "source": "Class[Profile::Base]",
+          "message": "Unscheduling all events on Class[Profile::Base]"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice"
+          ],
+          "time": "2026-07-28T19:54:13.973+00:00",
+          "level": "notice",
+          "source": "Puppet",
+          "message": "nexuspuppet: permit_root_login=false"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ssh.pp",
+          "line": 2,
+          "tags": [
+            "notice",
+            "notify",
+            "class",
+            "profile::base::ssh",
+            "profile",
+            "base",
+            "ssh"
+          ],
+          "time": "2026-07-28T19:54:13.973+00:00",
+          "level": "notice",
+          "source": "/Stage[main]/Profile::Base::Ssh/Notify[nexuspuppet: permit_root_login=false]/message",
+          "message": "defined 'message' as 'nexuspuppet: permit_root_login=false'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice"
+          ],
+          "time": "2026-07-28T19:54:13.974+00:00",
+          "level": "notice",
+          "source": "Puppet",
+          "message": "nexuspuppet: nginx extra_config_line=client_max_body_size 64m;"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/nginx/tuning.pp",
+          "line": 16,
+          "tags": [
+            "notice",
+            "notify",
+            "class",
+            "profile::nginx::tuning",
+            "profile",
+            "nginx",
+            "tuning"
+          ],
+          "time": "2026-07-28T19:54:13.975+00:00",
+          "level": "notice",
+          "source": "/Stage[main]/Profile::Nginx::Tuning/Notify[nexuspuppet: nginx extra_config_line=client_max_body_size 64m;]/message",
+          "message": "defined 'message' as 'nexuspuppet: nginx extra_config_line=client_max_body_size 64m;'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info",
+            "stage"
+          ],
+          "time": "2026-07-28T19:54:13.975+00:00",
+          "level": "info",
+          "source": "Stage[main]",
+          "message": "Unscheduling all events on Stage[main]"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T19:54:13.980+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Creating state file /opt/puppetlabs/puppet/cache/state/state.yaml"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice"
+          ],
+          "time": "2026-07-28T19:54:13.987+00:00",
+          "level": "notice",
+          "source": "Puppet",
+          "message": "Applied catalog in 0.04 seconds"
+        }
+      ],
+      "href": "/pdb/query/v4/reports/29ca50e918e0bbd65ffb9405c129a4cb1a1380ba/logs"
+    },
+    "report_format": 12,
+    "start_time": "2026-07-28T19:54:12.584Z",
+    "producer_timestamp": "2026-07-28T19:54:14.032Z",
+    "type": "agent",
+    "cached_catalog_status": "not_used",
+    "end_time": "2026-07-28T19:54:13.987Z",
+    "resource_events": {
+      "data": [
+        {
+          "status": "success",
+          "timestamp": "2026-07-28T19:54:13.956+00:00",
+          "resource_type": "File",
+          "resource_title": "/tmp/nexuspuppet-enc-proof",
+          "property": "ensure",
+          "corrective_change": null,
+          "new_value": "file",
+          "old_value": "absent",
+          "message": "defined content as '{sha256}185bbbc31609609a8390c015de0f87b3bec37787cef70d7eabcf21421cc359a5'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp",
+          "line": 7,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Base",
+            "File[/tmp/nexuspuppet-enc-proof]"
+          ],
+          "containing_class": "Profile::Base",
+          "name": "file_created"
+        },
         {
           "status": "failure",
-          "timestamp": "2026-07-27T08:45:05.000Z",
-          "resource_type": "Package",
-          "resource_title": "postgresql16-server",
-          "property": "ensure",
-          "name": "ensure",
-          "old_value": "absent",
-          "new_value": "16.4",
-          "message": "Could not update: Execution of '/usr/bin/dnf -d 0 -e 1 -y install postgresql16-server-16.4' returned 1: Error: Unable to find a match: postgresql16-server-16.4",
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
-          "line": 18,
-          "containment_path": [
-            "Stage[main]",
-            "Profile::Db::Postgres",
-            "Package[postgresql16-server]"
-          ],
-          "containing_class": "Profile::Db::Postgres",
-          "corrective_change": false
-        },
-        {
-          "status": "skipped",
-          "timestamp": "2026-07-27T08:45:06.000Z",
-          "resource_type": "Service",
-          "resource_title": "postgresql-16",
-          "property": null,
-          "name": null,
-          "old_value": null,
-          "new_value": null,
-          "message": null,
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
-          "line": 42,
-          "containment_path": ["Stage[main]", "Profile::Db::Postgres", "Service[postgresql-16]"],
-          "containing_class": "Profile::Db::Postgres",
-          "corrective_change": null
-        },
-        {
-          "status": "skipped",
-          "timestamp": "2026-07-27T08:45:06.000Z",
+          "timestamp": "2026-07-28T19:54:13.97+00:00",
           "resource_type": "Exec",
-          "resource_title": "initdb-postgresql-16",
-          "property": null,
-          "name": null,
-          "old_value": null,
-          "new_value": null,
-          "message": null,
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
-          "line": 55,
+          "resource_title": "nexuspuppet-fixture-failure",
+          "property": "returns",
+          "corrective_change": null,
+          "new_value": "[\"0\"]",
+          "old_value": "notrun",
+          "message": "change from 'notrun' to ['0'] failed: '/bin/false' returned 1 instead of one of [0]",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp",
+          "line": 16,
           "containment_path": [
             "Stage[main]",
-            "Profile::Db::Postgres",
-            "Exec[initdb-postgresql-16]"
+            "Profile::Base",
+            "Exec[nexuspuppet-fixture-failure]"
           ],
-          "containing_class": "Profile::Db::Postgres",
-          "corrective_change": null
+          "containing_class": "Profile::Base",
+          "name": "executed_command"
         },
         {
-          "status": "noop",
-          "timestamp": "2026-07-27T08:45:07.000Z",
-          "resource_type": "File",
-          "resource_title": "/var/lib/pgsql/16/data/postgresql.conf",
-          "property": "content",
-          "name": "content",
-          "old_value": "{md5}0cc175b9c0f1b6a831c399e269772661",
-          "new_value": "{md5}92eb5ffee6ae2fec3ad71c777531578f",
-          "message": "current_value {md5}0cc175b9c0f1b6a831c399e269772661, should be {md5}92eb5ffee6ae2fec3ad71c777531578f (noop)",
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
-          "line": 63,
+          "status": "success",
+          "timestamp": "2026-07-28T19:54:13.973+00:00",
+          "resource_type": "Notify",
+          "resource_title": "nexuspuppet: permit_root_login=false",
+          "property": "message",
+          "corrective_change": null,
+          "new_value": "nexuspuppet: permit_root_login=false",
+          "old_value": "absent",
+          "message": "defined 'message' as 'nexuspuppet: permit_root_login=false'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ssh.pp",
+          "line": 2,
           "containment_path": [
             "Stage[main]",
-            "Profile::Db::Postgres",
-            "File[/var/lib/pgsql/16/data/postgresql.conf]"
+            "Profile::Base::Ssh",
+            "Notify[nexuspuppet: permit_root_login=false]"
           ],
-          "containing_class": "Profile::Db::Postgres",
-          "corrective_change": null
+          "containing_class": "Profile::Base::Ssh",
+          "name": "message_changed"
+        },
+        {
+          "status": "success",
+          "timestamp": "2026-07-28T19:54:13.974+00:00",
+          "resource_type": "Notify",
+          "resource_title": "nexuspuppet: nginx extra_config_line=client_max_body_size 64m;",
+          "property": "message",
+          "corrective_change": null,
+          "new_value": "nexuspuppet: nginx extra_config_line=client_max_body_size 64m;",
+          "old_value": "absent",
+          "message": "defined 'message' as 'nexuspuppet: nginx extra_config_line=client_max_body_size 64m;'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/nginx/tuning.pp",
+          "line": 16,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Nginx::Tuning",
+            "Notify[nexuspuppet: nginx extra_config_line=client_max_body_size 64m;]"
+          ],
+          "containing_class": "Profile::Nginx::Tuning",
+          "name": "message_changed"
         }
-      ]
+      ],
+      "href": "/pdb/query/v4/reports/29ca50e918e0bbd65ffb9405c129a4cb1a1380ba/events"
     },
+    "status": "failed",
+    "configuration_version": "1785268453",
+    "environment": "production",
+    "code_id": null,
+    "noop_pending": false,
+    "certname": "agent01.nexuspuppet.test",
     "metrics": {
-      "href": "/pdb/query/v4/reports/d4f6393eef1f77eb23fd08aefc05dcc8b5830af2/metrics",
       "data": [
         {
-          "category": "time",
-          "name": "total",
-          "value": 47
-        },
-        {
-          "category": "time",
-          "name": "config_retrieval",
-          "value": 2.14
-        },
-        {
-          "category": "time",
-          "name": "file",
-          "value": 0.31
-        },
-        {
-          "category": "time",
-          "name": "package",
-          "value": 1.02
-        },
-        {
-          "category": "resources",
-          "name": "total",
-          "value": 214
-        },
-        {
-          "category": "resources",
           "name": "changed",
-          "value": 0
+          "value": 3,
+          "category": "resources"
         },
         {
-          "category": "resources",
+          "name": "corrective_change",
+          "value": 0,
+          "category": "resources"
+        },
+        {
           "name": "failed",
-          "value": 1
+          "value": 1,
+          "category": "resources"
         },
         {
-          "category": "resources",
-          "name": "skipped",
-          "value": 2
+          "name": "failed_to_restart",
+          "value": 0,
+          "category": "resources"
         },
         {
-          "category": "resources",
           "name": "out_of_sync",
-          "value": 4
+          "value": 4,
+          "category": "resources"
         },
         {
-          "category": "events",
-          "name": "total",
-          "value": 4
+          "name": "restarted",
+          "value": 0,
+          "category": "resources"
         },
         {
-          "category": "changes",
+          "name": "scheduled",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "skipped",
+          "value": 0,
+          "category": "resources"
+        },
+        {
           "name": "total",
-          "value": 0
+          "value": 11,
+          "category": "resources"
+        },
+        {
+          "name": "catalog_application",
+          "value": 0.035107226998661645,
+          "category": "time"
+        },
+        {
+          "name": "config_retrieval",
+          "value": 0.47081925699603744,
+          "category": "time"
+        },
+        {
+          "name": "convert_catalog",
+          "value": 0.019566810005926527,
+          "category": "time"
+        },
+        {
+          "name": "exec",
+          "value": 0.008668067,
+          "category": "time"
+        },
+        {
+          "name": "fact_generation",
+          "value": 0.2960127139958786,
+          "category": "time"
+        },
+        {
+          "name": "file",
+          "value": 0.007553037,
+          "category": "time"
+        },
+        {
+          "name": "filebucket",
+          "value": 0.000068803,
+          "category": "time"
+        },
+        {
+          "name": "node_retrieval",
+          "value": 0.1543092829961097,
+          "category": "time"
+        },
+        {
+          "name": "notify",
+          "value": 0.0016053159999999999,
+          "category": "time"
+        },
+        {
+          "name": "plugin_sync",
+          "value": 0.14154765900457278,
+          "category": "time"
+        },
+        {
+          "name": "schedule",
+          "value": 0.000383051,
+          "category": "time"
+        },
+        {
+          "name": "startup_time",
+          "value": 0.210337097,
+          "category": "time"
+        },
+        {
+          "name": "total",
+          "value": 1.402828195,
+          "category": "time"
+        },
+        {
+          "name": "transaction_evaluation",
+          "value": 0.028346240986138582,
+          "category": "time"
+        },
+        {
+          "name": "total",
+          "value": 3,
+          "category": "changes"
+        },
+        {
+          "name": "failure",
+          "value": 1,
+          "category": "events"
+        },
+        {
+          "name": "success",
+          "value": 3,
+          "category": "events"
+        },
+        {
+          "name": "total",
+          "value": 4,
+          "category": "events"
         }
-      ]
+      ],
+      "href": "/pdb/query/v4/reports/29ca50e918e0bbd65ffb9405c129a4cb1a1380ba/metrics"
     },
-    "logs": {
-      "href": "/pdb/query/v4/reports/d4f6393eef1f77eb23fd08aefc05dcc8b5830af2/logs",
-      "data": [
-        {
-          "file": null,
-          "line": null,
-          "level": "info",
-          "message": "Applying configuration version 1753000900",
-          "source": "Puppet",
-          "tags": ["info"],
-          "time": "2026-07-27T08:45:01.000Z"
-        },
-        {
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/db/postgres.pp",
-          "line": 18,
-          "level": "err",
-          "message": "Could not update: Execution of '/usr/bin/dnf -d 0 -e 1 -y install postgresql16-server-16.4' returned 1: Error: Unable to find a match: postgresql16-server-16.4",
-          "source": "/Stage[main]/Profile::Db::Postgres/Package[postgresql16-server]/ensure",
-          "tags": ["err", "package", "ensure", "profile::db::postgres"],
-          "time": "2026-07-27T08:45:05.000Z"
-        },
-        {
-          "file": null,
-          "line": null,
-          "level": "notice",
-          "message": "Skipping because of failed dependencies",
-          "source": "/Stage[main]/Profile::Db::Postgres/Service[postgresql-16]",
-          "tags": ["notice", "service", "profile::db::postgres"],
-          "time": "2026-07-27T08:45:06.000Z"
-        },
-        {
-          "file": null,
-          "line": null,
-          "level": "notice",
-          "message": "Applied catalog in 47.21 seconds",
-          "source": "Puppet",
-          "tags": ["notice"],
-          "time": "2026-07-27T08:45:47.000Z"
-        }
-      ]
-    }
+    "job_id": null
   }
 ]

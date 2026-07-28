@@ -1,153 +1,344 @@
 [
   {
-    "hash": "b930c3ab065cdd09177234b3fde577596b3bf856",
-    "certname": "db01.example.com",
-    "puppet_version": "8.10.0",
-    "report_format": 12,
-    "transaction_uuid": "20792e7b-a6d6-2546-ef5f-371496ab40f2",
-    "catalog_uuid": "9a36230e-864f-3e3d-069b-00149cad9aaa",
-    "code_id": null,
-    "job_id": null,
-    "cached_catalog_status": "not_used",
-    "environment": "production",
-    "status": "changed",
+    "catalog_uuid": "70b874d2-26ae-4762-8ffe-89e437e29e59",
+    "receive_time": "2026-07-28T08:13:00.406Z",
+    "producer": "puppet",
+    "hash": "024dbf5c690ee87063a59b03b20b9812f79fbae5",
+    "transaction_uuid": "3b7aef7b-85f8-42d8-a424-a16b8c06be74",
+    "puppet_version": "7.20.0",
     "noop": false,
-    "noop_pending": false,
     "corrective_change": null,
-    "start_time": "2026-07-27T08:30:00.000Z",
-    "end_time": "2026-07-27T08:30:12.000Z",
-    "producer_timestamp": "2026-07-27T08:30:13.000Z",
-    "producer": "puppetserver01.example.com",
-    "receive_time": "2026-07-27T08:30:14.000Z",
-    "configuration_version": "1753001800",
-    "resource_events": {
-      "href": "/pdb/query/v4/reports/b930c3ab065cdd09177234b3fde577596b3bf856/events",
-      "data": [
-        {
-          "status": "success",
-          "timestamp": "2026-07-27T08:30:05.000Z",
-          "resource_type": "File",
-          "resource_title": "/etc/ntp.conf",
-          "property": "content",
-          "name": "content",
-          "old_value": "{md5}5d41402abc4b2a76b9719d911017c592",
-          "new_value": "{md5}7d793037a0760186574b0282f2f435e7",
-          "message": "content changed '{md5}5d41402abc4b2a76b9719d911017c592' to '{md5}7d793037a0760186574b0282f2f435e7'",
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ntp.pp",
-          "line": 24,
-          "containment_path": ["Stage[main]", "Profile::Base::Ntp", "File[/etc/ntp.conf]"],
-          "containing_class": "Profile::Base::Ntp",
-          "corrective_change": true
-        },
-        {
-          "status": "success",
-          "timestamp": "2026-07-27T08:30:07.000Z",
-          "resource_type": "Service",
-          "resource_title": "ntpd",
-          "property": "ensure",
-          "name": "ensure",
-          "old_value": "stopped",
-          "new_value": "running",
-          "message": "ensure changed 'stopped' to 'running'",
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ntp.pp",
-          "line": 31,
-          "containment_path": ["Stage[main]", "Profile::Base::Ntp", "Service[ntpd]"],
-          "containing_class": "Profile::Base::Ntp",
-          "corrective_change": false
-        }
-      ]
-    },
-    "metrics": {
-      "href": "/pdb/query/v4/reports/b930c3ab065cdd09177234b3fde577596b3bf856/metrics",
-      "data": [
-        {
-          "category": "time",
-          "name": "total",
-          "value": 12
-        },
-        {
-          "category": "time",
-          "name": "config_retrieval",
-          "value": 2.14
-        },
-        {
-          "category": "time",
-          "name": "file",
-          "value": 0.31
-        },
-        {
-          "category": "time",
-          "name": "package",
-          "value": 1.02
-        },
-        {
-          "category": "resources",
-          "name": "total",
-          "value": 214
-        },
-        {
-          "category": "resources",
-          "name": "changed",
-          "value": 2
-        },
-        {
-          "category": "resources",
-          "name": "failed",
-          "value": 0
-        },
-        {
-          "category": "resources",
-          "name": "skipped",
-          "value": 0
-        },
-        {
-          "category": "resources",
-          "name": "out_of_sync",
-          "value": 2
-        },
-        {
-          "category": "events",
-          "name": "total",
-          "value": 2
-        },
-        {
-          "category": "changes",
-          "name": "total",
-          "value": 2
-        }
-      ]
-    },
     "logs": {
-      "href": "/pdb/query/v4/reports/b930c3ab065cdd09177234b3fde577596b3bf856/logs",
       "data": [
         {
           "file": null,
           "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T08:12:59.355+00:00",
           "level": "info",
-          "message": "Applying configuration version 1753001800",
           "source": "Puppet",
-          "tags": ["info"],
-          "time": "2026-07-27T08:30:01.000Z"
-        },
-        {
-          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ntp.pp",
-          "line": 24,
-          "level": "notice",
-          "message": "content changed '{md5}5d41402abc4b2a76b9719d911017c592' to '{md5}7d793037a0760186574b0282f2f435e7'",
-          "source": "/Stage[main]/Profile::Base::Ntp/File[/etc/ntp.conf]/content",
-          "tags": ["notice", "file", "content", "profile::base::ntp"],
-          "time": "2026-07-27T08:30:05.000Z"
+          "message": "Using environment 'production'"
         },
         {
           "file": null,
           "line": null,
-          "level": "notice",
-          "message": "Applied catalog in 12.04 seconds",
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T08:12:59.382+00:00",
+          "level": "info",
           "source": "Puppet",
-          "tags": ["notice"],
-          "time": "2026-07-27T08:30:12.000Z"
+          "message": "Retrieving pluginfacts"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice",
+            "file",
+            "pluginfacts"
+          ],
+          "time": "2026-07-28T08:12:59.425+00:00",
+          "level": "notice",
+          "source": "/File[/opt/puppetlabs/puppet/cache/facts.d]/mode",
+          "message": "mode changed '0755' to '0775'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T08:12:59.425+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Retrieving plugin"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T08:13:00.304+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Caching catalog for agent01.nexuspuppet.test"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T08:13:00.309+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Applying configuration version '1785226379'"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp",
+          "line": 7,
+          "tags": [
+            "notice",
+            "file",
+            "class",
+            "profile::base",
+            "profile",
+            "base"
+          ],
+          "time": "2026-07-28T08:13:00.319+00:00",
+          "level": "notice",
+          "source": "/Stage[main]/Profile::Base/File[/tmp/nexuspuppet-enc-proof]/ensure",
+          "message": "defined content as '{sha256}185bbbc31609609a8390c015de0f87b3bec37787cef70d7eabcf21421cc359a5'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice"
+          ],
+          "time": "2026-07-28T08:13:00.320+00:00",
+          "level": "notice",
+          "source": "Puppet",
+          "message": "nexuspuppet: permit_root_login=false"
+        },
+        {
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ssh.pp",
+          "line": 2,
+          "tags": [
+            "notice",
+            "notify",
+            "class",
+            "profile::base::ssh",
+            "profile",
+            "base",
+            "ssh"
+          ],
+          "time": "2026-07-28T08:13:00.320+00:00",
+          "level": "notice",
+          "source": "/Stage[main]/Profile::Base::Ssh/Notify[nexuspuppet: permit_root_login=false]/message",
+          "message": "defined 'message' as 'nexuspuppet: permit_root_login=false'"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "info"
+          ],
+          "time": "2026-07-28T08:13:00.326+00:00",
+          "level": "info",
+          "source": "Puppet",
+          "message": "Creating state file /opt/puppetlabs/puppet/cache/state/state.yaml"
+        },
+        {
+          "file": null,
+          "line": null,
+          "tags": [
+            "notice"
+          ],
+          "time": "2026-07-28T08:13:00.330+00:00",
+          "level": "notice",
+          "source": "Puppet",
+          "message": "Applied catalog in 0.02 seconds"
         }
-      ]
-    }
+      ],
+      "href": "/pdb/query/v4/reports/024dbf5c690ee87063a59b03b20b9812f79fbae5/logs"
+    },
+    "report_format": 12,
+    "start_time": "2026-07-28T08:12:59.007Z",
+    "producer_timestamp": "2026-07-28T08:13:00.374Z",
+    "type": "agent",
+    "cached_catalog_status": "not_used",
+    "end_time": "2026-07-28T08:13:00.331Z",
+    "resource_events": {
+      "data": [
+        {
+          "status": "success",
+          "timestamp": "2026-07-28T08:13:00.313+00:00",
+          "resource_type": "File",
+          "resource_title": "/tmp/nexuspuppet-enc-proof",
+          "property": "ensure",
+          "corrective_change": null,
+          "new_value": "file",
+          "old_value": "absent",
+          "message": "defined content as '{sha256}185bbbc31609609a8390c015de0f87b3bec37787cef70d7eabcf21421cc359a5'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp",
+          "line": 7,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Base",
+            "File[/tmp/nexuspuppet-enc-proof]"
+          ],
+          "containing_class": "Profile::Base",
+          "name": "file_created"
+        },
+        {
+          "status": "success",
+          "timestamp": "2026-07-28T08:13:00.32+00:00",
+          "resource_type": "Notify",
+          "resource_title": "nexuspuppet: permit_root_login=false",
+          "property": "message",
+          "corrective_change": null,
+          "new_value": "nexuspuppet: permit_root_login=false",
+          "old_value": "absent",
+          "message": "defined 'message' as 'nexuspuppet: permit_root_login=false'",
+          "file": "/etc/puppetlabs/code/environments/production/modules/profile/manifests/base/ssh.pp",
+          "line": 2,
+          "containment_path": [
+            "Stage[main]",
+            "Profile::Base::Ssh",
+            "Notify[nexuspuppet: permit_root_login=false]"
+          ],
+          "containing_class": "Profile::Base::Ssh",
+          "name": "message_changed"
+        }
+      ],
+      "href": "/pdb/query/v4/reports/024dbf5c690ee87063a59b03b20b9812f79fbae5/events"
+    },
+    "status": "changed",
+    "configuration_version": "1785226379",
+    "environment": "production",
+    "code_id": null,
+    "noop_pending": false,
+    "certname": "agent01.nexuspuppet.test",
+    "metrics": {
+      "data": [
+        {
+          "name": "changed",
+          "value": 2,
+          "category": "resources"
+        },
+        {
+          "name": "corrective_change",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "failed",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "failed_to_restart",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "out_of_sync",
+          "value": 2,
+          "category": "resources"
+        },
+        {
+          "name": "restarted",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "scheduled",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "skipped",
+          "value": 0,
+          "category": "resources"
+        },
+        {
+          "name": "total",
+          "value": 9,
+          "category": "resources"
+        },
+        {
+          "name": "catalog_application",
+          "value": 0.021765249999589287,
+          "category": "time"
+        },
+        {
+          "name": "config_retrieval",
+          "value": 0.47953906799375545,
+          "category": "time"
+        },
+        {
+          "name": "convert_catalog",
+          "value": 0.045230507996166125,
+          "category": "time"
+        },
+        {
+          "name": "fact_generation",
+          "value": 0.27598515200952534,
+          "category": "time"
+        },
+        {
+          "name": "file",
+          "value": 0.007043461,
+          "category": "time"
+        },
+        {
+          "name": "filebucket",
+          "value": 0.000063219,
+          "category": "time"
+        },
+        {
+          "name": "node_retrieval",
+          "value": 0.1276944269920932,
+          "category": "time"
+        },
+        {
+          "name": "notify",
+          "value": 0.000798921,
+          "category": "time"
+        },
+        {
+          "name": "plugin_sync",
+          "value": 0.10366108898597304,
+          "category": "time"
+        },
+        {
+          "name": "schedule",
+          "value": 0.00023658499999999999,
+          "category": "time"
+        },
+        {
+          "name": "startup_time",
+          "value": 0.220298266,
+          "category": "time"
+        },
+        {
+          "name": "total",
+          "value": 1.324023862,
+          "category": "time"
+        },
+        {
+          "name": "transaction_evaluation",
+          "value": 0.016835365997394547,
+          "category": "time"
+        },
+        {
+          "name": "total",
+          "value": 2,
+          "category": "changes"
+        },
+        {
+          "name": "failure",
+          "value": 0,
+          "category": "events"
+        },
+        {
+          "name": "success",
+          "value": 2,
+          "category": "events"
+        },
+        {
+          "name": "total",
+          "value": 2,
+          "category": "events"
+        }
+      ],
+      "href": "/pdb/query/v4/reports/024dbf5c690ee87063a59b03b20b9812f79fbae5/metrics"
+    },
+    "job_id": null
   }
 ]

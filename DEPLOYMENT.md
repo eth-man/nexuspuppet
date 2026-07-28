@@ -39,6 +39,36 @@ architectural decision the deployment cannot defer, and it is covered in
 - Outbound TCP to PuppetDB on 8081. **No inbound access from puppetserver is
   required — and none should be permitted** (ADR-0003)
 
+### Puppet or OpenVox
+
+Both are supported, and NexusPuppet needs no configuration change to tell them
+apart.
+
+[OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet —
+`openvoxserver`, `openvoxdb` and `openvoxagent` replacing puppetserver, puppetdb
+and puppet-agent. `openvoxdb` serves the same `/pdb/query/v4` API, identifies
+itself as `PuppetDB`, and keeps `puppetdb-status` as its status service, so
+every URL, certificate path and query in this guide applies unchanged.
+
+This was verified rather than assumed: `openvoxdb 8.15.0` was checked against
+`PuppetDB 7.10.0` for every AST operator NexusPuppet emits, every node field its
+mappers read, the timestamp-or-null typing of `deactivated`/`expired`, and the
+ordering and paging the reconciler depends on. Reproduce it with
+`scripts/dev/openvox-stack.sh` then `scripts/dev/openvox-compat.sh`.
+
+**If you run `openvoxdb` against your own PostgreSQL, create the `pg_trgm`
+extension first.** openvoxdb will not start without it:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+```
+
+This needs a superuser, so openvoxdb cannot do it itself, and the failure is
+easy to misread: it aborts during schema migration, shuts down cleanly, and the
+container reports only *unhealthy* — the actual reason sits above a Clojure
+stack trace in the logs. The bundled `docker-compose.openvox.yml` handles it via
+an init script; a managed or pre-existing database will not.
+
 ---
 
 ## 1. Get the code
