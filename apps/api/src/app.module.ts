@@ -35,6 +35,7 @@ import { AuditDeliveryOutbox } from './auth/audit-delivery.outbox';
 import { ClassificationPlanner } from './classification/plan/classification-planner.service';
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
+import { ConsoleTlsService } from './system/console-tls.service';
 import {
   AuditDeliveryWorker,
   DEFAULT_AUDIT_PACING,
@@ -196,6 +197,15 @@ export class AppModule {
             projection: NodeProjectionService,
             transport: IAuditTransport,
           ): SystemStatusService => new SystemStatusService(prisma, outbox, projection, transport),
+        },
+        {
+          // Config passed in, not read inside the service. A service that reads
+          // its own environment is one whose tests can never observe the
+          // default — which is how the projected-fact warning came to be
+          // silently disabled in every real deployment while passing every test.
+          provide: ConsoleTlsService,
+          useFactory: (): ConsoleTlsService =>
+            new ConsoleTlsService(env.CONSOLE_TLS_CERT_PATH ?? null, env.CONSOLE_HOSTNAME ?? null),
         },
         // RbacPolicy, LocalUserDirectory, PrismaAuditSink and CoreLicenseService
         // are NOT registered here. They reach the container only through their

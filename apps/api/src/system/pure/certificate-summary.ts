@@ -1,4 +1,5 @@
 import { X509Certificate } from 'node:crypto';
+import type { CertificateSummary } from '@nexuspuppet/contracts';
 
 /**
  * What an operator needs to know about the certificate the console is served
@@ -14,20 +15,9 @@ import { X509Certificate } from 'node:crypto';
  * is exhaustively testable against fixtures without a filesystem or a clock.
  */
 
-export interface CertificateSummary {
-  subject: string;
-  issuer: string;
-  /** Names this certificate is valid for. A browser matches against these. */
-  subjectAltNames: string[];
-  validFrom: string;
-  validTo: string;
-  /** Negative once expired, so a single field answers "how bad is it". */
-  daysRemaining: number;
-  expired: boolean;
-  /** Not yet valid — a clock skew or a certificate issued for later use. */
-  notYetValid: boolean;
-  selfSigned: boolean;
-}
+// The shape lives in @nexuspuppet/contracts: the web tier renders it, so a local
+// copy would be two definitions that drift.
+export type { CertificateSummary };
 
 export class CertificateParseError extends Error {}
 

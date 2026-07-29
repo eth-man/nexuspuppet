@@ -632,6 +632,35 @@ If you already run nginx, Caddy, HAProxy or a load balancer, point it at
 `127.0.0.1:3000` and leave the `tls` profile off. Nothing about the rest of this
 guide changes.
 
+### Either way: let the console tell you when it expires
+
+An expired certificate is an outage, and it is the commonest way TLS breaks.
+Point the API at the **public** certificate and *Settings → Console certificate*
+reports its subject, the names it covers, whether those include
+`CONSOLE_HOSTNAME`, and how many days are left:
+
+```ini
+CONSOLE_TLS_CERT_PATH=/etc/nexuspuppet/console.pem
+```
+
+with the single file mounted into the api container — in
+`docker-compose.override.yml`:
+
+```yaml
+services:
+  api:
+    volumes:
+      - /etc/nexuspuppet/tls/console.pem:/etc/nexuspuppet/console.pem:ro
+```
+
+**Mount the certificate, never the directory.** The directory holds the private
+key, and the API has no reason to be able to read one.
+
+This works whatever terminates TLS. The API reads a file; it never asks a proxy
+what it loaded, so replacing the bundled proxy with your own changes nothing
+here. Leaving it unset is fine too — the card then says TLS terminates somewhere
+it cannot see, which is not an error.
+
 ---
 
 ## 8. High availability and horizontal scaling

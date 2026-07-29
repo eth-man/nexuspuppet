@@ -118,6 +118,21 @@ export const envSchema = z.object({
 
   // ADR-0003
   ENC_OUTPUT_DIR: z.string().min(1),
+
+  /**
+   * The PUBLIC certificate the console is served with (ADR-0013), for reporting
+   * its expiry in Settings.
+   *
+   * Optional, and unset is the normal state: most deployments terminate TLS at
+   * their own proxy and this reports "not configured" rather than an error.
+   *
+   * Mount the single .pem file, never the directory containing the key. The API
+   * has no reason to be able to read a private key and should not be given the
+   * opportunity.
+   */
+  CONSOLE_TLS_CERT_PATH: z.string().optional(),
+  /** The name operators reach the console by, to check the certificate covers it. */
+  CONSOLE_HOSTNAME: z.string().optional(),
   ENC_DEFAULT_ENVIRONMENT: z.string().default('production'),
   ENC_MATERIALIZER_INTERVAL_MS: durationMs(2_000),
   ENC_RECONCILE_INTERVAL_MS: durationMs(900_000),

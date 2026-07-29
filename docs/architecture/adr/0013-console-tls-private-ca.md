@@ -41,9 +41,9 @@ Reads the **public certificate** — never the key — and reports what an opera
 - subject, issuer, and SANs, so they can see whether it matches the hostname people use
 - **expiry, with a warning ahead of time.** An expired console certificate is an outage, and it is the single most common way TLS breaks
 - whether the certificate and the configured hostname agree
-- a **reload** action, for after the files on disk have been replaced
+Most deployments will have exactly one certificate, and will still benefit from being told it expires in nine days.
 
-Where more than one certificate is mounted, Settings may select between them. That is a convenience; the visibility and the reload are the substance. Most deployments will have exactly one certificate, and will still benefit from being told it expires in nine days.
+**No reload action, and no certificate selection.** An earlier draft promised both. Neither survives the decision below that the API stays proxy-agnostic: reloading means talking to a specific proxy's control plane, and this product cannot reload an operator's nginx, HAProxy or F5. Replacing the file and reloading the proxy is the operator's business, and it is one command they already know. Offering a button that worked only for the proxy we happen to ship would be worse than offering none — it would break silently for exactly the estates most likely to have replaced it.
 
 Reading an X.509 certificate needs no new dependency — `node:crypto`'s `X509Certificate` already does this in `scripts/test-puppetdb.mjs`.
 
@@ -99,6 +99,14 @@ It also makes `WEB_BIND=0.0.0.0` a defensible choice for the first time. Today t
 
 ## Resolved during implementation
 
+**The API is proxy-agnostic, and reads a file.** Settings reports the certificate by reading a single mounted `.pem`, not by asking Caddy's admin API what it loaded.
+
+The reasoning is not about coupling as a matter of taste. Enterprise operators replace a bundled proxy with their existing nginx, HAProxy or F5 as a matter of course — that is the normal case, not an exception — and an API that learned about certificates by interrogating Caddy would report "not configured" on a correctly running deployment the moment anyone did. A file path is the one interface every one of those layouts shares.
+
+It also keeps the key isolation trivial rather than careful: the API is given the public certificate as a **single file**, never the directory containing the key. There is no path from the API to key material even if someone later adds a careless field to the response, because the process cannot open the file.
+
+The cost is that the product cannot offer a reload button — see the amended §3.
+
 **Which proxy: Caddy.** The requirement was a reload path reachable on the Compose network without signals or a Docker socket, and Caddy's admin API provides exactly that — `POST /load` replaces the running configuration atomically, no restart, no process signalling.
 
 nginx would have needed `nginx -s reload`, which from another container means either sharing a PID namespace or handing the API a Docker socket. The second trades a certificate-reload feature for full control of every container on the host, which is not a trade worth making for this.
@@ -109,7 +117,7 @@ The cost is a component most Puppet operators will not have used before. Mitigat
 
 ## Open questions
 2. **Where do certificates live by default?** A single mounted directory scanned for pairs, or explicit paths in `.env` like the PuppetDB certificates? The latter matches existing practice; the former makes "select between them" natural.
-3. **How is expiry surfaced?** `GET /system/status` already exists and already reports things that are about to go wrong — this may belong there rather than in Settings alone.
-4. **Does the reload need an audit row?** It changes how the product is served, and every other configuration change of consequence writes one.
+3. ~~**How is expiry surfaced?**~~ Resolved: a separate `GET /system/tls`, gated on `settings:manage` rather than `inventory:read`. It is infrastructure detail — issuer, subject alternative names, a filesystem path in the error case — and belongs to whoever administers the deployment rather than to everyone who may look at the estate.
+4. ~~**Does the reload need an audit row?**~~ Moot: there is no reload action, see §3.
 5. **What is the exact ownership requirement?** The certificate-ownership defect in [#28](https://github.com/eth-man/nexuspuppet/pull/28) came from the API container's uid; a proxy container will have its own, and the documentation must not repeat that class of mistake.
 6. **HSTS and the HTTP→HTTPS redirect** — on by default, or opt-in? HSTS is difficult to reverse if an operator later needs plain HTTP for a diagnosis.

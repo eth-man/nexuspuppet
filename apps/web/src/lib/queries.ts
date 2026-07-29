@@ -14,6 +14,7 @@ import type {
   ReportSummary,
   ResourceEvent,
   SystemStatus,
+  ConsoleTlsStatus,
 } from '@nexuspuppet/contracts';
 import { api } from './client';
 
@@ -234,6 +235,20 @@ export function useSystemStatus(): UseQueryResult<SystemStatus> {
     queryKey: ['system-status'],
     queryFn: ({ signal }) => api.get<SystemStatus>('/system/status', signal),
     refetchInterval: 30_000,
+  });
+}
+
+/**
+ * The certificate the console is served with (ADR-0013).
+ *
+ * Refetched far less often than system status: a certificate changes when an
+ * operator replaces a file, not on a timer, and its expiry is measured in days.
+ */
+export function useConsoleTls(): UseQueryResult<ConsoleTlsStatus> {
+  return useQuery({
+    queryKey: ['console-tls'],
+    queryFn: ({ signal }) => api.get<ConsoleTlsStatus>('/system/tls', signal),
+    staleTime: 300_000,
   });
 }
 
