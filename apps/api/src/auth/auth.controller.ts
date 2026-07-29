@@ -7,10 +7,12 @@ import {
   HttpStatus,
   Inject,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import {
   AUTH_PROVIDER,
   credentialsSchema,
@@ -32,6 +34,16 @@ import {
 } from './auth.guard';
 import { RefreshTokenError, TokenService, type SessionTokens } from './token.service';
 import { LoginRateLimiter } from './core-capabilities';
+
+/**
+ * Correlates the two legs of an external login.
+ *
+ * Scoped to /auth so it is not sent with every request, and short-lived: it is
+ * only needed for the seconds a user spends at the identity provider. A long
+ * TTL would widen the window in which a stolen state is useful.
+ */
+const REDIRECT_STATE_COOKIE = 'nexuspuppet_redirect_state';
+const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Session endpoints (ADR-0006).
@@ -137,6 +149,106 @@ export class AuthController {
   }
 
   /**
+   * Begin an external login.
+   *
+   * The login screen already links here for a redirect-mode provider; until now
+   * the route did not exist, so that button produced a 404 and a redirect
+   * provider could not be used at all.
+   *
+   * Core owns the correlation, not the provider: the state the provider mints is
+   * stored in a short-lived cookie and required to match on the way back. That
+   * is what binds a callback to the browser that started it, and it is the
+   * defence against an attacker completing someone else's login in their victim's
+   * session (an OAuth login-CSRF).
+   */
+  @Public()
+  @Get('redirect')
+  async beginRedirect(
+    @Query('returnTo') returnTo: string | undefined,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: Response,
+  ): Promise<void> {
+    const begin = this.provider.beginRedirect?.bind(this.provider);
+    if ((this.provider.mode ?? 'credentials') !== 'redirect' || begin === undefined) {
+      throw new BadRequestException({
+        error: 'REDIRECT_NOT_SUPPORTED',
+        message: 'This deployment does not use an external identity provider.',
+      });
+    }
+
+    const safeReturnTo = sanitiseReturnTo(returnTo);
+    const challenge = await begin(safeReturnTo);
+
+    response.cookie(REDIRECT_STATE_COOKIE, `${challenge.state}|${safeReturnTo}`, {
+      httpOnly: true,
+      // LAX, not strict. The browser arrives at the callback from the identity
+      // provider's domain, and a strict cookie would not be sent on that
+      // navigation — the login would fail for everyone, always.
+      sameSite: 'lax',
+      secure: isSecure(request),
+      path: '/auth',
+      maxAge: REDIRECT_STATE_TTL_MS,
+    });
+
+    response.redirect(challenge.location);
+  }
+
+  /**
+   * Complete an external login from the identity provider's callback.
+   *
+   * Everything the provider needs arrives in the query string, and everything
+   * core needs to trust it arrives in the cookie. The provider validates the
+   * assertion — signature, issuer, audience, nonce; core validates that this
+   * browser is the one that asked.
+   */
+  @Public()
+  @Get('callback')
+  async completeRedirect(
+    @Query() params: Record<string, string>,
+    @Req() request: AuthenticatedRequest,
+    @Res() response: Response,
+  ): Promise<void> {
+    const complete = this.provider.completeRedirect?.bind(this.provider);
+    if ((this.provider.mode ?? 'credentials') !== 'redirect' || complete === undefined) {
+      throw new BadRequestException({
+        error: 'REDIRECT_NOT_SUPPORTED',
+        message: 'This deployment does not use an external identity provider.',
+      });
+    }
+
+    const cookie = request.cookies?.[REDIRECT_STATE_COOKIE];
+    // Single use, cleared before anything can go wrong with it. A state that
+    // survived a failed attempt could be replayed.
+    response.clearCookie(REDIRECT_STATE_COOKIE, { path: '/auth' });
+
+    if (typeof cookie !== 'string' || cookie.length === 0) {
+      throw new UnauthorizedException('Login session expired. Start again.');
+    }
+
+    const separator = cookie.indexOf('|');
+    const expectedState = separator === -1 ? cookie : cookie.slice(0, separator);
+    const returnTo = separator === -1 ? '/' : sanitiseReturnTo(cookie.slice(separator + 1));
+
+    // Constant-time, and length-checked first: a plain !== leaks the position of
+    // the first differing byte to a patient attacker.
+    if (!statesMatch(expectedState, params['state'])) {
+      throw new UnauthorizedException('Login session expired. Start again.');
+    }
+
+    const result = await complete(params);
+    if (!result.ok) {
+      // One message, as for password login: distinguishing failures here would
+      // say whether an account exists in the directory.
+      throw new UnauthorizedException('Sign-in was refused by the identity provider.');
+    }
+
+    const session = await this.tokens.issue(result.principal, contextOf(request));
+    setSessionCookies(response, session, request);
+
+    response.redirect(returnTo);
+  }
+
+  /**
    * Exchange the refresh cookie for a new session.
    *
    * Any failure clears the cookies. A client holding a token we have revoked
@@ -228,6 +340,37 @@ function contextOf(request: AuthenticatedRequest): {
  * The refresh cookie is scoped to /auth so it is not sent on every API request;
  * only the endpoints that consume it ever see it.
  */
+/**
+ * Where the browser may be sent after a successful external login.
+ *
+ * A RELATIVE PATH ONLY. `returnTo` arrives from the query string and is
+ * reflected into a redirect, which is the textbook open-redirect: an attacker
+ * sends a victim to a legitimate NexusPuppet login URL that lands them on a
+ * lookalike site holding a real session cookie.
+ *
+ * Rejected: anything with a scheme, anything protocol-relative (`//evil.test`
+ * is a HOST, not a path), and anything not starting with a single slash.
+ */
+export function sanitiseReturnTo(raw: string | undefined): string {
+  if (typeof raw !== 'string' || raw.length === 0) return '/';
+  if (!raw.startsWith('/')) return '/';
+  if (raw.startsWith('//')) return '/';
+  // A backslash is treated as a slash by some browsers when resolving a URL,
+  // so `/\evil.test` can escape the origin on those.
+  if (raw.startsWith('/\\')) return '/';
+  if (raw.includes('://')) return '/';
+  return raw;
+}
+
+/** Constant-time comparison of the correlation state. */
+function statesMatch(expected: string, received: string | undefined): boolean {
+  if (typeof received !== 'string') return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(received);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 function setSessionCookies(
   response: Response,
   session: SessionTokens,

@@ -21,6 +21,7 @@ The core product is complete and verified against a real estate, not just a test
 | ✅ **Local authentication** | JWT sessions, scrypt hashing, account lockout, full audit trail. |
 | ✅ **OpenVox support** | Works unchanged; verified operator-by-operator against a live openvoxdb. |
 | ✅ **Enterprise LDAP / Active Directory** | Nested groups, dialect switching, secure referral handling, admin-managed group→role mapping. |
+| ✅ **Enterprise audit export** | A forwarding sink that composes over core's rather than replacing it, a transactional delivery outbox with leases and backoff, and a webhook transport. The local audit trail is never traded for the external copy. |
 
 ---
 
@@ -32,10 +33,21 @@ Four of the five declared capability tokens have no implementation yet. Routes f
 
 | Capability | Token | Notes |
 |---|---|---|
-| **Audit export** | `AUDIT_SINK` | **Unblocked and the best next candidate.** The seam now genuinely receives every user-administration and classification event, so a SIEM sink (syslog, Splunk HEC, webhook) is a matter of implementing one interface. |
-| **SAML SSO** | `AUTH_PROVIDER` | The provider seam already carries LDAP; SAML is a second implementation behind the same token. |
-| **OIDC SSO** | `AUTH_PROVIDER` | As above. Likely shares session and group-mapping plumbing with SAML. |
-| **Scoped RBAC** | `AUTHORIZATION_POLICY` | Today's policy is role-based and estate-wide. Scoped RBAC means permissions bounded by node group or environment. |
+| **OIDC SSO** | `AUTH_PROVIDER` | **In progress.** See the note below — core needs its redirect routes before any redirect-mode provider can work. |
+| **SAML SSO** | `AUTH_PROVIDER` | After OIDC, which builds the redirect plumbing SAML also needs. |
+| **Scoped RBAC** | `AUTHORIZATION_POLICY` | Today's policy is role-based and estate-wide. Scoped RBAC means permissions bounded by node group or environment. Large: it touches every route and guard, and wants an ADR before code. |
+
+#### Before OIDC: core's redirect routes
+
+`IAuthProvider` already declares `beginRedirect` and `completeRedirect`, the login
+screen already renders a "Continue with …" button, and that button points at
+`/auth/redirect` — **a route that does not exist**. A redirect-mode provider is
+impossible today, and configuring one would produce a login page whose only
+control 404s.
+
+So the first increment is core's: the two routes, the state correlation that
+binds a callback to the browser that began it, and the open-redirect guard on
+the return path. That plumbing is shared by OIDC and SAML alike.
 
 ### Core
 
@@ -88,7 +100,7 @@ Genuinely useful, self-contained, and a good way to learn the codebase. None req
 
 ### 🔴 Larger
 
-- **An audit sink implementation** for the enterprise layer — syslog, Splunk HEC or a generic webhook, behind `AUDIT_SINK`.
+- **More audit transports** — syslog (RFC 5424) or Splunk HEC alongside the existing webhook, behind `AUDIT_TRANSPORT`. The queue, retries and leases are core's; a transport is one method.
 - **Estate-scale load testing** with a synthetic 5,000-node PuppetDB, to find where projection and materialization actually bend.
 
 ---
