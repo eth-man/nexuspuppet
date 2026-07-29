@@ -335,11 +335,25 @@ if (count.status === 200) {
 
 head("The application's client");
 
-const clientPath = resolve(root, 'apps/api/dist/puppetdb/puppetdb.client.js');
+// Two layouts. In a checkout the build lands under apps/api/dist; in the runtime
+// image the api IS the app, so it sits at dist/. Supporting both is what lets
+// this run inside the container — from the same uid, network position and
+// certificate mounts as the real client, which is a strictly better check than
+// running it from the host.
+const clientCandidates = [
+  resolve(root, 'apps/api/dist/puppetdb/puppetdb.client.js'),
+  resolve(root, 'dist/puppetdb/puppetdb.client.js'),
+];
 let PuppetDbClient;
-try {
-  ({ PuppetDbClient } = await import(clientPath));
-} catch {
+for (const candidate of clientCandidates) {
+  try {
+    ({ PuppetDbClient } = await import(candidate));
+    break;
+  } catch {
+    /* try the next layout */
+  }
+}
+if (PuppetDbClient === undefined) {
   console.log('    - skipped: apps/api is not built. Run `npm run build` to include this stage.');
   console.log('\nEverything up to here passed. The certificates and authorisation are good.\n');
   process.exit(0);

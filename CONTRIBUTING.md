@@ -139,7 +139,7 @@ Beyond the default stand-in, `scripts/dev/` has full estates for the things that
 | `sudo ./scripts/dev/puppet-stack.sh` | A real `puppetserver` + PuppetDB + agent, with certificates issued and the ENC wired |
 | `sudo ./scripts/dev/openvox-stack.sh` | The same estate on OpenVox, alongside the Puppet one |
 | `./scripts/dev/openvox-compat.sh` | Runs the standard connection test plus a fork-specific probe against openvoxdb |
-| `npm run test:puppetdb` | Six-stage diagnostic against a real PuppetDB — files, TLS, authorisation, the real client |
+| `npm run test:puppetdb` | Six-stage diagnostic against a real PuppetDB — files, TLS, authorisation, the real client. Needs Node; on a Docker-only host run `docker compose run --rm api node scripts/test-puppetdb.mjs` instead, which also tests from the container's uid and network position |
 
 These need `sudo` only because Docker does.
 

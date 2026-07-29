@@ -30,6 +30,40 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
   }
 
+  /*
+   * A KNOWN DEPRECATION, deliberately not worked around.
+   *
+   *   DeprecationWarning: Calling client.query() when the client is already
+   *   executing a query is deprecated and will be removed in pg@9.0.
+   *
+   * An interactive transaction pins one connection, and Prisma's interpreter
+   * loads `include` relations concurrently over it. Measured, rather than
+   * guessed at — every shape tested against this schema:
+   *
+   *   tx + findUnique, four include relations ....... WARNS
+   *   tx + findUnique, one include relation ......... clean
+   *   tx + findUnique, no include ................... clean
+   *   tx + two sequential queries ................... clean
+   *   tx + two concurrent queries (Promise.all) ..... clean
+   *   pooled (no tx) + four include relations ....... clean
+   *
+   * Two things follow, and both are counterintuitive enough to be worth
+   * writing down. `Promise.all` over a transaction client is NOT the cause —
+   * Prisma serialises those above the adapter. And the trigger is not raw SQL
+   * or anything this codebase does by hand: it is `loadOrThrow`'s
+   * `include: { rules, classes, parameters, pins }` running inside the
+   * transaction that every classification write needs (ADR-0005 Rule 5).
+   *
+   * Avoiding it would mean fetching those four relations ourselves, in
+   * sequence, on the pinned connection of a transaction already holding locks
+   * — four extra round-trips per write to silence a warning that belongs to
+   * @prisma/adapter-pg. Not worth it while it is only noise.
+   *
+   * IT STOPS BEING NOISE AT pg 9. Before that upgrade, re-run the shapes above:
+   * if the adapter has not learned to serialise, the transaction the whole
+   * classification write path depends on begins to throw.
+   */
+
   /**
    * Run `work` while holding a Postgres advisory lock, or skip it entirely if
    * another replica already holds the lock.
@@ -77,15 +111,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         if (acquired?.locked !== true) return null;
 
         // The transaction client is HANDED to the work rather than merely held
-
-        // around it. Work that reaches for the top-level client instead runs on a
-
-        // different connection and commits independently — so a rollback here would
-
-        // leave it applied, which for the outbox means claimed jobs vanish while
-
-        // their work is unfinished.
-
+        // around it. Work that reaches for the top-level client instead runs on
+        // a different connection and commits independently — so a rollback here
+        // would leave it applied, which for the outbox means claimed jobs vanish
+        // while their work is unfinished.
         return work(tx);
       },
       { timeout, maxWait: 5_000 },

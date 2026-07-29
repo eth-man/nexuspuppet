@@ -30,6 +30,11 @@ Issue one with:
 puppetserver ca generate --certname nexuspuppet
 ```
 
+If the CA does not autosign, that prints `Error: Signed certificate nexuspuppet
+could not be found on the CA` — the request was submitted but nobody has signed
+it yet. Sign it with `puppetserver ca sign --certname nexuspuppet`, then look for
+the certificate file. Judge it by the files, not the message.
+
 ## Permissions
 
 ```bash

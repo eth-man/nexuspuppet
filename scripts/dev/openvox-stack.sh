@@ -119,8 +119,13 @@ wait "$AGENT_PID" 2>/dev/null || true
 step "Issuing a certificate for NexusPuppet"
 # Exactly the procedure DEPLOYMENT.md gives an operator — run here against
 # OpenVox to find out whether those instructions still hold on the fork.
+#
+# UNTRUNCATED, deliberately. This used to pipe through `tail -5`, which showed
+# the success lines and swallowed anything before them — including the spurious
+# error OpenVox prints first. A harness that exists to discover surprises in the
+# documented procedure must not hide the surprise.
 docker exec nexuspuppet-openvoxserver \
-  puppetserver ca generate --certname "$CERTNAME" 2>&1 | tail -5 || true
+  puppetserver ca generate --certname "$CERTNAME" 2>&1 || true
 
 mkdir -p "$CERT_DIR"
 docker exec nexuspuppet-openvoxserver \
