@@ -117,7 +117,7 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0010](./adr/0010-typescript-version-pinned-below-latest.md) | TypeScript pinned to 5.9.x, below published `latest` |
 | [0011](./adr/0011-scoped-rbac.md) | Scoped RBAC: bounding writes by environment — **Deferred** |
 | [0012](./adr/0012-gitops-classification-mirror.md) | GitOps mode: classification mirrored to Git — **Deferred** |
-| [0013](./adr/0013-console-tls-private-ca.md) | TLS for the console, from a private CA — **Proposed** |
+| [0013](./adr/0013-console-tls-private-ca.md) | TLS for the console, from a private CA |
 
 ## 11. Open questions
 

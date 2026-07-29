@@ -122,6 +122,54 @@ services:
       retries: 3
       start_period: 20s
 
+  # TLS termination (ADR-0013). OPT-IN:
+  #
+  #   docker compose --profile tls up -d
+  #
+  # Off by default, so an operator who already runs a reverse proxy is
+  # unaffected and nothing about the web tier changes. §7 of DEPLOYMENT.md
+  # covers both paths.
+  proxy:
+    profiles: ['tls']
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      # Must match the certificate AND what people type in the browser.
+      #
+      # NOT a `${VAR:?}` guard, deliberately. Compose interpolates every variable
+      # in the file BEFORE it filters by profile, so a required-variable guard
+      # here fails `docker compose up` for everyone — including deployments that
+      # never enable this profile. Caddy refuses to start on an empty site
+      # address, which fails only the people who opted in, which is correct.
+      CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
+      CADDY_LOG_LEVEL: ${CADDY_LOG_LEVEL:-INFO}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates as MOUNTED FILES, never uploaded through the app and never
+      # stored in the database (ADR-0013). The private key is readable by this
+      # container and by nothing else in the stack — the api and web services do
+      # not mount this path.
+      - ${CONSOLE_TLS_DIR:-./deploy/caddy/certs}:/etc/caddy/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      # These DO bind every interface, unlike 3000 and 3001. That is the point:
+      # this is the one service in the stack that terminates TLS, so it is the
+      # one that is safe to expose. Leave web/api on loopback.
+      - '${HTTPS_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443'
+      - '${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80'
+      # The admin API is deliberately NOT published. It can replace the running
+      # configuration; the api service reaches it over the Compose network.
+    healthcheck:
+      test: ['CMD', 'caddy', 'version']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Reference only — your puppetserver almost certainly lives outside this
   # compose file. What matters is the READ-ONLY mount and the ENC script.
   #
@@ -136,5 +184,7 @@ services:
   #     NEXUSPUPPET_ENC_DIR: /etc/puppetlabs/nexuspuppet
 
 volumes:
+  caddy-data:
+  caddy-config:
   db-data:
   enc-data:

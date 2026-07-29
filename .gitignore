@@ -61,3 +61,7 @@ scripts/dev/certs/
 e2e/.results/
 e2e/.logs/
 playwright-report/
+
+# Test/site certificates for the optional TLS proxy (ADR-0013). Certificates
+# are mounted from a path the operator chooses; nothing here belongs in git.
+deploy/caddy/certs/

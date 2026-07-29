@@ -1,0 +1,60 @@
+# TLS termination for the NexusPuppet console (ADR-0013).
+#
+# Deliberately short. This file is security-relevant configuration an operator
+# has to trust, so it should be readable in one sitting.
+#
+# Started only with the `tls` Compose profile:
+#   docker compose --profile tls up -d
+#
+# CONSOLE_HOSTNAME must be a name the certificate actually carries, and the name
+# people type into the browser. A certificate issued for the host's FQDN does not
+# help someone reaching the console by IP, and the browser error for that is
+# unhelpful.
+
+{
+	# Admin API on loopback INSIDE the container only.
+	#
+	# This endpoint can replace the running configuration, so exposing it is
+	# equivalent to handing over TLS termination. It is never published to the
+	# host. The API reaches it over the Compose network by container name; see
+	# docker-compose.yml, where no port for it is published.
+	admin 0.0.0.0:2019
+
+	# No ACME. Certificates come from the operator's own CA and are mounted as
+	# files; Caddy must never try to obtain one itself, which is its default
+	# behaviour for a public name and would fail confusingly on an internal one.
+	auto_https disable_certs
+
+	# Caddy's own log, not the access log below.
+	log {
+		output stderr
+		format console
+		level {$CADDY_LOG_LEVEL:INFO}
+	}
+}
+
+# HTTP: redirect everything to HTTPS, and nothing else.
+#
+# No content is served here, so an operator who has not finished DNS or firewall
+# work cannot accidentally use the console unencrypted and not notice.
+http://{$CONSOLE_HOSTNAME} {
+	redir https://{host}{uri} permanent
+}
+
+https://{$CONSOLE_HOSTNAME} {
+	tls /etc/caddy/certs/console.pem /etc/caddy/certs/console.key
+
+	# The console is a single upstream. There is no load balancing to do and no
+	# second backend to route to — the API is reached through the web tier's
+	# server-side relay, never directly from the browser (ADR-0004).
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-Proto https
+	}
+
+	encode zstd gzip
+
+	log {
+		output stderr
+		format console
+	}
+}

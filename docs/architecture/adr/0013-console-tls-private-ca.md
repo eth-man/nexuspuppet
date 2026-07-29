@@ -1,6 +1,6 @@
 # ADR-0013 — TLS for the console, from a private CA, visible in Settings
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Deciders:** Architect
 - **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0004](./0004-puppetdb-read-only-mtls.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0008](./0008-nextjs-app-router-latest-stable.md)
 
@@ -97,9 +97,17 @@ It also makes `WEB_BIND=0.0.0.0` a defensible choice for the first time. Today t
 
 **Do nothing.** Viable. §7 is accurate, the loopback default is safe, and an operator who follows the guide ends up correct. The argument against is empirical: the guide has now been followed twice by capable people and both deployments are still on plain HTTP behind loopback, which means the console is reachable only via SSH tunnel and the product is harder to actually use than it should be.
 
-## Open questions
+## Resolved during implementation
 
-1. **Which proxy?** The requirement is a reload API reachable on the Compose network without signals or a Docker socket. Caddy's admin API fits directly; nginx would need a different reload path. Weigh operator familiarity against the mechanism being clean.
+**Which proxy: Caddy.** The requirement was a reload path reachable on the Compose network without signals or a Docker socket, and Caddy's admin API provides exactly that — `POST /load` replaces the running configuration atomically, no restart, no process signalling.
+
+nginx would have needed `nginx -s reload`, which from another container means either sharing a PID namespace or handing the API a Docker socket. The second trades a certificate-reload feature for full control of every container on the host, which is not a trade worth making for this.
+
+Caddy also defaults to a sensible TLS configuration and does the HTTP→HTTPS redirect without extra directives, which keeps the shipped config short enough that an operator will actually read it.
+
+The cost is a component most Puppet operators will not have used before. Mitigated by the config being a few lines, and by the whole service being optional.
+
+## Open questions
 2. **Where do certificates live by default?** A single mounted directory scanned for pairs, or explicit paths in `.env` like the PuppetDB certificates? The latter matches existing practice; the former makes "select between them" natural.
 3. **How is expiry surfaced?** `GET /system/status` already exists and already reports things that are about to go wrong — this may belong there rather than in Settings alone.
 4. **Does the reload need an audit row?** It changes how the product is served, and every other configuration change of consequence writes one.
