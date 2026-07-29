@@ -8,7 +8,7 @@ graph TB
 
     subgraph np["NexusPuppet — Docker Compose / single VM"]
         web["web<br/><i>Next.js App Router</i><br/>SSR + client components<br/>Port 3000"]
-        api["api<br/><i>NestJS · Node 20+</i><br/>Business logic, authz,<br/>PuppetDB proxy, materializer<br/>Port 3001"]
+        api["api<br/><i>NestJS · Node 22.12+</i><br/>Business logic, authz,<br/>PuppetDB proxy, materializer<br/>Port 3001"]
         db[("db<br/><i>PostgreSQL 16</i><br/>Users, node groups, rules,<br/>outbox, audit, node cache")]
         vol[/"enc-volume<br/><i>Shared filesystem</i><br/>nodes/*.yaml + default.yaml"/]
     end
@@ -61,7 +61,11 @@ graph TB
 
 The ENC materializer runs **in-process inside `api`** in v1, guarded by a Postgres advisory lock so that running multiple `api` replicas does not produce concurrent writers to the same file.
 
-At the stated scale (~1,000 nodes) this is comfortably adequate. If materialization becomes a bottleneck, the escape hatch is to run the same NestJS application with `ROLE=worker`, which starts the materializer and skips the HTTP listener — no code change, only deployment topology. The advisory lock makes that transition safe.
+At the stated scale (~1,000 nodes) this is comfortably adequate.
+
+If materialization becomes a bottleneck, the intended escape hatch is to run the same application as a worker — materializer on, HTTP listener off — so the split is deployment topology rather than a rewrite. **This is not implemented.** `main.ts` always starts the full application, and nothing reads a `ROLE` variable; an earlier version of this document described the mechanism as though it existed.
+
+What *does* exist is the part that makes it safe whenever it is built: the materializer elects a single active instance through a transaction-scoped advisory lock ([ADR-0005](./adr/0005-postgres-prisma-local-state.md)), so extra replicas are already harmless. The remaining work is a flag that skips `listen()`, not a redesign.
 
 ## Why `web` never touches the database
 
