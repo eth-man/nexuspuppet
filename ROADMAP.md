@@ -78,6 +78,7 @@ These were considered and consciously postponed. Each ADR records the alternativ
 
 | Item | Why it is waiting |
 |---|---|
+| **GitOps classification mirror** ([ADR-0012](docs/architecture/adr/0012-gitops-classification-mirror.md)) | Designed and held. Not rejected — just not next. The first live install by someone who had not seen the code hit four blocking defects in its first fifteen minutes, none of them found by CI. Stabilising installation, upgrade and estate-scale behaviour comes before adding a git transport with its own credentials and its own secrets question. |
 | **Scoped RBAC** ([ADR-0011](docs/architecture/adr/0011-scoped-rbac.md)) | Designed in full and declined. Scoping by node group turns out not to bound anything — group membership is fact-based, so a scoped operator can rewrite a rule to match the whole estate. A sound design exists (check the *effect* of a write, not the request) but costs a security-critical check on the classification write path, and the future-node loophole cannot be closed at write time. Deferred until a deployment actually needs it. |
 | **Enterprise as a published private npm package** ([ADR-0002](docs/architecture/adr/0002-open-core-runtime-discovery.md)) | The runtime-discovery design already supports it unchanged. Blocked only on a private registry the project does not have. |
 | **PE Orchestrator / RBAC API scoping** ([ADR-0004](docs/architecture/adr/0004-puppetdb-read-only-mtls.md)) | Not available on open-source Puppet, which is the core target. Available to the enterprise layer as a future capability. |
