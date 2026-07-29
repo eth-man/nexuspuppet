@@ -43,7 +43,10 @@ architectural decision the deployment cannot defer, and it is covered in
 
 ### Host requirements
 
-- Linux with Docker Engine ≥ 24 and the Compose plugin
+- Linux with Docker Engine ≥ 24 and the Compose plugin. Neither is present on a
+  stock Ubuntu or Debian image; on those, `sudo apt install docker.io
+  docker-compose-v2` is enough, and nothing in this guide needs a newer Docker
+  than the distribution ships
 - 2 vCPU / 4 GB RAM is comfortable for a few thousand nodes; the workload is
   mostly idle between projection ticks
 - Disk: Postgres growth is driven by report retention, not node count
@@ -54,6 +57,12 @@ architectural decision the deployment cannot defer, and it is covered in
 
 Both are supported, and NexusPuppet needs no configuration change to tell them
 apart.
+
+> **You need a PuppetDB before you start.** The console reads its inventory from
+> one; without it the stack comes up healthy and shows nothing, which is hard to
+> tell from a broken install. If you do not have one yet,
+> [Appendix A](#appendix-a-installing-openvoxdb-natively-on-the-same-host) is the
+> short path for OpenVoxDB on the same host.
 
 [OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet —
 `openvoxserver`, `openvoxdb` and `openvoxagent` replacing puppetserver, puppetdb
@@ -108,7 +117,8 @@ an environment variable and discovered at runtime:
 ```bash
 # Core edition — skip this section entirely. This is the normal path.
 
-# Enterprise edition:
+# Enterprise edition — this section, and only this section, needs Node >= 22.12
+# on the host. The core install needs nothing but Docker.
 export NEXUSPUPPET_ENTERPRISE_REPO='git@github.com:yourorg/nexuspuppet-enterprise.git'
 export NEXUSPUPPET_ENTERPRISE_REF=v1.0.0      # default: main
 npm run enterprise:fetch                       # clones into packages/enterprise/
@@ -243,7 +253,15 @@ this project can fix.
 
 1. **Check `client-auth` in `jetty.ini`.** Some images ship `want`, which
    accepts requests with *no client certificate at all* — the first row above.
-   Set `need`.
+   Set `need`, then confirm there is exactly one such line:
+
+   ```bash
+   grep -c '^client-auth' /etc/puppetlabs/puppetdb/conf.d/jetty.ini   # must be 1
+   ```
+
+   `puppetdb ssl-setup` appends its own `client-auth = want` without checking
+   for an existing entry, so running it after you have set `need` silently
+   leaves two — and the file no longer says what you think it says.
 2. **Restrict `/pdb/*` at the network layer.** A firewall rule or a reverse proxy
    is the only thing that actually bounds who can reach it. Do not publish port
    8081 beyond the hosts that need it, and do not publish the cleartext port 8080
@@ -260,6 +278,10 @@ node scripts/dev/puppetdb-auth-probe.mjs
 It reports whether PuppetDB answers a client presenting *no* certificate — the
 first row, and the one worth knowing about tonight. Add `--prove-write` to settle
 the write question too; read its header first, because that probe creates a node.
+
+This one needs Node, which §0 does not ask for. Run it from any machine with a
+checkout that can reach PuppetDB — it is a network probe, and the answers it
+gives do not depend on running it from the NexusPuppet host.
 
 > **Why this matters more for a classifier than for a dashboard.** NexusPuppet
 > evaluates rules against facts it reads from PuppetDB. Anyone who can write
@@ -413,19 +435,25 @@ docker compose logs api | grep -i 'projection\|puppetdb'
 ### First login
 
 Sign in at `http://localhost:3000` — through the tunnel above, or on the VM
-itself — with the bootstrap credentials, then rotate immediately:
+itself — with the bootstrap credentials, then rotate immediately, **in the
+console**: *Settings → Change password*.
 
-```bash
-node scripts/dev/rotate-admin-password.mjs
-```
+That goes through `POST /account/password`, which verifies the old password,
+writes the audit row, and revokes every other session in one transaction. Choose
+the new password in your password manager and let it store the value; nothing on
+the host needs a copy.
 
-It changes the password through `POST /account/password`, which verifies the old
-one, writes the audit row, and revokes every other session in one transaction —
-and it never prints the password. Then delete `BOOTSTRAP_ADMIN_*` from `.env`.
+Then remove `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env`
+and `docker compose up -d api` to pick that up. They only ever seed an empty
+users table, but there is no reason to leave a working credential in a file.
 
-> The `~/.nexuspuppet/admin-password` file that script writes is a **local
-> development convenience.** On a production host, put the password in your
-> secret manager and delete the file.
+> **Not `scripts/dev/rotate-admin-password.mjs`.** Earlier versions of this guide
+> pointed here at that script. It needs Node on the host, which §0 does not ask
+> for, so on a correctly-provisioned server the documented rotation step could
+> not be run at all. It also writes the new password to
+> `~/.nexuspuppet/admin-password` — a development convenience, and the wrong
+> thing to create on a production host. It remains useful for local development
+> and for scripting a rotation from a workstation that has a checkout.
 
 ---
 
@@ -672,7 +700,7 @@ Also back up `.env` (it holds `JWT_SECRET`) into your secret store. Losing
 ```bash
 cd /opt/nexuspuppet
 git fetch --tags && git checkout <new-tag>
-npm run enterprise:fetch          # enterprise edition only
+npm run enterprise:fetch          # enterprise edition only — needs Node on this host
 docker compose build
 docker compose run --rm api npx prisma migrate deploy
 docker compose up -d
@@ -713,3 +741,122 @@ architecture exists to provide.
 - [ ] **No inbound network path from puppetserver to NexusPuppet** (ADR-0003)
 - [ ] Postgres not published to the network
 - [ ] Backups verified by restoring one, not by observing that the job ran
+
+---
+
+## Appendix A. Installing OpenVoxDB natively, on the same host
+
+NexusPuppet needs a PuppetDB to read. If you already have one, skip this — §3
+onwards is all you need. This is for the layout the guide otherwise assumes you
+have solved: **OpenVox Server running natively on the host, NexusPuppet in
+Docker, no PuppetDB yet.**
+
+None of this is NexusPuppet configuration. It is the inventory backend our
+console reads, written down because §3 asks for a `PUPPETDB_URL` and everything
+before that point was left as an exercise. Upstream OpenVox documentation is the
+authority; this is the short path that has been walked end to end.
+
+> **Do this before §3.** Without a PuppetDB the console starts, is healthy, and
+> shows nothing — which looks exactly like a broken install.
+
+### A.1 Packages
+
+```bash
+sudo apt install postgresql postgresql-contrib openvoxdb openvoxdb-termini
+```
+
+The service names stay `puppetdb` and `puppetserver` under systemd; only the
+package names carry the OpenVox prefix. That catches people out when reading
+Puppet documentation alongside OpenVox packages.
+
+### A.2 Database
+
+```bash
+sudo -u postgres createuser -DRS puppetdb
+sudo -u postgres createdb -O puppetdb puppetdb
+sudo -u postgres psql -c "ALTER USER puppetdb WITH PASSWORD '<generated>';"
+sudo -u postgres psql -d puppetdb -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+sudo -u postgres psql -d puppetdb -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
+```
+
+`pg_trgm` needs a superuser, so openvoxdb cannot create it itself, and without it
+the service aborts during schema migration and shuts down *cleanly* — the reason
+sits above a Clojure stack trace, and the symptom is a service that will not stay
+up for no visible cause.
+
+Then `/etc/puppetlabs/puppetdb/conf.d/database.ini`:
+
+```ini
+[database]
+subname = //localhost:5432/puppetdb
+username = puppetdb
+password = <generated>
+```
+
+### A.3 TLS
+
+```bash
+sudo puppetdb ssl-setup -f
+```
+
+That reuses the host's existing agent certificates. Afterwards, check what it
+left behind:
+
+```bash
+grep -c '^client-auth' /etc/puppetlabs/puppetdb/conf.d/jetty.ini   # must be 1
+```
+
+`ssl-setup` appends `client-auth = want` without checking for an existing line.
+`want` accepts requests presenting **no client certificate at all** — see §3's
+table. Set exactly one line reading `client-auth = need`.
+
+While you are in `jetty.ini`, keep the cleartext port on loopback:
+
+```ini
+host = 127.0.0.1
+port = 8080
+```
+
+Nothing needs it remotely, and it is unauthenticated.
+
+### A.4 Point puppetserver at it
+
+`/etc/puppetlabs/puppet/puppetdb.conf`:
+
+```ini
+[main]
+server_urls = https://<this-host-fqdn>:8081
+```
+
+`/etc/puppetlabs/puppet/routes.yaml`:
+
+```yaml
+---
+master:
+  facts:
+    terminus: puppetdb
+    cache: json
+```
+
+and in `puppet.conf` under `[server]`, `storeconfigs = true` plus
+`storeconfigs_backend = puppetdb`, with `reports = puppetdb` if you want the
+report views populated.
+
+```bash
+sudo systemctl enable --now puppetdb
+sudo systemctl restart puppetserver
+sudo puppet agent --test          # a node to look at
+```
+
+### A.5 Then wire NexusPuppet to it
+
+Back to §3, with two things specific to this layout:
+
+- **`PUPPETDB_URL` must use the name on the certificate.** mTLS verifies the
+  hostname, so the host's FQDN — not `localhost`, not an IP.
+- **The container has to resolve that name.** It is the host, not a Compose
+  service, so map it to the Docker gateway. The shipped
+  `docker-compose.native-enc.example.yml` does this with `extra_hosts` and also
+  handles the ENC bind mount §6 requires for a native puppetserver.
+
+---

@@ -1,9 +1,27 @@
 # Intake — NexusPuppet
 
-Dual-architecture: Open Core (public repo) + Enterprise (private Git submodule).
+> **HISTORICAL. Do not follow this document.**
+>
+> This is the intake questionnaire from before any code existed, kept because it
+> records what was assumed at the start and what those assumptions became. Some
+> of it was wrong, and the corrections are the interesting part.
+>
+> **Most importantly, the enterprise layer is NOT a git submodule.** That model
+> was rejected in [ADR-0002](docs/architecture/adr/0002-open-core-runtime-discovery.md)
+> — a `.gitmodules` file in a public repository leaks the private URL, and CI
+> fails the build if one appears. The layer is fetched at build time and
+> discovered at runtime. Anyone acting on the submodule references below will be
+> stopped by CI, which is the good outcome, but they should not have got that far.
+>
+> For what the product actually is: [README](README.md) ·
+> [ADR index](docs/architecture/README.md) · [DEPLOYMENT](DEPLOYMENT.md) ·
+> [ROADMAP](ROADMAP.md). For how to contribute: [CONTRIBUTING](CONTRIBUTING.md).
+
+Dual-architecture: Open Core (public repo) + Enterprise (private layer — see the
+banner above; this originally said "Git submodule").
 Strict TypeScript monorepo (npm workspaces).
 
-Status: pre-scaffold. Working directory empty.
+Status: **superseded.** Written pre-scaffold, with an empty working directory.
 
 ---
 
