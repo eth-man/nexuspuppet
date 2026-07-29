@@ -152,7 +152,7 @@ test.describe('classification', () => {
 
     // And the group really is unchanged after a reload — not merely un-posted.
     await page.reload();
-    await expect(page.getByText('No matching rules')).toBeVisible();
+    await expect(page.getByText(/A rule-based group with no rules matches nothing/)).toBeVisible();
   });
 
   /**
@@ -180,11 +180,14 @@ test.describe('classification', () => {
     await page.getByLabel('Value').first().fill('Linux');
     await page.getByRole('button', { name: 'Save rules' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Review change' })).toBeVisible();
-    await expect(page.getByText(/nodes? affected/)).toBeVisible();
+    const review = page.getByRole('dialog');
+    await expect(review.getByRole('heading', { name: 'Review change' })).toBeVisible();
+    await expect(review.getByText(/nodes? affected/)).toBeVisible();
     // Newly classified, not merely "changed" — these nodes had nothing before.
-    await expect(page.getByText(/newly classified/)).toBeVisible();
-    await expect(page.getByText('profile::base')).toBeVisible();
+    await expect(review.getByText(/newly classified/)).toBeVisible();
+    // Scoped to the dialog: the class is also listed on the page behind it, and
+    // an unscoped match would resolve to both.
+    await expect(review.getByText('profile::base')).toBeVisible();
 
     await page.getByRole('button', { name: /^Apply/ }).click();
     await expect(page.getByText('Change saved — materialization queued')).toBeVisible();
