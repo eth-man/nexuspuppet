@@ -42,6 +42,23 @@ export const ADMIN_PASSWORD = (() => {
  * belongs to, so it is the right anchor for assertions about rendering; taking
  * it from the file means a re-capture cannot invalidate it.
  */
+/**
+ * Perform a classification write through the review dialog.
+ *
+ * Every save on the group page now opens a preview first, so a test that clicks
+ * Save and waits for the request would wait forever. This makes the two-step
+ * explicit at each call site rather than hiding it — the interception IS the
+ * behaviour, and a helper that quietly swallowed it would let a regression
+ * where the dialog stops appearing pass unnoticed.
+ */
+export async function applyReviewed(page: Page, save: () => Promise<void>): Promise<void> {
+  await save();
+  // Fails loudly if the dialog did not open, which is the regression that
+  // matters most: a write that skips its own preview.
+  await expect(page.getByRole('heading', { name: 'Review change' })).toBeVisible();
+  await page.getByRole('button', { name: /^Apply/ }).click();
+}
+
 export const KNOWN_CERTNAME: string = (() => {
   const nodes = JSON.parse(
     readFileSync(resolve(__dirname, '../fixtures/nodes-query.sample.json'), 'utf8'),
