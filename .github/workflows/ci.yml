@@ -208,6 +208,32 @@ jobs:
             e2e/.logs/
           retention-days: 7
 
+  # ---------------------------------------------------------------------------
+  # Installs the product the way DEPLOYMENT.md says to, and fails if that does
+  # not work.
+  #
+  # Every other job here runs the SOURCE TREE. None built the image or started
+  # the stack from docker-compose.yml, so the installation path — the first
+  # thing every new user touches — was the least tested part of the repository.
+  # Four blocking defects reached main through that gap. This closes it.
+  # ---------------------------------------------------------------------------
+  install-smoke:
+    name: Installs from the documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No setup-node on purpose. DEPLOYMENT.md §0 asks operators for Docker and
+      # the Compose plugin and nothing else, so this job gets nothing else — if
+      # a documented step needs Node on the host, it must fail here rather than
+      # on someone's server.
+      - name: Build, migrate, start, and log in
+        run: ./scripts/ci/install-smoke.sh
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
   format:
     name: Formatting
     runs-on: ubuntu-latest
