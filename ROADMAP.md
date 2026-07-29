@@ -8,7 +8,7 @@ This is a living document rather than a commitment. Dates are deliberately absen
 
 ## Shipped
 
-The core product is complete and verified against a real estate, not just a test suite.
+The core product is complete, verified against real Puppet and OpenVox software, and installed on a production host from the deployment guide by someone who had not seen the code.
 
 | | |
 |---|---|

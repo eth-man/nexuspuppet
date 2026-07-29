@@ -153,7 +153,14 @@ That script makes no network calls and depends on nothing but `/bin/sh`. That is
 
 ## Project status
 
-Verified against a real estate, not just a test suite. The architecture, contracts, schema, classification engine, materializer, PuppetDB client and projector, authentication and web console are implemented and tested — commissioned against a real `puppetserver 7.9.2`, `PuppetDB 7.10.0` and a real agent. The mTLS client, the AST queries, the projection, and the full ENC path from a classification write to an applied catalog all work end to end.
+Verified against real Puppet software, not just a test suite — and, since then, installed on a production host.
+
+The architecture, contracts, schema, classification engine, materializer, PuppetDB client and projector, authentication and web console are implemented and tested. Two levels of verification, kept distinct because they prove different things:
+
+- **A local commissioning harness** running `puppetserver 7.9.2`, `PuppetDB 7.10.0` and a real agent in containers, plus `openvoxdb 8.15`. This is where the mTLS client, the AST queries, the projection and the full ENC path — classification write through to an applied catalog — were proven end to end.
+- **A production install** onto a native OpenVox Server 8.15 estate on Ubuntu 24.04, performed from `DEPLOYMENT.md` by someone who had not seen the code. It reached a working console with live inventory.
+
+Every defect those installs found was in the **deployment path** — the image, the Compose environment, certificate ownership, the documentation — rather than in the application. None was at estate scale; see [ROADMAP](ROADMAP.md#known-constraints).
 
 Test fixtures are **captured from a real estate**, not generated from documentation — see [`fixtures/README.md`](fixtures/README.md) for exactly what is captured, what is synthesised, and what a single-node capture still cannot tell you.
 
