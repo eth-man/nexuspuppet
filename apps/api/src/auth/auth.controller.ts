@@ -216,7 +216,10 @@ export class AuthController {
       });
     }
 
-    const cookie = request.cookies?.[REDIRECT_STATE_COOKIE];
+    // parseCookies, NOT request.cookies. This application registers no
+    // cookie-parser middleware — every other cookie read here goes through the
+    // same helper, and `request.cookies` is permanently undefined.
+    const cookie = parseCookies(request.headers.cookie)[REDIRECT_STATE_COOKIE];
     // Single use, cleared before anything can go wrong with it. A state that
     // survived a failed attempt could be replayed.
     response.clearCookie(REDIRECT_STATE_COOKIE, { path: '/auth' });

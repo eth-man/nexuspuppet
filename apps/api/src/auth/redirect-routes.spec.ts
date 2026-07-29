@@ -102,13 +102,27 @@ function fakeResponse() {
   };
 }
 
-const fakeRequest = (cookies: Record<string, string> = {}) => ({
-  cookies,
-  ip: '10.0.0.1',
-  headers: {},
-  socket: {},
-  get: () => undefined,
-});
+/**
+ * A request shaped like the ones this application actually receives.
+ *
+ * The cookie arrives as a HEADER, because NexusPuppet registers no
+ * cookie-parser middleware and parses the header itself. An earlier version of
+ * this double supplied a `cookies` object instead — which express would only
+ * populate with that middleware — so the tests passed against a request shape
+ * the server never sees, and the route could not work in production. A double
+ * that agrees with the code rather than with the system proves nothing.
+ */
+const fakeRequest = (cookies: Record<string, string> = {}) => {
+  const header = Object.entries(cookies)
+    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+    .join('; ');
+  return {
+    ip: '10.0.0.1',
+    headers: header.length > 0 ? { cookie: header } : {},
+    socket: {},
+    get: () => undefined,
+  };
+};
 
 const STATE_COOKIE = 'nexuspuppet_redirect_state';
 
