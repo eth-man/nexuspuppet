@@ -139,6 +139,41 @@ done
 [ -n "$healthy" ] || fail "/healthz never became reachable"
 echo "  ok"
 
+step "Every container reports healthy"
+# Not the same question as "does the port answer".
+#
+# A healthcheck that can never pass leaves a container permanently unhealthy
+# while the service works perfectly through its published port — so curling the
+# host proves nothing about it. That shipped: the web tier's healthcheck checked
+# localhost, and Next.js standalone binds to the container hostname instead, so
+# it failed forever and this script did not notice.
+#
+# It matters because `depends_on: condition: service_healthy` turns a broken
+# healthcheck into a service that never starts at all.
+for svc in db api web; do
+  cid=$(docker compose ps -q "$svc")
+  [ -n "$cid" ] || fail "$svc has no container"
+
+  state=""
+  for _ in $(seq 1 45); do
+    state=$(docker inspect --format \
+      '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo unknown)
+    case "$state" in
+      healthy | none) break ;;
+      starting) sleep 2 ;;
+      *) sleep 2 ;;
+    esac
+  done
+
+  case "$state" in
+    healthy) echo "  $svc: healthy" ;;
+    # A service with no healthcheck defined is not a failure — it is a gap, and
+    # naming it here is how the gap stays visible.
+    none) echo "  $svc: no healthcheck defined" ;;
+    *) fail "$svc is '$state' — its healthcheck never passed" ;;
+  esac
+done
+
 step "Ports are bound to loopback, not every interface"
 # The default must stay safe: no TLS terminates in front of these services, so a
 # 0.0.0.0 bind puts login credentials on the wire in cleartext.

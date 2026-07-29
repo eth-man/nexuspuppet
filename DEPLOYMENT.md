@@ -569,16 +569,68 @@ Then restart puppetserver and watch the first agent run end to end.
 
 ## 7. Put TLS in front of it
 
-The web tier serves plain HTTP on 3000 and is meant to sit behind your reverse
-proxy. Terminate TLS there, and **do not expose port 3001** — the API is reached
-through the web tier's server-side relay.
+The web tier serves plain HTTP on 3000. Something must terminate TLS in front of
+it before anyone uses this console in earnest — session cookies are `HttpOnly`
+with the refresh token scoped to `/api/auth`, and they need a secure context to
+behave correctly in current browsers. Bare HTTP is a functional limitation, not
+a missing padlock.
 
-Both ports bind to `127.0.0.1` unless you set `API_BIND` / `WEB_BIND`, so a
-proxy on the same host needs no change. `API_BIND` should stay on loopback.
+Two supported paths. Both leave `API_BIND` on loopback: the API is reached
+through the web tier's server-side relay and should never be published.
 
-Session cookies are `HttpOnly`, with the refresh token scoped to `/api/auth`.
-They require a secure context to behave correctly in modern browsers: serve the
-console over HTTPS, not bare HTTP on an IP.
+### Option A — the bundled proxy (ADR-0013)
+
+For estates that do not already run a reverse proxy. Your Puppet or OpenVox CA
+issues the certificate; nothing needs procuring.
+
+```bash
+# 1. Issue a certificate for the name people will type in the browser.
+sudo puppetserver ca sign --certname console.example.com   # if not autosigned
+sudo puppetserver ca generate --certname console.example.com
+
+# 2. Put the pair where the proxy can read it, as console.pem / console.key.
+sudo install -d -m 0500 -o 0 -g 0 /etc/nexuspuppet/tls
+sudo install -m 0444 /etc/puppetlabs/puppet/ssl/certs/console.example.com.pem \
+  /etc/nexuspuppet/tls/console.pem
+sudo install -m 0400 /etc/puppetlabs/puppet/ssl/private_keys/console.example.com.pem \
+  /etc/nexuspuppet/tls/console.key
+```
+
+Then in `.env`:
+
+```ini
+CONSOLE_HOSTNAME=console.example.com
+CONSOLE_TLS_DIR=/etc/nexuspuppet/tls
+```
+
+and start it:
+
+```bash
+docker compose --profile tls up -d
+```
+
+The proxy publishes 443 and 80 on **all interfaces** — deliberately, because it
+is the one service here that terminates TLS. Port 80 only redirects to HTTPS; no
+content is served on it. `WEB_BIND` and `API_BIND` stay on loopback.
+
+> **Browsers will not trust a private CA.** Everyone gets a warning page until
+> your CA's certificate is installed on the machines that use the console. This
+> is not something NexusPuppet can fix. On a Puppet estate you already have a way
+> to put a file on every machine — the CA certificate is at
+> `/etc/puppetlabs/puppet/ssl/certs/ca.pem`.
+
+> **The certificate must carry the name people type.** A certificate issued for
+> the host's FQDN does not help someone reaching the console by IP, and the
+> browser error for that mismatch is not self-explanatory.
+
+The proxy's admin API is **not published to the host**, and must not be: it can
+replace the running configuration.
+
+### Option B — your own reverse proxy
+
+If you already run nginx, Caddy, HAProxy or a load balancer, point it at
+`127.0.0.1:3000` and leave the `tls` profile off. Nothing about the rest of this
+guide changes.
 
 ---
 
