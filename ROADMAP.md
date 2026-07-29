@@ -21,6 +21,7 @@ The core product is complete and verified against a real estate, not just a test
 | ✅ **Local authentication** | JWT sessions, scrypt hashing, account lockout, full audit trail. |
 | ✅ **OpenVox support** | Works unchanged; verified operator-by-operator against a live openvoxdb. |
 | ✅ **Enterprise LDAP / Active Directory** | Nested groups, dialect switching, secure referral handling, admin-managed group→role mapping. |
+| ✅ **Enterprise OIDC SSO** | Authorization-code with PKCE, ID-token validation on `node:crypto` with an algorithm allow-list, discovery and JWKS caching with rotation, claim→role mapping. Verified against a live Keycloak. |
 | ✅ **Enterprise audit export** | A forwarding sink that composes over core's rather than replacing it, a transactional delivery outbox with leases and backoff, and a webhook transport. The local audit trail is never traded for the external copy. |
 
 ---
@@ -33,21 +34,23 @@ Four of the five declared capability tokens have no implementation yet. Routes f
 
 | Capability | Token | Notes |
 |---|---|---|
-| **OIDC SSO** | `AUTH_PROVIDER` | **In progress.** See the note below — core needs its redirect routes before any redirect-mode provider can work. |
-| **SAML SSO** | `AUTH_PROVIDER` | After OIDC, which builds the redirect plumbing SAML also needs. |
+| **SAML SSO** | `AUTH_PROVIDER` | The redirect plumbing OIDC needed now exists, so this is a provider implementation only. Read the caution below before starting. |
 | **Scoped RBAC** | `AUTHORIZATION_POLICY` | Today's policy is role-based and estate-wide. Scoped RBAC means permissions bounded by node group or environment. Large: it touches every route and guard, and wants an ADR before code. |
 
-#### Before OIDC: core's redirect routes
+#### A caution about SAML
 
-`IAuthProvider` already declares `beginRedirect` and `completeRedirect`, the login
-screen already renders a "Continue with …" button, and that button points at
-`/auth/redirect` — **a route that does not exist**. A redirect-mode provider is
-impossible today, and configuring one would produce a login page whose only
-control 404s.
+SAML's security rests on XML digital signatures, a materially nastier surface
+than the JWT verification OIDC needed. Signature wrapping, canonicalisation
+differences and entity expansion have each produced authentication bypasses in
+widely used implementations, and none of them fail loudly.
 
-So the first increment is core's: the two routes, the state correlation that
-binds a callback to the browser that began it, and the open-redirect guard on
-the return path. That plumbing is shared by OIDC and SAML alike.
+OIDC was built directly on `node:crypto` to keep a dependency out of the
+component that decides who is an administrator. **That reasoning does not
+transfer.** Hand-rolling XML-DSig is harder than hand-rolling JWS by a wide
+margin, and the honest options are a well-audited library or not shipping SAML.
+
+Entra ID, Okta, Keycloak and Google all speak OIDC, so this is worth doing when
+a specific deployment needs it and not before.
 
 ### Core
 
@@ -56,6 +59,17 @@ the return path. That plumbing is shared by OIDC and SAML alike.
 - **Estate-wide conflict report.** Per-node classification conflicts are surfaced today; an estate-wide "these groups disagree" view is designed ([ADR-0009](docs/architecture/adr/0009-classification-merge-semantics.md)) but not built.
 
 ---
+
+## Known constraints
+
+Real limits of what is built, recorded so nobody discovers them in production.
+
+| Constraint | Impact | Where |
+|---|---|---|
+| **OIDC login state is in-process** | A load-balanced deployment can route a callback to a replica that did not begin the login, and that login fails. Needs sticky sessions until there is an external store. | [DEPLOYMENT.md §8](DEPLOYMENT.md#8-high-availability-and-horizontal-scaling) |
+| **Login rate limiting is per replica** | N replicas permit N× the configured attempts. Account lockout is durable and still applies, so this widens the online-guessing window rather than removing the protection. | as above |
+| **JWKS refetch has a cooldown** | A rotated signing key is picked up within the cooldown rather than instantly. Deliberate — it bounds a flood of tokens bearing kids that will never exist. | enterprise `OidcDirectory` |
+| **Not exercised at estate scale** | Correctness is verified against real Puppet and OpenVox estates; throughput is not. | [fixtures/README.md](fixtures/README.md) |
 
 ## Deferred, with reasons
 
@@ -100,6 +114,7 @@ Genuinely useful, self-contained, and a good way to learn the codebase. None req
 
 ### 🔴 Larger
 
+- **External state store for OIDC flows**, so a load-balanced deployment does not need sticky sessions. The PKCE verifier and nonce for a login in flight are held in memory today; moving them to PostgreSQL with a short TTL would let any replica complete any login. Self-contained, and it removes a constraint recorded above.
 - **More audit transports** — syslog (RFC 5424) or Splunk HEC alongside the existing webhook, behind `AUDIT_TRANSPORT`. The queue, retries and leases are core's; a transport is one method.
 - **Estate-scale load testing** with a synthetic 5,000-node PuppetDB, to find where projection and materialization actually bend.
 
