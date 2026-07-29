@@ -1,8 +1,36 @@
 # ADR-0012 — GitOps mode: classification mirrored to Git
 
-- **Status:** Proposed
+- **Status:** Deferred — design recorded, not scheduled
 - **Deciders:** Architect
 - **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0003](./0003-enc-generate-dont-serve.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0009](./0009-classification-merge-semantics.md)
+
+## Outcome
+
+**Held, in favour of stabilising what already exists.** Nothing in the design
+below was rejected; it is simply not the next thing.
+
+The first deployment of this product onto a live estate by someone who had not
+seen the code could not complete installation. Four separate defects, none
+exotic: a runtime image missing the file `prisma migrate deploy` needs, a Compose
+service that enumerated nine environment keys and silently discarded twenty
+(including the ones that seed the first admin account, so nobody could log in),
+ports published on every interface with no TLS, and a security instruction that
+could not be followed because the mechanism it named does not exist.
+
+Every one of those sat in the first fifteen minutes of a new user's experience.
+None was found by CI, because CI never installs the product the way the
+documentation says to.
+
+That is the signal worth acting on. A classification mirror is a feature for
+people already running this successfully, and the evidence says the harder
+problem is getting them to that point and keeping them there. Adding a git
+transport — with its own credentials, its own failure modes, its own secrets
+question ([open question 3](#open-questions)) — would widen the surface before
+the existing one is trustworthy.
+
+Revisit when installation, upgrade and estate-scale behaviour are boring. The
+open questions below remain open, and the "Do nothing" alternative is still
+genuinely viable.
 
 ## Context
 
