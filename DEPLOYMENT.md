@@ -371,7 +371,57 @@ console over HTTPS, not bare HTTP on an IP.
 
 ---
 
-## 8. First contact with a real estate
+## 8. High availability and horizontal scaling
+
+**A single instance is the supported topology today.** More than one is
+possible, and most of the system is built for it, but three things are not — and
+two of them fail quietly rather than loudly.
+
+### What is already safe behind a load balancer
+
+| | |
+|---|---|
+| **ENC materialization, reconciliation, fact projection, audit delivery** | Each runs under a PostgreSQL advisory lock, so exactly one replica does the work at a time and the others return immediately. Adding replicas does not duplicate ENC writes or re-send audit records. |
+| **Sessions** | Access tokens are stateless JWTs; refresh tokens live in PostgreSQL. Any replica can serve any request, and a revocation takes effect everywhere. |
+| **Account lockout** | Counted on the user row, so a locked account is locked on every replica. |
+
+### What is not
+
+**OIDC login state is held in memory.** The PKCE verifier and the nonce for a
+login in flight live in the process that began it. Behind a load balancer, a
+callback routed to a different replica finds no matching state and the login
+fails with *"Login session expired. Start again."* — a user retrying may
+succeed, or may bounce between replicas indefinitely.
+
+Until this has an external store, run OIDC either on a single instance or with
+**sticky sessions** on the load balancer, keyed so that a browser reaches the
+same replica for `/auth/redirect` and `/auth/callback`. LDAP and local
+authentication are unaffected: neither has state between requests.
+
+**Login rate limiting is per replica.** `LOGIN_MAX_FAILED_ATTEMPTS` is enforced
+in memory, so N replicas permit N times the configured attempts before the limit
+bites. Account lockout is durable and still applies, so this widens the window
+for online password guessing rather than removing the protection — but if you
+run replicas, set the limit accordingly, or rate-limit at the reverse proxy
+where the real ceiling belongs.
+
+**The ENC directory must genuinely be shared.** Every replica writes it, and the
+content-hash comparison that prevents pointless rewrites assumes one view of the
+filesystem. Two replicas with separate local volumes will fight: each sees the
+other's absence as work to do. A single NFS or shared block volume, mounted
+read-write by NexusPuppet and **read-only** by `puppetserver`, is the arrangement
+that works.
+
+### If you only take one thing from this section
+
+Adding replicas is a reasonable thing to want, and most of this system supports
+it. But **do it deliberately**: enable sticky sessions if you use OIDC, move rate
+limiting to the proxy, and confirm the ENC volume is one volume rather than
+several that happen to have the same path.
+
+---
+
+## 9. First contact with a real estate
 
 Honest expectations for the first connection, because this has only ever run
 against synthetic fixtures.
@@ -412,7 +462,7 @@ that node's next Puppet run. If anything ever reports a classification change as
 
 ---
 
-## 9. Backups
+## 10. Backups
 
 Two things carry state:
 
@@ -434,7 +484,7 @@ Also back up `.env` (it holds `JWT_SECRET`) into your secret store. Losing
 
 ---
 
-## 10. Upgrades
+## 11. Upgrades
 
 ```bash
 cd /opt/nexuspuppet
