@@ -88,7 +88,12 @@ services:
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        # Not a bare `- api`, which only waits for the container to exist. The
+        # web tier relays every request server-side, so starting before the API
+        # is answering means the first person to load the console gets an error
+        # page from a deployment that is actually fine.
+        condition: service_healthy
     # NO env_file here, deliberately. The api service takes the whole of .env;
     # this one must not. .env holds DATABASE_URL, JWT_SECRET and the PuppetDB
     # certificate paths, and the web tier is meant to be incapable of reaching
@@ -102,6 +107,20 @@ services:
     ports:
       # Loopback by default, as above. WEB_BIND=0.0.0.0 to publish it.
       - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000'
+    healthcheck:
+      # `docker compose ps` reported the web tier as Up while it was still
+      # booting, so a deployment looked complete before it could serve a page.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # Reference only — your puppetserver almost certainly lives outside this
   # compose file. What matters is the READ-ONLY mount and the ENC script.
