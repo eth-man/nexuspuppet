@@ -13,6 +13,7 @@ import type {
   PuppetReport,
   ReportSummary,
   ResourceEvent,
+  SystemStatus,
 } from '@nexuspuppet/contracts';
 import { api } from './client';
 
@@ -217,6 +218,22 @@ export function useAuthProvider(enabled: boolean): UseQueryResult<AuthProviderDe
     queryFn: ({ signal }) => api.get<AuthProviderDescription>('/auth/provider', signal),
     enabled,
     staleTime: Infinity,
+  });
+}
+
+/**
+ * Operational status of the deployment.
+ *
+ * Polled rather than fetched once: the numbers it reports — a growing queue, a
+ * stranded node — are exactly the ones an operator wants to watch change while
+ * they are looking at the screen. Every query behind it rides an existing
+ * index, so a 30s poll from several open consoles is cheap.
+ */
+export function useSystemStatus(): UseQueryResult<SystemStatus> {
+  return useQuery({
+    queryKey: ['system-status'],
+    queryFn: ({ signal }) => api.get<SystemStatus>('/system/status', signal),
+    refetchInterval: 30_000,
   });
 }
 

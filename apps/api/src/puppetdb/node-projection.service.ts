@@ -83,6 +83,15 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
    * a condition like this stays invisible in the first place.
    */
   private warnedAbsentFacts = false;
+  /**
+   * The last computed set of projected facts no node reports.
+   *
+   * Retained rather than only logged. The warning fires once per process, so a
+   * console started after it would show nothing — and the condition is exactly
+   * the kind that is discovered months later when someone asks why a group
+   * classifies nobody.
+   */
+  private absentFacts: readonly string[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -524,12 +533,24 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
    * Absence is only meaningful against a non-empty estate: with no nodes, every
    * fact is trivially absent and the warning would be noise during bootstrap.
    */
+  /** For the status surface: what the last projection pass observed. */
+  factsNoNodeReports(): readonly string[] {
+    return this.absentFacts;
+  }
+
   private warnAbsentFacts(observed: ReadonlySet<string>, nodeCount: number): void {
-    if (this.warnedAbsentFacts || nodeCount === 0 || this.projectedFacts.length === 0) return;
+    if (nodeCount === 0 || this.projectedFacts.length === 0) return;
 
     const absent = this.projectedFacts.filter((name) => !observed.has(name));
+    // Recorded on every pass, including when it becomes empty — otherwise a
+    // fixed configuration would keep reporting a problem that no longer exists.
+    this.absentFacts = absent;
     if (absent.length === 0) return;
 
+    // The RECORD above updates every pass; the LOG below happens once. A
+    // five-minutely warning is one operators filter out, but a status surface
+    // that goes stale is worse than one that repeats.
+    if (this.warnedAbsentFacts) return;
     this.warnedAbsentFacts = true;
     this.logger.warn(
       `PUPPETDB_PROJECTED_FACTS names ${absent.length} fact(s) that NO node reports: ` +

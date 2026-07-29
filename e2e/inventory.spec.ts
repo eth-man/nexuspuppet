@@ -48,6 +48,24 @@ test.describe('inventory', () => {
     await expect(row).toContainText(/production|staging|development/);
   });
 
+  /**
+   * The system card is the only place a stranded node is visible. A failed
+   * materialization is retained with status FAILED, never retried and never
+   * cleared, so the node keeps its previous classification indefinitely — this
+   * asserts the surface that makes that discoverable actually renders.
+   */
+  test('shows deployment status on the dashboard', async ({ page }) => {
+    await page.goto('/');
+
+    // Matched on labels unique to this card. "Failed" alone also appears as a
+    // dashboard tile, and asserting it would be ambiguous rather than wrong.
+    await expect(page.getByText('Queued', { exact: true })).toBeVisible();
+    await expect(page.getByText('Nodes projected', { exact: true })).toBeVisible();
+    // No transport is configured in the E2E stack, and that is a complete
+    // product rather than a fault — it must say so rather than look broken.
+    await expect(page.getByText('no transport configured')).toBeVisible();
+  });
+
   test('narrows the estate by certname', async ({ page }) => {
     await page.goto('/nodes');
     // Derived from the anchor certname, not written here. A literal 'db01' was
