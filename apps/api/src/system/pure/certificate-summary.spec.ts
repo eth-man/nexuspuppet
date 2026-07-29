@@ -37,14 +37,18 @@ const openssl = (dir: string, name: string, args: string[]): string => {
 };
 
 /**
- * Real time, not a frozen constant.
+ * Read the clock AFTER generating a certificate, never before.
  *
- * The certificates below are generated during the run, so their validFrom is
- * "a moment ago". A fixed NOW earlier than that makes every one of them
- * not-yet-valid — which is the parser being right and the test being wrong.
- * Determinism comes from generating the inputs, not from pinning the clock.
+ * These certificates are created during the run, so their notBefore is whatever
+ * second openssl happened to run in. A timestamp captured at module load can
+ * legitimately precede that, making the certificate not-yet-valid — the parser
+ * being right and the test being wrong. This failed exactly that way in CI while
+ * passing locally, which is the signature of a race rather than a bug.
+ *
+ * Calling this after the openssl invocation removes the race instead of widening
+ * a tolerance around it.
  */
-const NOW = new Date();
+const now = (): Date => new Date();
 
 describe('summariseCertificate', () => {
   let dir: string;
@@ -69,7 +73,7 @@ describe('summariseCertificate', () => {
       'subjectAltName=DNS:console.example.com,DNS:nexuspuppet.example.com,IP:10.0.0.5',
     ]);
 
-    const summary = summariseCertificate(pem, NOW);
+    const summary = summariseCertificate(pem, now());
 
     expect(summary.subjectAltNames).toEqual([
       'console.example.com',
@@ -82,7 +86,7 @@ describe('summariseCertificate', () => {
   it('counts down to expiry, and goes negative past it', () => {
     const soon = openssl(dir, 'soon', ['-days', '30', '-subj', '/CN=a.test']);
 
-    const summary = summariseCertificate(soon, NOW);
+    const summary = summariseCertificate(soon, now());
 
     // Generated now, valid 30 days — the arithmetic is what matters, not the
     // exact boundary, so allow the one-day rounding either side.
@@ -98,7 +102,7 @@ describe('summariseCertificate', () => {
     // wrong thing entirely.
     const pem = openssl(dir, 'expiring', ['-days', '30', '-subj', '/CN=a.test']);
 
-    const wayLater = new Date(NOW.getTime() + 365 * 86_400_000);
+    const wayLater = new Date(now().getTime() + 365 * 86_400_000);
     const summary = summariseCertificate(pem, wayLater);
 
     expect(summary.expired).toBe(true);
@@ -108,7 +112,7 @@ describe('summariseCertificate', () => {
   it('notices a self-signed certificate, which explains the browser warning', () => {
     const pem = openssl(dir, 'selfsigned', ['-days', '30', '-subj', '/CN=a.test']);
 
-    expect(summariseCertificate(pem, NOW).selfSigned).toBe(true);
+    expect(summariseCertificate(pem, now()).selfSigned).toBe(true);
   });
 
   it('rejects a private key with a message that says what it got', () => {
@@ -118,11 +122,11 @@ describe('summariseCertificate', () => {
 
     // Pointing the certificate path at the key is an easy mistake, and the
     // resulting error must not read as "your certificate is corrupt".
-    expect(() => summariseCertificate(key, NOW)).toThrow(CertificateParseError);
+    expect(() => summariseCertificate(key, now())).toThrow(CertificateParseError);
   });
 
   it('rejects an empty file', () => {
-    expect(() => summariseCertificate('', NOW)).toThrow(CertificateParseError);
+    expect(() => summariseCertificate('', now())).toThrow(CertificateParseError);
   });
 
   it('survives a certificate with no subjectAltName at all', () => {
@@ -130,7 +134,7 @@ describe('summariseCertificate', () => {
     // still render; coversHostname will simply report false.
     const pem = openssl(dir, 'nosan', ['-days', '30', '-subj', '/CN=legacy.test']);
 
-    const summary = summariseCertificate(pem, NOW);
+    const summary = summariseCertificate(pem, now());
 
     expect(Array.isArray(summary.subjectAltNames)).toBe(true);
     expect(summary.subject).toContain('legacy.test');
