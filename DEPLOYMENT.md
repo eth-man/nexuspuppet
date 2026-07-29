@@ -47,6 +47,12 @@ architectural decision the deployment cannot defer, and it is covered in
 Both are supported, and NexusPuppet needs no configuration change to tell them
 apart.
 
+> **You need a PuppetDB before you start.** The console reads its inventory from
+> one; without it the stack comes up healthy and shows nothing, which is hard to
+> tell from a broken install. If you do not have one yet,
+> [Appendix A](#appendix-a-installing-openvoxdb-natively-on-the-same-host) is the
+> short path for OpenVoxDB on the same host.
+
 [OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet —
 `openvoxserver`, `openvoxdb` and `openvoxagent` replacing puppetserver, puppetdb
 and puppet-agent. `openvoxdb` serves the same `/pdb/query/v4` API, identifies
@@ -713,3 +719,122 @@ architecture exists to provide.
 - [ ] **No inbound network path from puppetserver to NexusPuppet** (ADR-0003)
 - [ ] Postgres not published to the network
 - [ ] Backups verified by restoring one, not by observing that the job ran
+
+---
+
+## Appendix A. Installing OpenVoxDB natively, on the same host
+
+NexusPuppet needs a PuppetDB to read. If you already have one, skip this — §3
+onwards is all you need. This is for the layout the guide otherwise assumes you
+have solved: **OpenVox Server running natively on the host, NexusPuppet in
+Docker, no PuppetDB yet.**
+
+None of this is NexusPuppet configuration. It is the inventory backend our
+console reads, written down because §3 asks for a `PUPPETDB_URL` and everything
+before that point was left as an exercise. Upstream OpenVox documentation is the
+authority; this is the short path that has been walked end to end.
+
+> **Do this before §3.** Without a PuppetDB the console starts, is healthy, and
+> shows nothing — which looks exactly like a broken install.
+
+### A.1 Packages
+
+```bash
+sudo apt install postgresql postgresql-contrib openvoxdb openvoxdb-termini
+```
+
+The service names stay `puppetdb` and `puppetserver` under systemd; only the
+package names carry the OpenVox prefix. That catches people out when reading
+Puppet documentation alongside OpenVox packages.
+
+### A.2 Database
+
+```bash
+sudo -u postgres createuser -DRS puppetdb
+sudo -u postgres createdb -O puppetdb puppetdb
+sudo -u postgres psql -c "ALTER USER puppetdb WITH PASSWORD '<generated>';"
+sudo -u postgres psql -d puppetdb -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+sudo -u postgres psql -d puppetdb -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
+```
+
+`pg_trgm` needs a superuser, so openvoxdb cannot create it itself, and without it
+the service aborts during schema migration and shuts down *cleanly* — the reason
+sits above a Clojure stack trace, and the symptom is a service that will not stay
+up for no visible cause.
+
+Then `/etc/puppetlabs/puppetdb/conf.d/database.ini`:
+
+```ini
+[database]
+subname = //localhost:5432/puppetdb
+username = puppetdb
+password = <generated>
+```
+
+### A.3 TLS
+
+```bash
+sudo puppetdb ssl-setup -f
+```
+
+That reuses the host's existing agent certificates. Afterwards, check what it
+left behind:
+
+```bash
+grep -c '^client-auth' /etc/puppetlabs/puppetdb/conf.d/jetty.ini   # must be 1
+```
+
+`ssl-setup` appends `client-auth = want` without checking for an existing line.
+`want` accepts requests presenting **no client certificate at all** — see §3's
+table. Set exactly one line reading `client-auth = need`.
+
+While you are in `jetty.ini`, keep the cleartext port on loopback:
+
+```ini
+host = 127.0.0.1
+port = 8080
+```
+
+Nothing needs it remotely, and it is unauthenticated.
+
+### A.4 Point puppetserver at it
+
+`/etc/puppetlabs/puppet/puppetdb.conf`:
+
+```ini
+[main]
+server_urls = https://<this-host-fqdn>:8081
+```
+
+`/etc/puppetlabs/puppet/routes.yaml`:
+
+```yaml
+---
+master:
+  facts:
+    terminus: puppetdb
+    cache: json
+```
+
+and in `puppet.conf` under `[server]`, `storeconfigs = true` plus
+`storeconfigs_backend = puppetdb`, with `reports = puppetdb` if you want the
+report views populated.
+
+```bash
+sudo systemctl enable --now puppetdb
+sudo systemctl restart puppetserver
+sudo puppet agent --test          # a node to look at
+```
+
+### A.5 Then wire NexusPuppet to it
+
+Back to §3, with two things specific to this layout:
+
+- **`PUPPETDB_URL` must use the name on the certificate.** mTLS verifies the
+  hostname, so the host's FQDN — not `localhost`, not an IP.
+- **The container has to resolve that name.** It is the host, not a Compose
+  service, so map it to the Docker gateway. The shipped
+  `docker-compose.native-enc.example.yml` does this with `extra_hosts` and also
+  handles the ENC bind mount §6 requires for a native puppetserver.
+
+---
