@@ -122,7 +122,7 @@ wait "$AGENT_PID" 2>/dev/null || true
 step "Issuing a certificate for NexusPuppet"
 # Exactly the procedure DEPLOYMENT.md tells an operator to run.
 docker exec nexuspuppet-puppetserver \
-  puppetserver ca generate --certname "$CERTNAME" 2>&1 | tail -5 || true
+  puppetserver ca generate --certname "$CERTNAME" 2>&1 || true
 
 mkdir -p "$CERT_DIR"
 docker exec nexuspuppet-puppetserver \

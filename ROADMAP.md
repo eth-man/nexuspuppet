@@ -70,6 +70,7 @@ Real limits of what is built, recorded so nobody discovers them in production.
 | **Login rate limiting is per replica** | N replicas permit N× the configured attempts. Account lockout is durable and still applies, so this widens the online-guessing window rather than removing the protection. | as above |
 | **JWKS refetch has a cooldown** | A rotated signing key is picked up within the cooldown rather than instantly. Deliberate — it bounds a flood of tokens bearing kids that will never exist. | enterprise `OidcDirectory` |
 | **Not exercised at estate scale** | Correctness is verified against real Puppet and OpenVox estates; throughput is not. | [fixtures/README.md](fixtures/README.md) |
+| **`pg` deprecation on multi-relation `include` inside a transaction** | Prisma's interpreter loads relations concurrently on the single connection an interactive transaction pins, which `pg` 9 will stop tolerating. Noise today, a failure on upgrade. Not fixable from application code — see below. | `PrismaService`, `apps/api/src/prisma/prisma.service.ts` |
 
 ## Deferred, with reasons
 

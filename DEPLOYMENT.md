@@ -131,6 +131,27 @@ On the Puppet CA host:
 puppetserver ca generate --certname nexuspuppet.internal
 ```
 
+> **If your CA does not autosign, this command stops short — and says so
+> confusingly.** `ca generate` creates the key, submits the certificate request,
+> and then tries to fetch the signed certificate. On a CA that signs
+> automatically that all happens at once: five `Successfully ...` lines and exit
+> 0, which is what a test estate shows. On a CA that requires a human — the
+> normal production setting — the fetch has nothing to fetch yet, and you get
+>
+> ```
+> Error: Signed certificate nexuspuppet.internal could not be found on the CA
+> ```
+>
+> **The request was still submitted.** Sign it and collect the certificate:
+>
+> ```bash
+> puppetserver ca sign --certname nexuspuppet.internal
+> ```
+>
+> Judge the outcome by the three files below rather than by the message. If
+> `certs/nexuspuppet.internal.pem` exists, you have what you need; if only the
+> key and public key were written, the request is waiting to be signed.
+
 That produces three files you need:
 
 | File | Source path on the CA |
@@ -246,6 +267,20 @@ curl --cert /etc/nexuspuppet/certs/client.pem \
 
 Do this first. A cert problem discovered here takes a minute; discovered through
 a container that will not start, an hour.
+
+Once the image is built (§5), there is a fuller check that isolates each layer —
+file permissions, TCP, TLS, authorisation, data, and the application's own
+client — and names the one that failed:
+
+```bash
+docker compose run --rm api node scripts/test-puppetdb.mjs
+```
+
+**Run it from the container, not the host.** §0 asks only for Docker, so a host
+that meets the stated requirements has no Node to run it with — and running it
+inside means it uses the same uid, network position and certificate mounts as
+the real client. A pass on the host and a failure in the container is exactly the
+ownership problem described above, and only the containerised run will show it.
 
 ---
 

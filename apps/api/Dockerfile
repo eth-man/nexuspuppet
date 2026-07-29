@@ -39,6 +39,13 @@ COPY --from=build /repo/apps/api/prisma ./prisma
 # needs transpiling.
 COPY --from=build /repo/apps/api/prisma.config.ts ./
 COPY --from=build /repo/apps/api/package.json ./
+# The commissioning check, so it can run FROM the container:
+#   docker compose run --rm api node scripts/test-puppetdb.mjs
+# DEPLOYMENT.md recommends this check, but §0 asks only for Docker — on a
+# Docker-only host there is no Node to run it with. In here there is, and it
+# tests from the uid, network position and certificate mounts the real client
+# uses rather than approximating them from the host.
+COPY --from=build /repo/scripts/test-puppetdb.mjs ./scripts/
 # The ENC volume is mounted here read-write; it is the only path this service writes.
 RUN mkdir -p /srv/nexuspuppet/enc && chown -R app:app /srv/nexuspuppet
 USER app
