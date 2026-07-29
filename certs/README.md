@@ -72,5 +72,13 @@ That the credential is estate-wide is why authorization is decided in `api`
 ## These are for local commissioning
 
 In production these are mounted into the container from a path outside the
-repository — see `DEPLOYMENT.md` §3. This directory exists so you can prove the
+repository — see `DEPLOYMENT.md` §3.
+
+> **If you point Compose at this directory** (`PUPPETDB_CERT_DIR=./certs`, the
+> default), note that the api container runs as **uid 100**. A `0600` key owned
+> by your own user is unreadable to it, and the console will report only
+> "PuppetDB unreachable" — the API log says which file and why. Either own the
+> files by uid 100 as §3 describes, or keep this directory for host-side checks
+> like `npm run test:puppetdb` and mount a properly-owned path into the
+> container. This directory exists so you can prove the
 connection works from a development machine first.

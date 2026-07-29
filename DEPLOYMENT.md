@@ -141,15 +141,32 @@ That produces three files you need:
 
 ### Installing them on the NexusPuppet VM
 
+The container runs as **uid 100** (the image's `app` user), so `root:root`
+ownership makes these files unreadable to it — a `0600 root:root` key inside a
+`0700 root:root` directory produces `EACCES` and no inventory. Own them by uid:
+
 ```bash
-sudo install -d -m 0700 -o root -g root /etc/nexuspuppet/certs
-# Transfer over SSH/scp. Never paste key material into a chat window,
+# Transfer over SSH/scp first. Never paste key material into a chat window,
 # an issue, or a CI variable that logs its value.
-sudo install -m 0600 client.pem client.key ca.pem /etc/nexuspuppet/certs/
+sudo install -d -m 0500 -o 100 -g root /etc/nexuspuppet/certs
+sudo install -m 0444 -o 100 -g root client.pem ca.pem /etc/nexuspuppet/certs/
+sudo install -m 0400 -o 100 -g root client.key /etc/nexuspuppet/certs/
 ```
 
-The key must be `0600`. Compose mounts the directory read-only, and the
-certificates are never baked into an image.
+> **Set the owner, not the group.** The container's group is gid 101, but on the
+> *host* gid 101 is an unrelated system group whose identity varies by distro —
+> `syslog` on one Ubuntu installation, `lxd` on another. `chown`ing an
+> estate-wide PuppetDB key to it can hand that key to every human member of a
+> group you never chose. Owning by uid alone avoids the question entirely.
+
+The key stays unreadable to everyone but that uid. Compose mounts the directory
+read-only, and the certificates are never baked into an image.
+
+Confirm the container can actually read them before going further:
+
+```bash
+docker compose run --rm --entrypoint sh api -c 'head -c1 /etc/nexuspuppet/certs/client.key >/dev/null && echo readable'
+```
 
 ### What this certificate can do — and what you cannot stop it doing
 
@@ -383,9 +400,42 @@ puppetserver runs on this same Docker host.** It usually does not. Pick one:
 
 | Layout | How the ENC directory travels | Notes |
 |---|---|---|
-| Same host | The `enc-data` named volume, mounted `:ro` | Simplest. Uncomment the reference block in `docker-compose.yml` |
+| Same host, **puppetserver in Docker** | The `enc-data` named volume, mounted `:ro` | Simplest. Uncomment the reference block in `docker-compose.yml` |
+| Same host, **puppetserver native** | Bind-mount a host path, e.g. `/srv/nexuspuppet/enc`, owned by uid 100 | The named volume does **not** work here — see below |
 | Separate puppetserver VM | Bind-mount `ENC_OUTPUT_DIR` to a host path exported over **NFS**, mounted read-only on puppetserver | Most common on-prem |
 | Separate VM, no shared FS | `rsync` the tree on a timer | Adds propagation delay. The directory is self-consistent — files are written atomically via tmp+fsync+rename — but rsync mid-write can still ship a partial *set*. Use `--delay-updates` |
+
+**Why a native puppetserver cannot use the named volume.** Docker keeps volume
+data under `/var/lib/docker`, which is mode `0710 root:root`. The `puppet` user
+cannot traverse it, so the path is unreachable no matter how the ENC files
+themselves are permissioned — they are `0644` in `0755` directories and perfectly
+readable, if you could get to them:
+
+```console
+$ namei -lx /var/lib/docker/volumes/nexuspuppet_enc-data/_data
+drwxr-xr-x root root /
+drwxr-xr-x root root var
+drwxr-xr-x root root lib
+drwx--x--- root root docker
+                     volumes - Permission denied
+```
+
+Do not fix this by loosening `/var/lib/docker`. Use a bind mount:
+
+```yaml
+# docker-compose.override.yml
+services:
+  api:
+    volumes: !override
+      - ${PUPPETDB_CERT_DIR:-./certs}:/etc/nexuspuppet/certs:ro
+      - /srv/nexuspuppet/enc:/srv/nexuspuppet/enc
+```
+
+`!override` matters: without it Compose merges the two lists and you get two
+mounts on the same target. Create the directory as uid 100 first
+(`sudo install -d -m 0755 -o 100 -g root /srv/nexuspuppet/enc`). If puppetserver
+expects the tree at `/etc/puppetlabs/nexuspuppet`, symlink it there so the ENC
+script's default path resolves.
 
 Whichever you choose, the mount on puppetserver is **read-only**. The API is the
 only writer. A second writer breaks the content-hash change detection that keeps

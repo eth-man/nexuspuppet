@@ -279,10 +279,13 @@ export class PuppetDbClient implements IPuppetDbClient {
     }
 
     try {
+      // Read each separately so the diagnostic can name the file that actually
+      // failed. Under a single Promise.all the message could only ever cite one
+      // path, and an unreadable KEY would send an operator to inspect the CERT.
       const [cert, key, ca] = await Promise.all([
-        readFile(this.options.certPath, 'utf8'),
-        readFile(this.options.keyPath, 'utf8'),
-        readFile(this.options.caPath, 'utf8'),
+        this.readPem(this.options.certPath, 'client certificate'),
+        this.readPem(this.options.keyPath, 'client key'),
+        this.readPem(this.options.caPath, 'CA certificate'),
       ]);
 
       this.agent = new Agent({
@@ -303,12 +306,48 @@ export class PuppetDbClient implements IPuppetDbClient {
       return this.agent;
     } catch (error) {
       this.agentError =
-        `PuppetDB client certificates could not be loaded (${this.options.certPath}): ` +
-        `${error instanceof Error ? error.message : String(error)}. ` +
+        `${error instanceof Error ? error.message : String(error)} ` +
         'Inventory and report views are unavailable; classification is unaffected.';
 
       this.logger.warn(this.agentError);
       throw new PuppetDbUnavailableError(this.agentError, { lastSuccessAt: this.lastSuccessAt });
+    }
+  }
+
+  /**
+   * Read one PEM, turning the two failures operators actually hit into
+   * sentences rather than errno strings.
+   *
+   * EACCES is the one worth spelling out. The container runs as a non-root uid,
+   * so the natural `install -o root -g root` produces a file that exists, has
+   * the right name and the right mode, and still cannot be read — which looks
+   * nothing like a permissions problem from the console, where it surfaces only
+   * as "PuppetDB unreachable".
+   */
+  private async readPem(path: string, role: string): Promise<string> {
+    try {
+      return await readFile(path, 'utf8');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const uid = process.getuid?.();
+      const asUid = uid === undefined ? '' : ` This process runs as uid ${uid}.`;
+
+      if (code === 'ENOENT') {
+        throw new Error(`PuppetDB ${role} not found at ${path}.`, { cause: error });
+      }
+      if (code === 'EACCES') {
+        throw new Error(
+          `PuppetDB ${role} at ${path} exists but is not readable.${asUid} ` +
+            'Own the certificate directory and its files by that uid — see DEPLOYMENT.md §3. ' +
+            'Do not chown to the container gid; on the host that number is an unrelated system group.',
+          { cause: error },
+        );
+      }
+      throw new Error(
+        `PuppetDB ${role} at ${path} could not be read: ` +
+          `${error instanceof Error ? error.message : String(error)}.`,
+        { cause: error },
+      );
     }
   }
 
