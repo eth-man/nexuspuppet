@@ -32,7 +32,10 @@ architectural decision the deployment cannot defer, and it is covered in
 
 ### Host requirements
 
-- Linux with Docker Engine ≥ 24 and the Compose plugin
+- Linux with Docker Engine ≥ 24 and the Compose plugin. Neither is present on a
+  stock Ubuntu or Debian image; on those, `sudo apt install docker.io
+  docker-compose-v2` is enough, and nothing in this guide needs a newer Docker
+  than the distribution ships
 - 2 vCPU / 4 GB RAM is comfortable for a few thousand nodes; the workload is
   mostly idle between projection ticks
 - Disk: Postgres growth is driven by report retention, not node count
@@ -97,7 +100,8 @@ an environment variable and discovered at runtime:
 ```bash
 # Core edition — skip this section entirely. This is the normal path.
 
-# Enterprise edition:
+# Enterprise edition — this section, and only this section, needs Node >= 22.12
+# on the host. The core install needs nothing but Docker.
 export NEXUSPUPPET_ENTERPRISE_REPO='git@github.com:yourorg/nexuspuppet-enterprise.git'
 export NEXUSPUPPET_ENTERPRISE_REF=v1.0.0      # default: main
 npm run enterprise:fetch                       # clones into packages/enterprise/
@@ -227,7 +231,15 @@ this project can fix.
 
 1. **Check `client-auth` in `jetty.ini`.** Some images ship `want`, which
    accepts requests with *no client certificate at all* — the first row above.
-   Set `need`.
+   Set `need`, then confirm there is exactly one such line:
+
+   ```bash
+   grep -c '^client-auth' /etc/puppetlabs/puppetdb/conf.d/jetty.ini   # must be 1
+   ```
+
+   `puppetdb ssl-setup` appends its own `client-auth = want` without checking
+   for an existing entry, so running it after you have set `need` silently
+   leaves two — and the file no longer says what you think it says.
 2. **Restrict `/pdb/*` at the network layer.** A firewall rule or a reverse proxy
    is the only thing that actually bounds who can reach it. Do not publish port
    8081 beyond the hosts that need it, and do not publish the cleartext port 8080
@@ -244,6 +256,10 @@ node scripts/dev/puppetdb-auth-probe.mjs
 It reports whether PuppetDB answers a client presenting *no* certificate — the
 first row, and the one worth knowing about tonight. Add `--prove-write` to settle
 the write question too; read its header first, because that probe creates a node.
+
+This one needs Node, which §0 does not ask for. Run it from any machine with a
+checkout that can reach PuppetDB — it is a network probe, and the answers it
+gives do not depend on running it from the NexusPuppet host.
 
 > **Why this matters more for a classifier than for a dashboard.** NexusPuppet
 > evaluates rules against facts it reads from PuppetDB. Anyone who can write
@@ -397,19 +413,25 @@ docker compose logs api | grep -i 'projection\|puppetdb'
 ### First login
 
 Sign in at `http://localhost:3000` — through the tunnel above, or on the VM
-itself — with the bootstrap credentials, then rotate immediately:
+itself — with the bootstrap credentials, then rotate immediately, **in the
+console**: *Settings → Change password*.
 
-```bash
-node scripts/dev/rotate-admin-password.mjs
-```
+That goes through `POST /account/password`, which verifies the old password,
+writes the audit row, and revokes every other session in one transaction. Choose
+the new password in your password manager and let it store the value; nothing on
+the host needs a copy.
 
-It changes the password through `POST /account/password`, which verifies the old
-one, writes the audit row, and revokes every other session in one transaction —
-and it never prints the password. Then delete `BOOTSTRAP_ADMIN_*` from `.env`.
+Then remove `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env`
+and `docker compose up -d api` to pick that up. They only ever seed an empty
+users table, but there is no reason to leave a working credential in a file.
 
-> The `~/.nexuspuppet/admin-password` file that script writes is a **local
-> development convenience.** On a production host, put the password in your
-> secret manager and delete the file.
+> **Not `scripts/dev/rotate-admin-password.mjs`.** Earlier versions of this guide
+> pointed here at that script. It needs Node on the host, which §0 does not ask
+> for, so on a correctly-provisioned server the documented rotation step could
+> not be run at all. It also writes the new password to
+> `~/.nexuspuppet/admin-password` — a development convenience, and the wrong
+> thing to create on a production host. It remains useful for local development
+> and for scripting a rotation from a workstation that has a checkout.
 
 ---
 
@@ -651,7 +673,7 @@ Also back up `.env` (it holds `JWT_SECRET`) into your secret store. Losing
 ```bash
 cd /opt/nexuspuppet
 git fetch --tags && git checkout <new-tag>
-npm run enterprise:fetch          # enterprise edition only
+npm run enterprise:fetch          # enterprise edition only — needs Node on this host
 docker compose build
 docker compose run --rm api npx prisma migrate deploy
 docker compose up -d
