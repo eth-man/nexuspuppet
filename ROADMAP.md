@@ -35,7 +35,7 @@ Four of the five declared capability tokens have no implementation yet. Routes f
 | Capability | Token | Notes |
 |---|---|---|
 | **SAML SSO** | `AUTH_PROVIDER` | The redirect plumbing OIDC needed now exists, so this is a provider implementation only. Read the caution below before starting. |
-| **Scoped RBAC** | `AUTHORIZATION_POLICY` | Today's policy is role-based and estate-wide. Scoped RBAC means permissions bounded by node group or environment. Large: it touches every route and guard, and wants an ADR before code. |
+| **Scoped RBAC** | `AUTHORIZATION_POLICY` | **Deferred** — designed and declined. See [ADR-0011](docs/architecture/adr/0011-scoped-rbac.md). |
 
 #### A caution about SAML
 
@@ -77,6 +77,7 @@ These were considered and consciously postponed. Each ADR records the alternativ
 
 | Item | Why it is waiting |
 |---|---|
+| **Scoped RBAC** ([ADR-0011](docs/architecture/adr/0011-scoped-rbac.md)) | Designed in full and declined. Scoping by node group turns out not to bound anything — group membership is fact-based, so a scoped operator can rewrite a rule to match the whole estate. A sound design exists (check the *effect* of a write, not the request) but costs a security-critical check on the classification write path, and the future-node loophole cannot be closed at write time. Deferred until a deployment actually needs it. |
 | **Enterprise as a published private npm package** ([ADR-0002](docs/architecture/adr/0002-open-core-runtime-discovery.md)) | The runtime-discovery design already supports it unchanged. Blocked only on a private registry the project does not have. |
 | **PE Orchestrator / RBAC API scoping** ([ADR-0004](docs/architecture/adr/0004-puppetdb-read-only-mtls.md)) | Not available on open-source Puppet, which is the core target. Available to the enterprise layer as a future capability. |
 | **SQLite single-binary demo mode** ([ADR-0005](docs/architecture/adr/0005-postgres-prisma-local-state.md)) | Rejected for production — no advisory locks, weak concurrent writes, blocks the multi-replica path. Still plausible for a demo build. |

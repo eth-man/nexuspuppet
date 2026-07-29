@@ -115,6 +115,7 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0008](./adr/0008-nextjs-app-router-latest-stable.md) | Next.js App Router, latest stable |
 | [0009](./adr/0009-classification-merge-semantics.md) | Classification merge and conflict resolution |
 | [0010](./adr/0010-typescript-version-pinned-below-latest.md) | TypeScript pinned to 5.9.x, below published `latest` |
+| [0011](./adr/0011-scoped-rbac.md) | Scoped RBAC: bounding writes by environment — **Deferred** |
 
 ## 11. Open questions
 
