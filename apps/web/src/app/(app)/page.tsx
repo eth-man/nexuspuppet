@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { StateBadge } from '@/components/ui/badge';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError } from '@/components/states';
+import { SystemStatusCard } from '@/components/data/system-status-card';
 
 /**
  * Estate overview.
@@ -38,6 +39,10 @@ export default function DashboardPage() {
         <h1 className="text-sm font-semibold tracking-tight">Dashboard</h1>
         <p className="text-xs text-ink-muted">Estate health at a glance</p>
       </header>
+
+      <div className="mb-3">
+        <SystemStatusCard />
+      </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
         <Tile label="Nodes" value={total.data} href="/nodes" />

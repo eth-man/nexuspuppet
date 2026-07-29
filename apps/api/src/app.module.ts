@@ -32,6 +32,8 @@ import { MaterializationService } from './materialization/materialization.servic
 import { ReconcilerService } from './materialization/reconciler.service';
 import { PrismaService } from './prisma/prisma.service';
 import { AuditDeliveryOutbox } from './auth/audit-delivery.outbox';
+import { SystemController } from './system/system.controller';
+import { SystemStatusService } from './system/system-status.service';
 import {
   AuditDeliveryWorker,
   DEFAULT_AUDIT_PACING,
@@ -156,6 +158,7 @@ export class AppModule {
         MaterializationController,
         UsersController,
         AccountController,
+        SystemController,
       ],
       providers: [
         ...coreServices,
@@ -174,6 +177,18 @@ export class AppModule {
             }),
         },
         UsersService,
+        {
+          // Explicit factory: NodeProjectionService is itself factory-built with
+          // plain config values, so Nest cannot construct this by metadata.
+          provide: SystemStatusService,
+          inject: [PrismaService, AuditDeliveryOutbox, NodeProjectionService, AUDIT_TRANSPORT],
+          useFactory: (
+            prisma: PrismaService,
+            outbox: AuditDeliveryOutbox,
+            projection: NodeProjectionService,
+            transport: IAuditTransport,
+          ): SystemStatusService => new SystemStatusService(prisma, outbox, projection, transport),
+        },
         // RbacPolicy, LocalUserDirectory, PrismaAuditSink and CoreLicenseService
         // are NOT registered here. They reach the container only through their
         // capability tokens above (ADR-0002).
