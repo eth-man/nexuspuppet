@@ -21,6 +21,7 @@ import type {
   IAuditSink,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
+import { strategyWarnings, type GroupShape } from './pure/strategy-warnings';
 import {
   MaterializationService,
   type TransactionClient,
@@ -287,12 +288,17 @@ export class ClassificationService {
         input.parentId !== undefined ||
         input.environment !== undefined;
 
+      // A strategy change is the sharpest form of this: flipping PINNED to
+      // ALL_RULES orphans every pin at once, and nothing else in the product
+      // would mention it.
+      const warnings = input.strategy === undefined ? [] : strategyWarnings(shapeOf(updated));
+
       if (affectsMatching) {
         await this.materialization.enqueueFullReconcile(tx, `node-group.update:${id}`);
-        return this.result(toDetail(updated), { scope: 'full-reconcile', certnames: [] }, []);
+        return this.result(toDetail(updated), { scope: 'full-reconcile', certnames: [] }, warnings);
       }
 
-      return this.result(toDetail(updated), { scope: 'nodes', certnames: [] }, []);
+      return this.result(toDetail(updated), { scope: 'nodes', certnames: [] }, warnings);
     });
   }
 
@@ -357,11 +363,10 @@ export class ClassificationService {
       // Current membership cannot tell us which, so everything is recomputed.
       await this.materialization.enqueueFullReconcile(tx, `node-group.rules:${id}`);
 
-      return this.result(
-        toDetail(after),
-        { scope: 'full-reconcile', certnames: [] },
-        this.warnUnprojectedFacts(input),
-      );
+      return this.result(toDetail(after), { scope: 'full-reconcile', certnames: [] }, [
+        ...this.warnUnprojectedFacts(input),
+        ...strategyWarnings(shapeOf(after)),
+      ]);
     });
   }
 
@@ -487,7 +492,10 @@ export class ClassificationService {
       // provisioned tomorrow — but it will not materialize until it appears.
       const warnings = await this.warnUnknownNodes(tx, certnames);
 
-      return this.result(toDetail(after), { scope: 'nodes', certnames: affected }, warnings);
+      return this.result(toDetail(after), { scope: 'nodes', certnames: affected }, [
+        ...warnings,
+        ...strategyWarnings(shapeOf(after)),
+      ]);
     });
   }
 
@@ -764,6 +772,21 @@ function toDetail(row: GroupWithRelations): NodeGroupDetail {
     })),
     parameters: row.parameters.map((p) => ({ key: p.key, value: p.value })),
     pinnedCertnames: row.pins.map((p) => p.certname).sort(),
+  };
+}
+
+/**
+ * The three fields strategyWarnings needs, taken from a loaded row.
+ *
+ * Read from the group AFTER the write, not from the request: the warning is
+ * about the state the operator has just created, and a pin added to a group
+ * whose strategy someone else changed a minute ago is just as inert.
+ */
+function shapeOf(group: GroupWithRelations): GroupShape {
+  return {
+    strategy: group.strategy,
+    ruleCount: group.rules.length,
+    pinCount: group.pins.length,
   };
 }
 

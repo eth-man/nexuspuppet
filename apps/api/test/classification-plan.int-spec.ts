@@ -383,6 +383,89 @@ describe('classification plan (integration)', () => {
     });
   });
 
+  /**
+   * The plan and the write must agree about what is inert.
+   *
+   * A preview that promised a quieter outcome than the write delivers would be
+   * worse than no preview: the operator would have looked, seen nothing, and
+   * proceeded. Both call the same pure function; these prove they are wired to
+   * it.
+   */
+  describe('warnings about inert configuration', () => {
+    const createWithStrategy = async (name: string, strategy: 'PINNED' | 'ANY_RULE') => {
+      const result = await classification.create(
+        {
+          name,
+          rank: 100,
+          strategy,
+          environment: null,
+          isEnabled: true,
+          parentId: null,
+        } as Parameters<ClassificationService['create']>[0],
+        ACTOR,
+        CTX,
+      );
+      return result.group.id;
+    };
+
+    it('predicts that pinning to a rule-based group decides nothing', async () => {
+      await seedNode('node0.test', linux(0));
+      const id = await createGroup('rule-based');
+
+      const plan = await planner.plan({
+        operation: 'pin',
+        groupId: id,
+        certnames: ['node0.test'],
+      });
+
+      expect(plan.warnings.join(' ')).toContain('matches by rule');
+    });
+
+    it('does not warn when the pin lands on a PINNED group', async () => {
+      await seedNode('node0.test', linux(0));
+      const id = await createWithStrategy('pinned', 'PINNED');
+
+      const plan = await planner.plan({
+        operation: 'pin',
+        groupId: id,
+        certnames: ['node0.test'],
+      });
+
+      expect(plan.warnings.join(' ')).not.toContain('decide nothing');
+      expect(plan.warnings.join(' ')).not.toContain('no rules matches no nodes');
+    });
+
+    it('does not claim a PINNED group with no rules matches nothing', async () => {
+      // The rule-emptiness warning previously fired on any replace-rules with an
+      // empty list, regardless of strategy — which is exactly backwards for a
+      // PINNED group, where having no rules is the normal state.
+      await seedNode('node0.test', linux(0));
+      const id = await createWithStrategy('pinned-empty', 'PINNED');
+
+      const plan = await planner.plan({ operation: 'replace-rules', groupId: id, rules: [] });
+
+      expect(plan.warnings.join(' ')).not.toContain('no rules matches no nodes');
+    });
+
+    it('predicts the same warnings the write then emits', async () => {
+      await seedNode('node0.test', linux(0));
+      const id = await createGroup('rule-based-pin');
+
+      const plan = await planner.plan({
+        operation: 'pin',
+        groupId: id,
+        certnames: ['node0.test'],
+      });
+      const applied = await classification.addPins(id, ['node0.test'], ACTOR, CTX);
+
+      const inert = (list: readonly string[]) =>
+        list.filter((w) => w.includes('decide nothing') || w.includes('matches no nodes'));
+
+      expect(inert(plan.warnings)).toEqual(inert(applied.warnings));
+      expect(inert(plan.warnings)).not.toEqual([]);
+    });
+  });
+
   describe('other operations', () => {
     it('plans enabling a disabled group', async () => {
       for (let i = 0; i < 4; i += 1) await seedNode(`node${i}.test`, linux(i));
