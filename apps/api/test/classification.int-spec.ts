@@ -115,6 +115,78 @@ describe('classification writes (integration)', () => {
       CTX,
     );
 
+  /**
+   * Configuration a strategy makes inert.
+   *
+   * `groupMatches` reads pins only for PINNED groups and rules only for
+   * rule-based ones. Everything below saves successfully, writes an audit row,
+   * and moves no nodes — so the warning is the only thing standing between an
+   * operator and a silent no-op.
+   */
+  describe('warns when the match strategy ignores what was just written', () => {
+    it('tells you a pin on a rule-based group decides nothing', async () => {
+      const group = await create('rule-based', { strategy: 'ALL_RULES' });
+      await seedNode('web01.example.com');
+
+      const result = await service.addPins(group.group.id, ['web01.example.com'], ACTOR, CTX);
+
+      expect(result.warnings.some((w) => w.includes('matches by rule'))).toBe(true);
+      expect(result.warnings.some((w) => w.includes('PINNED'))).toBe(true);
+    });
+
+    it('stays quiet when the pin lands on a PINNED group', async () => {
+      const group = await create('pinned', { strategy: 'PINNED' });
+      await seedNode('web01.example.com');
+
+      const result = await service.addPins(group.group.id, ['web01.example.com'], ACTOR, CTX);
+
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('tells you a rule-based group left with no rules matches nothing', async () => {
+      const group = await create('emptied', { strategy: 'ANY_RULE' });
+
+      const result = await service.replaceRules(group.group.id, { rules: [] }, ACTOR, CTX);
+
+      expect(result.warnings).toContain('A rule-based group with no rules matches no nodes.');
+    });
+
+    it('tells you rules on a PINNED group decide nothing', async () => {
+      const group = await create('pinned-with-rules', { strategy: 'PINNED' });
+
+      const result = await service.replaceRules(
+        group.group.id,
+        { rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'Debian' }] },
+        ACTOR,
+        CTX,
+      );
+
+      expect(result.warnings.some((w) => w.includes('matches by pinned node'))).toBe(true);
+    });
+
+    it('tells you a strategy change has orphaned every pin', async () => {
+      // The sharpest case: one field, and every pin on the group stops meaning
+      // anything. Nothing else in the product mentions it.
+      const group = await create('was-pinned', { strategy: 'PINNED' });
+      await seedNode('web01.example.com');
+      await seedNode('web02.example.com');
+      await service.addPins(group.group.id, ['web01.example.com', 'web02.example.com'], ACTOR, CTX);
+
+      const result = await service.update(group.group.id, { strategy: 'ALL_RULES' }, ACTOR, CTX);
+
+      expect(result.warnings.some((w) => w.includes('2 pinned nodes'))).toBe(true);
+      expect(result.warnings).toContain('A rule-based group with no rules matches no nodes.');
+    });
+
+    it('does not warn on an unrelated group edit', async () => {
+      const group = await create('renamed', { strategy: 'PINNED' });
+
+      const result = await service.update(group.group.id, { name: 'renamed-again' }, ACTOR, CTX);
+
+      expect(result.warnings).toEqual([]);
+    });
+  });
+
   // -------------------------------------------------------------------------
 
   /**

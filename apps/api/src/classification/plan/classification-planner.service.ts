@@ -14,6 +14,7 @@ import { matchGroups } from '../../materialization/pure/rule-evaluator';
 import { mergeGroups, type MergeableGroup } from '../../materialization/pure/class-merger';
 import { renderEncDocument } from '../../materialization/pure/enc-yaml-renderer';
 import { applyOperation, changesMembership, type GroupSet } from './apply-operation';
+import { strategyWarnings } from '../pure/strategy-warnings';
 
 /**
  * What a classification change would do, computed without doing it.
@@ -106,7 +107,7 @@ export class ClassificationPlanner {
       counts: this.countsFor(outcomes, changed),
       shapes: this.shapesFor(changed),
       conflictsIntroduced: this.newConflicts(changed),
-      warnings: this.warningsFor(request, nodes.length, estateSize),
+      warnings: this.warningsFor(request, proposed, nodes.length, estateSize),
       truncated: nodes.length < estateSize,
       evaluated: nodes.length,
       estateSize,
@@ -262,7 +263,12 @@ export class ClassificationPlanner {
     return [...introduced.values()];
   }
 
-  private warningsFor(request: PlanRequest, evaluated: number, estateSize: number): string[] {
+  private warningsFor(
+    request: PlanRequest,
+    proposed: GroupSet,
+    evaluated: number,
+    estateSize: number,
+  ): string[] {
     const warnings: string[] = [];
 
     if (evaluated < estateSize) {
@@ -272,10 +278,18 @@ export class ClassificationPlanner {
       );
     }
 
-    if (request.operation === 'replace-rules' && request.rules.length === 0) {
-      // groupMatches treats a rule-based group with no rules as matching
-      // nothing, which is the safe reading but not the obvious one.
-      warnings.push('A rule-based group with no rules matches no nodes.');
+    // Computed from the group AS IT WOULD BE, using the same function the write
+    // path uses, so the preview cannot promise a quieter outcome than the write
+    // delivers. A deleted group has no configuration left to be inert.
+    const group = proposed.evaluable.find((g) => g.id === request.groupId);
+    if (group !== undefined) {
+      warnings.push(
+        ...strategyWarnings({
+          strategy: group.strategy,
+          ruleCount: group.rules.length,
+          pinCount: group.pinnedCertnames.length,
+        }),
+      );
     }
 
     return warnings;
