@@ -151,16 +151,72 @@ sudo install -m 0600 client.pem client.key ca.pem /etc/nexuspuppet/certs/
 The key must be `0600`. Compose mounts the directory read-only, and the
 certificates are never baked into an image.
 
-### Authorising it in PuppetDB
+### What this certificate can do — and what you cannot stop it doing
 
-Grant the certname read access in PuppetDB's `auth.conf`. Give it query access
-only — no `/pdb/cmd`.
+**You cannot restrict this certificate to reads.** PuppetDB has no per-certname
+authorization for `/pdb/*` at all. Earlier versions of this guide said to grant
+"query access only" in `auth.conf`; that was wrong, and an operator who followed
+it believed they had read-only access when they did not.
 
-> **This certificate is estate-wide.** PuppetDB has no per-user authorization,
-> so the API is a confused deputy by construction: it can see every node. This
-> is why authorization is decided in `api` *before* the query is built, and why
-> the web tier never holds this certificate. Do not "simplify" by letting the
-> browser talk to PuppetDB.
+Two mechanisms are commonly suggested. Neither works:
+
+- **`auth.conf` does not apply to `/pdb/*`.** The trapperkeeper authorization
+  service is wired only to the metrics endpoints — PuppetDB's own
+  `bootstrap.cfg` says so in a comment. The shipped `auth.conf` ends with an
+  explicit `deny: "*"` on path `/`, and queries succeed regardless.
+- **`certificate-whitelist` no longer exists.** It was removed after PuppetDB 6.
+  In OpenVoxDB 8 it is not a valid `jetty.ini` key: the string appears nowhere in
+  the shipped jar, and adding it stops the service from starting with
+  `{:certificate-whitelist disallowed-key}`.
+
+Verified against OpenVoxDB 8.15.0, with the shipped `auth.conf` in place:
+
+| Request | `client-auth = want` | `client-auth = need` |
+| --- | --- | --- |
+| `GET /pdb/query/v4/nodes`, no client certificate | **200** | TLS rejected |
+| `GET /pdb/query/v4/nodes`, any CA-signed certificate | 200 | 200 |
+| `POST /pdb/cmd/v1` `replace_facts`, any CA-signed certificate | **200** | **200** |
+
+The command submissions were accepted *and persisted*: a node that does not
+exist, carrying a fact that was never reported, appeared in the estate.
+
+So the honest statement is: **any certificate the Puppet CA has ever signed —
+including every agent in your estate — can read all of PuppetDB and write to
+it.** That is a property of PuppetDB, not of NexusPuppet, and it is not something
+this project can fix.
+
+#### What to do instead
+
+1. **Check `client-auth` in `jetty.ini`.** Some images ship `want`, which
+   accepts requests with *no client certificate at all* — the first row above.
+   Set `need`.
+2. **Restrict `/pdb/*` at the network layer.** A firewall rule or a reverse proxy
+   is the only thing that actually bounds who can reach it. Do not publish port
+   8081 beyond the hosts that need it, and do not publish the cleartext port 8080
+   at all.
+3. **Treat the NexusPuppet certificate as a full-access credential** when
+   deciding where to store it and who can read the file.
+
+Check your own estate rather than trusting the table above:
+
+```bash
+node scripts/dev/puppetdb-auth-probe.mjs
+```
+
+It reports whether PuppetDB answers a client presenting *no* certificate — the
+first row, and the one worth knowing about tonight. Add `--prove-write` to settle
+the write question too; read its header first, because that probe creates a node.
+
+> **Why this matters more for a classifier than for a dashboard.** NexusPuppet
+> evaluates rules against facts it reads from PuppetDB. Anyone who can write
+> facts can therefore decide what NexusPuppet classifies — inventing a node, or
+> changing an existing one's `role`, changes which groups match it. Fact-write
+> access is classification-write access, one step removed.
+>
+> This is also why authorization is decided in `api` *before* a query is built,
+> and why the web tier never holds this certificate: the credential is
+> estate-wide, so the API is a confused deputy by construction. Do not
+> "simplify" by letting the browser talk to PuppetDB.
 
 ### Verifying before you deploy
 
@@ -529,7 +585,7 @@ architecture exists to provide.
 | Symptom | Cause |
 |---|---|
 | API exits immediately at boot | `JWT_SECRET` unset. There is no fallback by design |
-| "PuppetDB unreachable", last contact shown | Certificate, `auth.conf` authorization, or firewall. Reproduce with the `curl` in §3 |
+| "PuppetDB unreachable", last contact shown | Certificate or firewall — not authorization, which PuppetDB does not apply to `/pdb/*` (§3). Reproduce with the `curl` in §3 |
 | Inventory empty, no error | First projection has not completed. Check `PUPPETDB_PROJECTION_INTERVAL_MS` and the logs |
 | A rule matches nothing | The fact is not in `PUPPETDB_PROJECTED_FACTS`. The rule editor warns about this |
 | All nodes get `default.yaml` | The ENC directory is not reaching puppetserver, or is at a different path. Run the script by hand (§6) |
@@ -542,8 +598,10 @@ architecture exists to provide.
 - [ ] `.env` is `0600`; `/etc/nexuspuppet/certs/client.key` is `0600`
 - [ ] `BOOTSTRAP_ADMIN_*` removed after first login, password rotated
 - [ ] `~/.nexuspuppet/admin-password` deleted on production hosts
-- [ ] Port 3001 not exposed beyond the host; TLS terminated in front of 3000
-- [ ] PuppetDB certificate authorised for **query only**, no `/pdb/cmd`
+- [ ] `API_BIND` left at `127.0.0.1`; TLS terminated in front of 3000
+- [ ] PuppetDB reachable only from hosts that need it — this **cannot** be
+      bounded by certificate, so the network is the only control (§3)
+- [ ] `client-auth = need` in PuppetDB's `jetty.ini`, not `want`
 - [ ] ENC directory mounted **read-only** on puppetserver
 - [ ] **No inbound network path from puppetserver to NexusPuppet** (ADR-0003)
 - [ ] Postgres not published to the network

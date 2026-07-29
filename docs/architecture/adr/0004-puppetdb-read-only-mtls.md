@@ -8,7 +8,16 @@
 
 PuppetDB is the source of truth for facts, catalogs, reports, and node status. NexusPuppet needs all of it for the visibility half of the product, and needs facts for rule evaluation in the classification half.
 
-PuppetDB's query API is authenticated by **mTLS client certificate**, and its authorization model is coarse: a certificate whitelisted in `auth.conf` can query everything about every node. There is no per-user, per-node, or per-fact scoping.
+PuppetDB's query API is authenticated by **mTLS client certificate**, and its authorization model is coarse: any certificate signed by the Puppet CA can query everything about every node. There is no per-user, per-node, or per-fact scoping.
+
+> **Correction (verified against OpenVoxDB 8.15.0).** This paragraph originally
+> said "a certificate whitelisted in `auth.conf`", which overstates the control
+> available. `auth.conf` does not govern `/pdb/*` — it is wired only to the
+> metrics endpoints — and `certificate-whitelist` was removed after PuppetDB 6.
+> The credential is also not read-only: `POST /pdb/cmd/v1` is accepted from any
+> CA-signed certificate. The decision below is unchanged, and if anything better
+> supported: because the credential cannot be scoped, authorization must be
+> decided in `api` before a query is built. See `DEPLOYMENT.md` §3.
 
 ## Decision
 
