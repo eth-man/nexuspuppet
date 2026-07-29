@@ -35,6 +35,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
+import { PlanReviewProvider, usePlanReview } from '@/components/data/plan-review';
 import { Forbidden, QueryError, Spinner } from '@/components/states';
 import { WriteResult } from '@/components/data/write-result';
 
@@ -63,7 +64,22 @@ type Written = Pick<ClassificationWriteResult, 'materializationQueued' | 'warnin
  * of each write is reported explicitly rather than dismissed as a toast: the
  * operator sees which nodes were queued and that the change is not yet live.
  */
+/**
+ * Wrapped so every editor on this page shares ONE review dialog.
+ *
+ * Rules, classes, parameters, pins and group settings each have their own save
+ * button; five dialogs would be five chances for them to disagree about what a
+ * review looks like, and only one of them would get fixed when that happened.
+ */
 export default function NodeGroupPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <PlanReviewProvider>
+      <NodeGroupDetail params={params} />
+    </PlanReviewProvider>
+  );
+}
+
+function NodeGroupDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { can } = useAuth();
@@ -231,6 +247,7 @@ interface SectionProps {
 
 function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps) {
   const update = useUpdateGroup(id);
+  const { review } = usePlanReview();
   const [name, setName] = useState(detail.name);
   const [rank, setRank] = useState(String(detail.rank));
   const [environment, setEnvironment] = useState(detail.environment ?? '');
@@ -253,14 +270,24 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
         className="space-y-2 p-3"
         onSubmit={(event) => {
           event.preventDefault();
-          update.mutate(
+          const payload = {
+            name,
+            rank: Number(rank),
+            environment: environment === '' ? null : environment,
+            isEnabled: enabled,
+          };
+          // Rank changes merge ORDER and enablement changes membership, so
+          // both move documents an operator may not have been thinking about.
+          review(
             {
-              name,
+              operation: 'update-group',
+              groupId: id,
               rank: Number(rank),
               environment: environment === '' ? null : environment,
               isEnabled: enabled,
             },
-            { onSuccess: onWrite, onError },
+            'Group settings',
+            () => update.mutate(payload, { onSuccess: onWrite, onError }),
           );
         }}
       >
@@ -332,6 +359,7 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
  */
 function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) {
   const replace = useReplaceRules(id);
+  const { review } = usePlanReview();
   const factPaths = useFactPaths();
   const [rules, setRules] = useState<NodeRule[]>(detail.rules);
 
@@ -492,20 +520,23 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
             size="sm"
             type="button"
             disabled={!writable || !dirty || replace.isPending}
-            onClick={() =>
-              replace.mutate(
-                {
-                  rules: rules
-                    .filter((rule) => rule.factPath.trim() !== '')
-                    .map((rule) =>
-                      NO_VALUE.has(rule.operator)
-                        ? { factPath: rule.factPath, operator: rule.operator }
-                        : rule,
-                    ),
-                },
-                { onSuccess: onWrite, onError },
-              )
-            }
+            onClick={() => {
+              const next = rules
+                .filter((rule) => rule.factPath.trim() !== '')
+                .map((rule) =>
+                  NO_VALUE.has(rule.operator)
+                    ? { factPath: rule.factPath, operator: rule.operator }
+                    : rule,
+                );
+              // Rules have the widest blast radius of any change here: they
+              // decide membership, so one edit can pull in or drop the whole
+              // estate. Reviewed before it is written.
+              review(
+                { operation: 'replace-rules', groupId: id, rules: next },
+                'Matching rules',
+                () => replace.mutate({ rules: next }, { onSuccess: onWrite, onError }),
+              );
+            }}
           >
             {replace.isPending ? 'Saving…' : 'Save rules'}
           </Button>
@@ -517,6 +548,7 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
 
 function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps) {
   const assign = useAssignClass(id);
+  const { review } = usePlanReview();
   const remove = useRemoveClass(id);
 
   const [open, setOpen] = useState(false);
@@ -600,17 +632,22 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
                 }
                 const parsed: Record<string, PuppetValue> = validated.data;
                 setJsonError(null);
-                assign.mutate(
-                  { className, params: parsed },
-                  {
-                    onSuccess: (result) => {
-                      setOpen(false);
-                      setClassName('');
-                      setParams('{}');
-                      onWrite(result);
-                    },
-                    onError,
-                  },
+                review(
+                  { operation: 'assign-class', groupId: id, className, params: parsed },
+                  `Assign ${className}`,
+                  () =>
+                    assign.mutate(
+                      { className, params: parsed },
+                      {
+                        onSuccess: (result) => {
+                          setOpen(false);
+                          setClassName('');
+                          setParams('{}');
+                          onWrite(result);
+                        },
+                        onError,
+                      },
+                    ),
                 );
               }}
             >
@@ -654,6 +691,7 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
 
 function ParametersSection({ id, detail, writable, onWrite, onError }: SectionProps) {
   const set = useSetParameter(id);
+  const { review } = usePlanReview();
   const remove = useRemoveParameter(id);
   const [key, setKey] = useState('');
   const [value, setValue] = useState('');
@@ -711,16 +749,21 @@ function ParametersSection({ id, detail, writable, onWrite, onError }: SectionPr
               return;
             }
 
-            set.mutate(
-              { key, value: validated.data },
-              {
-                onSuccess: (result) => {
-                  setKey('');
-                  setValue('');
-                  onWrite(result);
-                },
-                onError,
-              },
+            review(
+              { operation: 'set-parameter', groupId: id, key, value: validated.data },
+              `Set ${key}`,
+              () =>
+                set.mutate(
+                  { key, value: validated.data },
+                  {
+                    onSuccess: (result) => {
+                      setKey('');
+                      setValue('');
+                      onWrite(result);
+                    },
+                    onError,
+                  },
+                ),
             );
           }}
         >
@@ -759,6 +802,7 @@ function ParametersSection({ id, detail, writable, onWrite, onError }: SectionPr
 
 function PinsSection({ id, detail, writable, onWrite, onError }: SectionProps) {
   const add = useAddPins(id);
+  const { review } = usePlanReview();
   const remove = useRemovePin(id);
   const [certnames, setCertnames] = useState('');
 
@@ -806,13 +850,15 @@ function PinsSection({ id, detail, writable, onWrite, onError }: SectionProps) {
               .filter((entry) => entry !== '');
             if (list.length === 0) return;
 
-            add.mutate(list, {
-              onSuccess: (result) => {
-                setCertnames('');
-                onWrite(result);
-              },
-              onError,
-            });
+            review({ operation: 'pin', groupId: id, certnames: list }, 'Pin nodes', () =>
+              add.mutate(list, {
+                onSuccess: (result) => {
+                  setCertnames('');
+                  onWrite(result);
+                },
+                onError,
+              }),
+            );
           }}
         >
           <Label htmlFor="pins">Add certnames</Label>
