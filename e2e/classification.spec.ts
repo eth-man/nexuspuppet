@@ -295,11 +295,13 @@ test.describe('classification', () => {
     await page.getByRole('button', { name: 'Assign' }).click();
     await page.getByLabel('Class name').fill('profile::e2e');
     await page.getByLabel('Parameters (JSON)').fill('{ this is not json }');
-    await applyReviewed(page, () =>
-      page.getByRole('button', { name: 'Assign', exact: true }).last().click(),
-    );
+    // NOT applyReviewed: malformed input is rejected in the form, before the
+    // review step is reached. That ordering is deliberate — there is nothing to
+    // preview about a change that cannot be expressed — so no dialog appears.
+    await page.getByRole('button', { name: 'Assign', exact: true }).last().click();
 
-    // The dialog stays open with an inline error, and nothing was sent.
+    await expect(page.getByRole('heading', { name: 'Review change' })).toBeHidden();
+    // The assign dialog stays open with an inline error, and nothing was sent.
     await expect(page.getByLabel('Parameters (JSON)')).toBeVisible();
     expect(called, 'invalid parameters must not reach the API').toBe(false);
   });
