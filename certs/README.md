@@ -46,16 +46,28 @@ Copy them over SSH. **Never paste key material into a chat window, an issue, a
 pull request, or a CI variable that logs its value** — treat anything that lands
 in one of those as compromised and reissue.
 
-## Authorisation
+## Authorisation — there isn't any
 
-A certificate is not enough: PuppetDB must also be told the certname may query
-it, in `/etc/puppetlabs/puppetdb/conf.d/auth.conf`. Grant **query access only** —
-NexusPuppet never writes to PuppetDB and has no code that could (ADR-0004).
+This file used to say to grant the certname "query access only" in
+`auth.conf`. **That is not possible, and following it gives a false sense of
+safety.** PuppetDB has no per-certname authorization for `/pdb/*`: `auth.conf`
+governs only the metrics endpoints, and `certificate-whitelist` was removed
+after PuppetDB 6. Verified against OpenVoxDB 8.15.0 — see `DEPLOYMENT.md` §3 for
+the measurements.
 
-Note that this certificate is estate-wide. PuppetDB has no per-user
-authorization, so the API is a confused deputy by construction: it can see every
-node. That is why authorization is decided in `api` *before* a query is built,
-and why the web tier never holds this material.
+Any certificate signed by the Puppet CA can read all of PuppetDB **and write to
+it**, including every agent certificate in the estate. Bound it at the network
+layer or not at all.
+
+NexusPuppet itself never writes to PuppetDB and has no code that could
+(ADR-0004) — but that is our restraint, not a permission boundary. Treat this
+key as a full-access estate credential.
+
+To see what your own certificate can do:
+`node scripts/dev/puppetdb-auth-probe.mjs`
+
+That the credential is estate-wide is why authorization is decided in `api`
+*before* a query is built, and why the web tier never holds this material.
 
 ## These are for local commissioning
 
