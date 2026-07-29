@@ -4,12 +4,23 @@ Deploying NexusPuppet onto a clean host and connecting it to a live Puppet
 estate. Read [`docs/architecture/README.md`](docs/architecture/README.md) first if
 you have not; the constraints below come from the ADRs and are not stylistic.
 
-> **Status.** Every component has been exercised end to end against synthetic
-> fixtures, with 253 unit, 135 integration and 29 browser tests passing. It has
-> **never been run against a real PuppetDB or a real puppetserver.** Treat the
-> first deployment as a commissioning exercise, not a rollout. The
-> [First contact with a real estate](#8-first-contact-with-a-real-estate) section
-> lists what to expect to be wrong.
+> **Status.** This has now been installed on real estates — a native OpenVox
+> Server 8.15 with OpenVoxDB 8.15 on Ubuntu 24.04, and a containerised Puppet
+> stack — and reached a working console with live inventory both times. It is no
+> longer untested against real infrastructure, and this banner previously said it
+> was; that claim is retired.
+>
+> **It is still early.** Both installs found defects, and every one of them was
+> in the deployment path rather than the application: a missing file in the
+> runtime image, environment keys Compose never delivered, certificate ownership,
+> documentation describing mechanisms that do not exist. None was found by the
+> 488 unit, 294 integration and browser tests, because none of them lives in the
+> source tree.
+>
+> So treat the first deployment as a commissioning exercise rather than a
+> rollout, and read
+> [First contact with a real estate](#9-first-contact-with-a-real-estate) for what
+> to expect to be wrong. Nothing here has been exercised at estate scale.
 
 ---
 
@@ -131,26 +142,31 @@ On the Puppet CA host:
 puppetserver ca generate --certname nexuspuppet.internal
 ```
 
-> **If your CA does not autosign, this command stops short — and says so
-> confusingly.** `ca generate` creates the key, submits the certificate request,
-> and then tries to fetch the signed certificate. On a CA that signs
-> automatically that all happens at once: five `Successfully ...` lines and exit
-> 0, which is what a test estate shows. On a CA that requires a human — the
-> normal production setting — the fetch has nothing to fetch yet, and you get
+> **This command can print an error and still succeed. Judge it by the files.**
+>
+> `ca generate` creates a key, submits a certificate request, then fetches the
+> signed certificate — and it reports the fetch failing even in cases where the
+> certificate is issued moments later:
 >
 > ```
 > Error: Signed certificate nexuspuppet.internal could not be found on the CA
 > ```
 >
-> **The request was still submitted.** Sign it and collect the certificate:
+> This has been seen on an autosigning CA that went on to print the success
+> lines and issue a working certificate, so it is not a reliable signal of
+> anything. Read the outcome from disk instead:
+>
+> | What exists | What it means |
+> | --- | --- |
+> | All three files below | Done. The error was noise. |
+> | Key and public key only | The request was submitted and is **unsigned** |
+>
+> If it is unsigned — the normal state on a CA that requires a human, and what
+> you should expect in production — sign it and run `ca generate` again:
 >
 > ```bash
 > puppetserver ca sign --certname nexuspuppet.internal
 > ```
->
-> Judge the outcome by the three files below rather than by the message. If
-> `certs/nexuspuppet.internal.pem` exists, you have what you need; if only the
-> key and public key were written, the request is waiting to be signed.
 
 That produces three files you need:
 
@@ -455,22 +471,19 @@ drwx--x--- root root docker
                      volumes - Permission denied
 ```
 
-Do not fix this by loosening `/var/lib/docker`. Use a bind mount:
+Do not fix this by loosening `/var/lib/docker`. Use a bind mount — this repo
+ships the override as a template:
 
-```yaml
-# docker-compose.override.yml
-services:
-  api:
-    volumes: !override
-      - ${PUPPETDB_CERT_DIR:-./certs}:/etc/nexuspuppet/certs:ro
-      - /srv/nexuspuppet/enc:/srv/nexuspuppet/enc
+```bash
+cp docker-compose.native-enc.example.yml docker-compose.override.yml
+sudo install -d -m 0755 -o 100 -g root /srv/nexuspuppet/enc
+sudo ln -s /srv/nexuspuppet/enc /etc/puppetlabs/nexuspuppet
 ```
 
-`!override` matters: without it Compose merges the two lists and you get two
-mounts on the same target. Create the directory as uid 100 first
-(`sudo install -d -m 0755 -o 100 -g root /srv/nexuspuppet/enc`). If puppetserver
-expects the tree at `/etc/puppetlabs/nexuspuppet`, symlink it there so the ENC
-script's default path resolves.
+Read it before using it — it needs the PuppetDB hostname edited, and it explains
+why `!override` is on the volume list (without it Compose merges the two and you
+get the named volume *and* the bind mount on the same target, with no indication
+of which won).
 
 Whichever you choose, the mount on puppetserver is **read-only**. The API is the
 only writer. A second writer breaks the content-hash change detection that keeps
@@ -508,11 +521,19 @@ The script's failure modes are deliberate:
 - **Known node** → its YAML
 - **Unknown / not yet materialized** → `default.yaml`, a defined safe
   classification rather than a compilation failure
-- **Directory missing or empty** → exit non-zero, so puppetserver falls back to
-  its own node definitions and logs loudly
+- **Directory missing or empty** → exit non-zero, which **fails catalog
+  compilation** for that node
 
-That last one matters: a visible error beats silently classifying the entire
-estate as empty.
+That last one is deliberate, and it is not a soft failure. The `exec` node
+terminus has no fallback: a non-zero exit is an error, and Puppet does not fall
+back to `site.pp` node definitions. Affected agents stop applying anything until
+the directory is reachable again.
+
+That is still the behaviour to want. The alternative — exiting 0 with empty
+classification — hands every agent an empty catalog, and an empty catalog does
+not mean "change nothing"; with `purge` resources in play it means *remove
+things*. A visible outage on some nodes beats a silent one across the estate.
+But size the monitoring accordingly: this failure mode stops Puppet runs.
 
 Then restart puppetserver and watch the first agent run end to end.
 
@@ -680,7 +701,8 @@ architecture exists to provide.
 
 ## Security checklist
 
-- [ ] `.env` is `0600`; `/etc/nexuspuppet/certs/client.key` is `0600`
+- [ ] `.env` is `0600`; `/etc/nexuspuppet/certs/client.key` is `0400`, owned by
+      uid 100 (§3) — not `0600 root:root`, which the container cannot read
 - [ ] `BOOTSTRAP_ADMIN_*` removed after first login, password rotated
 - [ ] `~/.nexuspuppet/admin-password` deleted on production hosts
 - [ ] `API_BIND` left at `127.0.0.1`; TLS terminated in front of 3000

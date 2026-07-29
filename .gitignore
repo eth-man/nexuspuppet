@@ -10,6 +10,12 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Site-specific Compose overrides. DEPLOYMENT.md §6 tells operators to create
+# this from docker-compose.native-enc.example.yml; it carries host paths and
+# hostnames and must not come back here.
+docker-compose.override.yml
+docker-compose.override.yaml
 *.pem
 *.key
 *.crt

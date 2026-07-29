@@ -16,7 +16,7 @@
  *   1  files        present, readable, sane permissions, matching key pair
  *   2  TCP          something is listening
  *   3  TLS          the CA verifies the server, the server accepts our cert
- *   4  authorised   auth.conf lets this certname query
+ *   4  authorised   PuppetDB accepts this certname (no auth.conf rule governs this)
  *   5  data         a real query returns plausible data
  *   6  our client   the code the application actually runs
  *
@@ -257,11 +257,13 @@ if (status.status === 403) {
   fail(
     'PuppetDB refused this certificate',
     `HTTP 403. The TLS handshake succeeded, so the certificate is valid — it is simply not authorised.`,
-    'Grant query access for this certname in /etc/puppetlabs/puppetdb/conf.d/auth.conf, then reload puppetdb.',
+    'PuppetDB has no per-certname authorization for /pdb/* (DEPLOYMENT.md §3), so there is no ' +
+      'auth.conf rule to add. Suspect a reverse proxy in front of PuppetDB, or a certificate ' +
+      'signed by a different CA than the one PuppetDB trusts.',
   );
 }
-// 404 is not a failure: auth.conf can expose /pdb/query while restricting
-// /status, and blocking there would stop a deployment that actually works.
+// 404 is not a failure: /status can be absent or proxied away while /pdb/query
+// works, and blocking here would stop a deployment that actually works.
 // Stage 5 proves query authorisation on its own.
 if (status.status === 404) {
   info('/status/v1/services is not exposed — authorisation will be proven by the query below');
@@ -291,7 +293,9 @@ if (nodes.status === 403) {
   fail(
     'PuppetDB refused the query',
     'HTTP 403. The certificate is valid and trusted; this certname is not permitted to query.',
-    'Grant it query access in /etc/puppetlabs/puppetdb/conf.d/auth.conf, then reload puppetdb.',
+    'Not an auth.conf rule — PuppetDB does not gate /pdb/* by certname at all ' +
+      '(DEPLOYMENT.md §3). Suspect a reverse proxy, or a CA mismatch between this ' +
+      'certificate and the one PuppetDB trusts.',
   );
 }
 if (nodes.status !== 200) {

@@ -25,7 +25,19 @@ RUN npm run build --workspace @nexuspuppet/contracts \
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup -S app && adduser -S app -G app
+# uid 100 / gid 101 PINNED, not inherited. DEPLOYMENT.md §3 tells operators to
+# chown the certificate directory to uid 100, and until now that number was
+# whatever Alpine's next system uid happened to be. A base-image bump that
+# shifted it would make every documented install produce an unreadable key, with
+# the only symptom being "PuppetDB unreachable".
+RUN addgroup -S -g 101 app && adduser -S -u 100 -G app app
+# The FULL node_modules, devDependencies included — deliberately, for now.
+#
+# `prisma` (the CLI) is a devDependency, and DEPLOYMENT.md §5 has operators run
+# `docker compose run --rm api npx prisma migrate deploy` against this image. It
+# works only because nothing has been pruned. Anyone slimming this image with
+# `npm ci --omit=dev` must first move `prisma` into dependencies, or the
+# documented migration step stops working in a way no test here would notice.
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/packages/contracts/dist ./packages/contracts/dist
 COPY --from=build /repo/packages/contracts/package.json ./packages/contracts/

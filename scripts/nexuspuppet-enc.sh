@@ -49,9 +49,16 @@ if [ -f "$default_file" ]; then
     exec cat "$default_file"
 fi
 
-# Both missing means the volume is unmounted or empty. Exiting non-zero makes
-# puppetserver fall back to its own node definitions and log loudly, which is
-# the correct failure: better a visible error than silently classifying every
-# node in the estate as empty.
+# Both missing means the volume is unmounted or empty.
+#
+# Exiting non-zero FAILS CATALOG COMPILATION for this node. The `exec` node
+# terminus has no fallback — a non-zero exit is an error, not a signal to use
+# site.pp's node definitions. This comment used to claim otherwise, which made a
+# hard failure sound survivable.
+#
+# Failing is still the right behaviour, for the reason the wrong version gave:
+# an agent that cannot be classified must stop, not silently receive an empty
+# catalog and start removing resources across the estate. But it is a real
+# outage for the affected nodes, so treat it as one.
 echo "nexuspuppet-enc: no classification data at ${ENC_DIR} (volume unmounted?)" >&2
 exit 1

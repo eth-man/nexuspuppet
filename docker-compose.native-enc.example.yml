@@ -1,0 +1,44 @@
+# Overrides for: puppetserver running NATIVELY on this host, NexusPuppet in Docker.
+#
+#   cp docker-compose.native-enc.example.yml docker-compose.override.yml
+#
+# Compose loads docker-compose.override.yml automatically. Do not commit yours —
+# it is site configuration and the repository ignores it.
+#
+# WHY THIS FILE EXISTS. The default `enc-data` named volume lives under
+# /var/lib/docker, which is mode 0710 root:root. A native `puppet` user cannot
+# traverse that, so it cannot read the ENC tree no matter how the files
+# themselves are permissioned (DEPLOYMENT.md §6). The fix is a bind mount at a
+# path both sides can reach.
+#
+# Before starting, create the directory owned by the container's uid:
+#
+#   sudo install -d -m 0755 -o 100 -g root /srv/nexuspuppet/enc
+#
+# and point puppetserver at it. The ENC script defaults to
+# /etc/puppetlabs/nexuspuppet, so either set NEXUSPUPPET_ENC_DIR or symlink:
+#
+#   sudo ln -s /srv/nexuspuppet/enc /etc/puppetlabs/nexuspuppet
+
+services:
+  api:
+    # `!override` REPLACES the volume list rather than appending to it. Without
+    # it Compose merges the two, and you get the named volume and the bind mount
+    # both targeting /srv/nexuspuppet/enc — one of them wins, silently, and which
+    # one is not something you want to discover during an incident.
+    volumes: !override
+      - ${PUPPETDB_CERT_DIR:-/etc/nexuspuppet/certs}:/etc/nexuspuppet/certs:ro
+      - /srv/nexuspuppet/enc:/srv/nexuspuppet/enc
+
+    # PUPPETDB_URL names a host that resolves on the host but not inside the
+    # container. Map it to the docker0 gateway so the container can reach a
+    # PuppetDB listening on the host's own interface.
+    #
+    # Use the SAME name that appears in PUPPETDB_URL and in the certificate's
+    # subject — mTLS verifies the hostname, so a shortcut like `host.docker.internal`
+    # or a bare IP fails verification against a certificate issued for the FQDN.
+    extra_hosts:
+      - 'puppetdb.example.com:host-gateway'
+
+# The named volume is still declared by the base file. It simply goes unused in
+# this layout; there is nothing to remove.
