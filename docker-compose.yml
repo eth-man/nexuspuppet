@@ -101,6 +101,16 @@ services:
     # the boundary a convention rather than a fact. Enumerate what it needs.
     environment:
       NODE_ENV: production
+      # Next.js standalone binds to $HOSTNAME, which Docker sets to the container
+      # ID. It therefore listens on the container's own address and NOT on
+      # 127.0.0.1 — so anything checking localhost inside the container gets
+      # connection refused while the service is working perfectly.
+      #
+      # That is exactly what happened: the healthcheck added alongside this
+      # service checked localhost and reported the container unhealthy forever.
+      # Nothing noticed, because `depends_on` only became strict when the TLS
+      # proxy started depending on web being healthy.
+      HOSTNAME: 0.0.0.0
       # Server-side only. Deliberately not NEXT_PUBLIC_ — the browser never
       # receives an API address, database credential, or certificate.
       API_INTERNAL_URL: http://api:3001

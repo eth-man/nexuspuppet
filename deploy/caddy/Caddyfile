@@ -10,7 +10,6 @@
 # people type into the browser. A certificate issued for the host's FQDN does not
 # help someone reaching the console by IP, and the browser error for that is
 # unhelpful.
-
 {
 	# Admin API on loopback INSIDE the container only.
 	#
