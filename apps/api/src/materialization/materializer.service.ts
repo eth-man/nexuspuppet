@@ -434,9 +434,23 @@ export class MaterializerService {
    * Load the full classification set and shape it for the pure evaluator and
    * merger. One query set per tick.
    */
-  async loadGroups(db: TransactionClient = this.prisma): Promise<LoadedGroups> {
+  /**
+   * @param options.includeDisabled load disabled groups too.
+   *
+   * Materialization never wants them — a disabled group classifies nothing, and
+   * excluding them at the query level is cheaper than filtering later. The
+   * PLANNER does: "what would enabling this group do?" is a change whose blast
+   * radius an operator most wants to see before making it, and it cannot be
+   * previewed against a set the group was excluded from. `groupMatches` checks
+   * `isEnabled` independently, so including them here never changes what
+   * materialization produces.
+   */
+  async loadGroups(
+    db: TransactionClient = this.prisma,
+    options: { includeDisabled?: boolean } = {},
+  ): Promise<LoadedGroups> {
     const rows = await db.nodeGroup.findMany({
-      where: { isEnabled: true },
+      where: options.includeDisabled === true ? {} : { isEnabled: true },
       include: { rules: true, classes: true, parameters: true, pins: true },
     });
 

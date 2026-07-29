@@ -29,9 +29,13 @@ import {
   type SetParameter,
   type UpdateNodeGroup,
   type FactPathIndex,
+  planRequestSchema,
+  type PlanRequest,
+  type PlanResponse,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
+import { ClassificationPlanner } from './plan/classification-planner.service';
 import { ClassificationService, type AuditContext } from './classification.service';
 
 /**
@@ -190,7 +194,10 @@ export class NodeGroupsController {
  */
 @Controller()
 export class MaterializationController {
-  constructor(private readonly classification: ClassificationService) {}
+  constructor(
+    private readonly classification: ClassificationService,
+    private readonly planner: ClassificationPlanner,
+  ) {}
 
   /**
    * Fact paths available to matching rules.
@@ -202,6 +209,24 @@ export class MaterializationController {
   @Get('fact-paths')
   factPaths(): Promise<FactPathIndex> {
     return this.classification.listFactPaths();
+  }
+
+  /**
+   * What a change would do, without doing it.
+   *
+   * A POST because the body is the change being previewed, not because anything
+   * is written — nothing here touches the database or the ENC directory. Gated
+   * on `classification:write` rather than `:read`: the body is a write request,
+   * and a plan reveals the estate-wide consequence of one. Someone who may not
+   * make the change has no business rehearsing it.
+   */
+  @RequirePermission('classification:write')
+  @Post('classification/plan')
+  @HttpCode(HttpStatus.OK)
+  plan(
+    @Body(new ZodValidationPipe(planRequestSchema)) request: PlanRequest,
+  ): Promise<PlanResponse> {
+    return this.planner.plan(request);
   }
 
   @RequirePermission('materialization:trigger')
