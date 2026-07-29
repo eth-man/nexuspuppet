@@ -32,6 +32,7 @@ import { MaterializationService } from './materialization/materialization.servic
 import { ReconcilerService } from './materialization/reconciler.service';
 import { PrismaService } from './prisma/prisma.service';
 import { AuditDeliveryOutbox } from './auth/audit-delivery.outbox';
+import { ClassificationPlanner } from './classification/plan/classification-planner.service';
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
 import {
@@ -177,6 +178,13 @@ export class AppModule {
             }),
         },
         UsersService,
+        {
+          // Explicit factory: pacing is a plain object Nest would try to inject.
+          provide: ClassificationPlanner,
+          inject: [PrismaService, MaterializerService],
+          useFactory: (prisma: PrismaService, materializer: MaterializerService) =>
+            new ClassificationPlanner(prisma, materializer),
+        },
         {
           // Explicit factory: NodeProjectionService is itself factory-built with
           // plain config values, so Nest cannot construct this by metadata.

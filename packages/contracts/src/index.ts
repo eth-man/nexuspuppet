@@ -20,3 +20,4 @@ export * from './puppetdb';
 export * from './enterprise';
 export * from './classification';
 export * from './system';
+export * from './plan';
