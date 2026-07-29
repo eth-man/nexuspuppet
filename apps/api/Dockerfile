@@ -31,6 +31,13 @@ COPY --from=build /repo/packages/contracts/dist ./packages/contracts/dist
 COPY --from=build /repo/packages/contracts/package.json ./packages/contracts/
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/apps/api/prisma ./prisma
+# prisma.config.ts, not just prisma/. Prisma 7 keeps the connection string out
+# of schema.prisma and resolves it through this file, so without it
+# `prisma migrate deploy` fails with "The datasource.url property is required in
+# your Prisma config file" — which made the documented migration step impossible
+# with the shipped image. The CLI loads the TypeScript config directly; nothing
+# needs transpiling.
+COPY --from=build /repo/apps/api/prisma.config.ts ./
 COPY --from=build /repo/apps/api/package.json ./
 # The ENC volume is mounted here read-write; it is the only path this service writes.
 RUN mkdir -p /srv/nexuspuppet/enc && chown -R app:app /srv/nexuspuppet

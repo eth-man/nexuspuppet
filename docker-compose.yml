@@ -28,12 +28,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # EVERY key in .env reaches the container.
+    #
+    # This block used to enumerate the settings the service received, and that
+    # silently discarded around twenty documented ones — including
+    # BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD, so a fresh deployment
+    # had no account and nobody could log in, and PUPPETDB_PROJECTED_FACTS,
+    # which .env.example spends three paragraphs telling operators to customise
+    # and whose default silently matches nothing for a rule written against a
+    # fact it omits.
+    #
+    # A missing .env now fails loudly here, which is the right outcome: it names
+    # the file to create instead of starting a deployment that cannot be logged
+    # into.
+    env_file: .env
     environment:
+      # Only what must differ INSIDE the container. These override .env by
+      # design — .env.example says so at each one.
       NODE_ENV: production
       API_PORT: 3001
+      # `db`, the Compose service name, not the host address in .env.
       DATABASE_URL: postgresql://${POSTGRES_USER:-nexuspuppet}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nexuspuppet}?schema=public
+      # Kept enumerated for the `:?` guard: a missing value fails at
+      # `docker compose up` naming the variable, rather than at API start.
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — openssl rand -base64 48}
       PUPPETDB_URL: ${PUPPETDB_URL:?PUPPETDB_URL is required}
+      # Mount points, not host paths.
       PUPPETDB_CERT_PATH: /etc/nexuspuppet/certs/client.pem
       PUPPETDB_KEY_PATH: /etc/nexuspuppet/certs/client.key
       PUPPETDB_CA_PATH: /etc/nexuspuppet/certs/ca.pem
@@ -44,7 +64,11 @@ services:
       # The ONLY writer of the ENC volume.
       - enc-data:/srv/nexuspuppet/enc
     ports:
-      - '${API_PORT:-3001}:3001'
+      # Loopback by DEFAULT. There is no TLS in front of this service until the
+      # reverse proxy in DEPLOYMENT.md is in place, so binding every interface
+      # out of the box puts login credentials on the network in cleartext.
+      # Exposing it is now a deliberate act: API_BIND=0.0.0.0.
+      - '${API_BIND:-127.0.0.1}:${API_PORT:-3001}:3001'
     healthcheck:
       test:
         [
@@ -65,13 +89,19 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # NO env_file here, deliberately. The api service takes the whole of .env;
+    # this one must not. .env holds DATABASE_URL, JWT_SECRET and the PuppetDB
+    # certificate paths, and the web tier is meant to be incapable of reaching
+    # the database or PuppetDB at all — handing it those credentials would make
+    # the boundary a convention rather than a fact. Enumerate what it needs.
     environment:
       NODE_ENV: production
       # Server-side only. Deliberately not NEXT_PUBLIC_ — the browser never
       # receives an API address, database credential, or certificate.
       API_INTERNAL_URL: http://api:3001
     ports:
-      - '${WEB_PORT:-3000}:3000'
+      # Loopback by default, as above. WEB_BIND=0.0.0.0 to publish it.
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000'
 
   # Reference only — your puppetserver almost certainly lives outside this
   # compose file. What matters is the READ-ONLY mount and the ENC script.

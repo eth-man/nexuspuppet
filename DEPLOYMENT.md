@@ -183,6 +183,11 @@ cp .env.example .env
 chmod 600 .env
 ```
 
+Compose passes this entire file to the `api` container, so every key the
+annotated template documents reaches the service. A handful must differ inside
+the container — the database host, the certificate mount points, the ENC volume
+path — and Compose sets those itself; the template marks each one.
+
 Fill in — the annotated template explains every key:
 
 ```ini
@@ -257,6 +262,19 @@ docker compose up -d
 docker compose ps
 ```
 
+**The published ports bind to `127.0.0.1` by default.** Neither service
+terminates TLS, so until §7 is done, reaching the console from another machine
+would put the login over the wire in cleartext. Use an SSH tunnel while
+commissioning:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 <vm>      # from your workstation
+```
+
+Once a TLS reverse proxy is in front of it, either leave the bind on loopback
+and have the proxy reach it there (best, if the proxy runs on the same host), or
+set `WEB_BIND=0.0.0.0` in `.env` and restrict access at the firewall.
+
 Run migrations as a separate step rather than on container start. An automatic
 migrate-on-boot turns a rollback into a data problem.
 
@@ -270,8 +288,8 @@ docker compose logs api | grep -i 'projection\|puppetdb'
 
 ### First login
 
-Sign in at `http://<vm>:3000` with the bootstrap credentials, then rotate
-immediately:
+Sign in at `http://localhost:3000` — through the tunnel above, or on the VM
+itself — with the bootstrap credentials, then rotate immediately:
 
 ```bash
 node scripts/dev/rotate-admin-password.mjs
@@ -364,6 +382,9 @@ Then restart puppetserver and watch the first agent run end to end.
 The web tier serves plain HTTP on 3000 and is meant to sit behind your reverse
 proxy. Terminate TLS there, and **do not expose port 3001** — the API is reached
 through the web tier's server-side relay.
+
+Both ports bind to `127.0.0.1` unless you set `API_BIND` / `WEB_BIND`, so a
+proxy on the same host needs no change. `API_BIND` should stay on loopback.
 
 Session cookies are `HttpOnly`, with the refresh token scoped to `/api/auth`.
 They require a secure context to behave correctly in modern browsers: serve the
