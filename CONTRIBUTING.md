@@ -10,12 +10,24 @@ New to the project? [ROADMAP.md](ROADMAP.md) has a [good first issues](ROADMAP.m
 
 ```bash
 git clone https://github.com/eth-man/nexuspuppet.git && cd nexuspuppet
-npm install
+npm install && npm run build                       # dev:stack runs BUILT api output
 docker compose -f docker-compose.dev.yml up -d     # Postgres on :5432
 cp .env.example .env                               # set JWT_SECRET and DATABASE_URL
 npm run db:migrate
 npm run dev:stack                                  # stand-in + API + console
 ```
+
+`npm run build` is not optional there: `dev:stack` starts the API from
+`apps/api/dist/main.js`, so without it you get `Cannot find module`. The web tier
+runs from source under `next dev`; only the API needs building. Re-run
+`npm run build --workspace @nexuspuppet/api` after changing API code, or the
+stack keeps serving the previous build — which looks exactly like your change
+having no effect.
+
+`dev:stack` refuses to start if `:8081`, `:3001` or `:3000` is already in use,
+and names the process holding it. That is deliberate: `next dev` otherwise moves
+quietly to another port, and the E2E suite then tests whichever server is still
+sitting on `:3000`.
 
 Then, before you open a PR:
 
@@ -111,6 +123,32 @@ Tests create node groups prefixed `e2e-` and sweep them before and after, so run
 **If you change anything in `fixtures/`, run the E2E suite.** The browser tests read those files through the PuppetDB stand-in, so a fixture change has a blast radius beyond the unit and integration suites. (Learned the hard way.)
 
 In CI, [`scripts/ci/e2e-stack.sh`](scripts/ci/e2e-stack.sh) boots the stack from **built** artifacts — `next start`, not `next dev` — waits for the first projection to land, then runs the suite. On failure it dumps service logs and uploads traces and screenshots.
+
+### Installs from the documentation
+
+The job most likely to catch a change you did not expect to break anything.
+
+[`scripts/ci/install-smoke.sh`](scripts/ci/install-smoke.sh) runs the literal commands from `DEPLOYMENT.md` §4–§5 — `cp .env.example .env`, `docker compose build`, `prisma migrate deploy`, `up -d` — then asserts the API becomes healthy, the ports stay on loopback, the environment actually reached the container, and **the bootstrap admin can log in**.
+
+It exists because every other job runs the source tree, and four blocking defects reached `main` through that gap: a runtime image missing a file the documented migration needs, a Compose service that silently discarded twenty environment keys including the admin bootstrap pair, certificate ownership the container could not read, and a `COPY` from a build stage that never contained the file. None is findable by a unit test, because none is in the source tree.
+
+**If you touch `Dockerfile`, `docker-compose.yml`, `.env.example` or `DEPLOYMENT.md` §4–§5, expect this job to have an opinion.** Run it locally first:
+
+```bash
+./scripts/ci/install-smoke.sh
+```
+
+It uses its own Compose project name and restores your `.env` on exit, so it will not disturb a stack you are using.
+
+### Regenerating the README screenshots
+
+Opt-in, and skipped everywhere else:
+
+```bash
+CAPTURE_SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
+```
+
+It builds the state, captures, and cleans up. The two features the README leads on — the plan dialog and the override report — only exist mid-flow or on an estate where groups genuinely conflict, and hand-capturing those is how screenshots come to show a version of the product nobody ships. **Look at the images before committing them**; every mistake this script has made so far produced a passing test and a wrong picture.
 
 ---
 

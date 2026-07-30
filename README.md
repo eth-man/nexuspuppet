@@ -140,6 +140,7 @@ sudo ./scripts/dev/openvox-stack.sh && ./scripts/dev/openvox-compat.sh
 | 📘 [**User Guide**](docs/USER_GUIDE.md) | Using the console: inventory, classification, reports, administration |
 | 🚀 [**Deployment**](DEPLOYMENT.md) | A fresh on-prem VM, end to end — certificates, `.env`, migrations, puppetserver wiring, TLS, backups |
 | 🧭 [**Roadmap**](ROADMAP.md) | What is built, what is next, and where to help |
+| 📋 [**Changelog**](CHANGELOG.md) | Release notes, known constraints, and what was deliberately deferred |
 | 🤝 [**Contributing**](CONTRIBUTING.md) | Local development, tests, architecture boundaries, how to open a PR |
 | 🏛 [**Architecture**](docs/architecture/README.md) | C4 diagrams and thirteen ADRs recording the binding decisions |
 
