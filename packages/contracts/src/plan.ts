@@ -153,6 +153,16 @@ export interface PlanShape {
   certnames: string[];
   kind: 'added' | 'removed' | 'changed';
   diff: PlanDiff;
+  /**
+   * The groups these nodes ALREADY match, in merge order.
+   *
+   * This is what separates one shape from another. Shapes are keyed on the
+   * before AND after state, so nodes with different existing group sets land in
+   * different shapes even when the change applied to them is identical — and
+   * without this field the UI rendered several boxes showing the same single
+   * diff line, which reads as repetition rather than as distinct populations.
+   */
+  currentGroups: string[];
 }
 
 export interface PlanResponse {
