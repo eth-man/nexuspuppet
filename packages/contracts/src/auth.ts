@@ -470,6 +470,31 @@ export const resetPasswordSchema = z.object({
 });
 export type ResetPassword = z.infer<typeof resetPasswordSchema>;
 
+/**
+ * Everything the Users table shows, plus the state that explains a user's
+ * situation rather than merely listing it.
+ *
+ * Kept separate from `ManagedUser` because the list endpoint returns one row per
+ * user and these fields cost a join each. The detail view fetches one user, so
+ * it can afford them — and they are exactly what an administrator opens a user
+ * to find out: why can they not log in, and are they logged in right now.
+ */
+export interface ManagedUserDetail extends ManagedUser {
+  updatedAt: string;
+  /** Consecutive failed password attempts; zero after any success. */
+  failedLoginAttempts: number;
+  /** Set while the account is locked out. Null means not locked. */
+  lockedUntil: string | null;
+  /** Unrevoked, unexpired refresh tokens — i.e. sessions that still work. */
+  activeSessions: number;
+  /**
+   * False for directory-owned accounts, which have no local password to reset.
+   * The UI needs this to disable the control rather than offer an action that
+   * cannot succeed.
+   */
+  hasLocalPassword: boolean;
+}
+
 export interface ManagedUser {
   id: string;
   email: string;
