@@ -176,7 +176,11 @@ services:
       # stored in the database (ADR-0013). The private key is readable by this
       # container and by nothing else in the stack — the api and web services do
       # not mount this path.
-      - ${CONSOLE_TLS_DIR:-./deploy/caddy/certs}:/etc/caddy/certs:ro
+      # Defaults to the documented production path rather than somewhere in the
+      # checkout: if the profile is enabled without setting this, failing at the
+      # place the guide tells operators to look is more useful than failing in a
+      # gitignored directory they have never heard of.
+      - ${CONSOLE_TLS_DIR:-/etc/nexuspuppet/tls}:/etc/caddy/certs:ro
       - caddy-data:/data
       - caddy-config:/config
     ports:
