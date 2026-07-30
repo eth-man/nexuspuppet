@@ -23,7 +23,12 @@ import {
   type UpdateUser,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { RequirePermission, type AuthenticatedRequest } from './auth.guard';
+import {
+  REFRESH_COOKIE,
+  RequirePermission,
+  parseCookies,
+  type AuthenticatedRequest,
+} from './auth.guard';
 import { UsersService, type AuditContext } from './users.service';
 
 /**
@@ -105,11 +110,18 @@ export class AccountController {
     @Body(new ZodValidationPipe(changePasswordSchema)) body: ChangePassword,
     @Req() request: AuthenticatedRequest,
   ): Promise<void> {
+    // parseCookies, NOT request.cookies. This application registers no
+    // cookie-parser, so request.cookies is always undefined — a route that
+    // relied on it once shipped with fifteen passing tests, because the fake
+    // request those tests built supplied a field the app never produces.
+    const currentRefreshToken = parseCookies(request.headers.cookie)[REFRESH_COOKIE];
+
     await this.users.changeOwnPassword(
       principalOf(request),
       body.currentPassword,
       body.newPassword,
       contextOf(request),
+      currentRefreshToken,
     );
   }
 }

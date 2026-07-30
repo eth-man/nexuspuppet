@@ -166,9 +166,36 @@ export class TokenService {
   }
 
   /** End every session for a user, e.g. after a password change. */
-  async revokeAllForUser(userId: string): Promise<void> {
+  /**
+   * Revoke every session for a user, optionally sparing one.
+   *
+   * `exceptRefreshToken` spares the rotation FAMILY that token belongs to, not
+   * the single row. Refresh rotates: the presented token is consumed and
+   * replaced within its family on the next refresh, so excluding one row would
+   * spare a token that is about to stop existing and log the caller out anyway.
+   *
+   * A caller who has just proved possession of the current password should not
+   * be signed out by the act of changing it — see changeOwnPassword.
+   */
+  async revokeAllForUser(userId: string, exceptRefreshToken?: string): Promise<void> {
+    let keepFamilyId: string | undefined;
+
+    if (exceptRefreshToken !== undefined && exceptRefreshToken !== '') {
+      const current = await this.prisma.refreshToken.findUnique({
+        where: { tokenHash: hashToken(exceptRefreshToken) },
+        select: { familyId: true, userId: true },
+      });
+      // Only ever spare a family belonging to this user. A token from elsewhere
+      // must not be able to survive someone else's revocation.
+      if (current !== null && current.userId === userId) keepFamilyId = current.familyId;
+    }
+
     await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
+      where: {
+        userId,
+        revokedAt: null,
+        ...(keepFamilyId === undefined ? {} : { familyId: { not: keepFamilyId } }),
+      },
       data: { revokedAt: new Date() },
     });
   }

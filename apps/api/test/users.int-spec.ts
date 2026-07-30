@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AuthenticatedPrincipal } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
@@ -293,6 +294,151 @@ describe('user administration (integration)', () => {
       );
 
       expect(await prisma.refreshToken.count({ where: { revokedAt: null } })).toBe(0);
+    });
+
+    /**
+     * ...but not the session doing the changing.
+     *
+     * The form has always said "this signs you out of every other session". It
+     * did not: the sweep took the caller's token too, so the person who changed
+     * their own password was bounced at their next refresh — up to one
+     * access-token lifetime later, which is why it read as a random logout
+     * rather than a consequence. Reported by an operator who changed their
+     * password from the settings menu, read the message, and asked why their
+     * own session should end.
+     *
+     * Sparing it is right on its own terms: they have just proved possession of
+     * the current password.
+     */
+    describe('sparing the caller', () => {
+      it('leaves the calling session alive and kills the others', async () => {
+        const user = await makeUser('user@example.com', 'OPERATOR');
+        const mine = await tokens.issue(principalFor(user));
+        const laptop = await tokens.issue(principalFor(user));
+        const phone = await tokens.issue(principalFor(user));
+
+        await users.changeOwnPassword(
+          principalFor(user),
+          'correct horse battery staple',
+          'a-brand-new-long-password',
+          CTX,
+          mine.refreshToken,
+        );
+
+        const alive = await prisma.refreshToken.findMany({
+          where: { revokedAt: null },
+          select: { tokenHash: true },
+        });
+
+        expect(alive).toHaveLength(1);
+        expect(alive[0]!.tokenHash).toBe(
+          createHash('sha256').update(mine.refreshToken).digest('hex'),
+        );
+
+        // Named explicitly, because "exactly one survivor" would also pass if
+        // the survivor were the wrong session.
+        for (const other of [laptop, phone]) {
+          await expect(tokens.rotate(other.refreshToken)).rejects.toBeDefined();
+        }
+      });
+
+      it('the spared session can still refresh, which is the whole point', async () => {
+        // The count assertion above passes even if the row survives in a state
+        // the rotation path rejects. This is what the operator experiences.
+        const user = await makeUser('user@example.com', 'OPERATOR');
+        const mine = await tokens.issue(principalFor(user));
+
+        await users.changeOwnPassword(
+          principalFor(user),
+          'correct horse battery staple',
+          'a-brand-new-long-password',
+          CTX,
+          mine.refreshToken,
+        );
+
+        await expect(tokens.rotate(mine.refreshToken)).resolves.toMatchObject({
+          refreshToken: expect.any(String),
+        });
+      });
+
+      it('survives a refresh racing the password change', async () => {
+        // Why the FAMILY is spared and not the presented row.
+        //
+        // In the quiet case the two are identical — the cookie holds the newest
+        // token, and sparing either keeps the caller signed in. They diverge
+        // only here: the client refreshed in the window between the controller
+        // reading the cookie and the sweep running, so the token presented to
+        // revokeAllForUser is already superseded. Sparing that row alone would
+        // spare a token rotation had already revoked and take the live
+        // successor with it — logging out the one session that was supposed to
+        // survive, intermittently, under load.
+        //
+        // Written after the obvious version of this test passed against a
+        // deliberately row-scoped implementation, which made it worth nothing.
+        const user = await makeUser('user@example.com', 'OPERATOR');
+        const staleCookie = await tokens.issue(principalFor(user));
+        const successor = await tokens.rotate(staleCookie.refreshToken);
+
+        await users.changeOwnPassword(
+          principalFor(user),
+          'correct horse battery staple',
+          'a-brand-new-long-password',
+          CTX,
+          // The stale value, as the racing controller would have read it.
+          staleCookie.refreshToken,
+        );
+
+        await expect(tokens.rotate(successor.refreshToken)).resolves.toBeDefined();
+      });
+
+      it("cannot be pointed at another user's session", async () => {
+        // Enforced by the `userId` scope on the sweep, which is what makes this
+        // impossible; the explicit ownership check in revokeAllForUser is a
+        // second lock on the same door and has no effect this test can observe.
+        // Removing it does not fail here — noted so nobody reads a pass as
+        // evidence that it works.
+        const user = await makeUser('user@example.com', 'OPERATOR');
+        const other = await makeUser('other@example.com', 'OPERATOR');
+        await tokens.issue(principalFor(user));
+        const theirs = await tokens.issue(principalFor(other));
+
+        await users.changeOwnPassword(
+          principalFor(user),
+          'correct horse battery staple',
+          'a-brand-new-long-password',
+          CTX,
+          theirs.refreshToken,
+        );
+
+        // Every one of the changer's own sessions is gone...
+        expect(
+          await prisma.refreshToken.count({ where: { userId: user.id, revokedAt: null } }),
+        ).toBe(0);
+        // ...and the unrelated user is untouched either way.
+        expect(
+          await prisma.refreshToken.count({ where: { userId: other.id, revokedAt: null } }),
+        ).toBe(1);
+      });
+
+      it.each([
+        ['no token is presented', undefined],
+        ['the token is unknown', 'not-a-token-this-system-ever-issued'],
+      ])('revokes everything when %s', async (_label, presented) => {
+        // A caller arriving without a usable cookie gets the old, safe
+        // behaviour rather than an accidental amnesty.
+        const user = await makeUser('user@example.com', 'OPERATOR');
+        await tokens.issue(principalFor(user));
+
+        await users.changeOwnPassword(
+          principalFor(user),
+          'correct horse battery staple',
+          'a-brand-new-long-password',
+          CTX,
+          presented,
+        );
+
+        expect(await prisma.refreshToken.count({ where: { revokedAt: null } })).toBe(0);
+      });
     });
 
     it('refuses for an account with no local password', async () => {
