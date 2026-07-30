@@ -407,7 +407,10 @@ test.describe('classification', () => {
    * it present as to check it renders.
    */
   test('the estate-wide override report renders on the classification page', async ({ page }) => {
-    await login(page);
+    // No login() here — the describe's beforeEach already did it. Calling it
+    // again navigates to /login while authenticated and races the redirect
+    // away, which surfaces as a fill() timeout on an input that is visibly
+    // present. Every other test in this file goes straight to goto().
     await page.goto('/classification');
 
     const report = page.getByRole('heading', { name: 'Overrides in effect' });
