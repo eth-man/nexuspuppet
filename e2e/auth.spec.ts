@@ -126,6 +126,15 @@ test.describe('authentication', () => {
   test('stays signed in when the access token expires', async ({ page, context }) => {
     await login(page);
 
+    // Park the page before touching the jar.
+    //
+    // clearCookies() and addCookies() are two calls, not one transaction, and
+    // the dashboard left open by login() keeps issuing queries. A query landing
+    // in that window carries NO cookie at all, so the provider goes anonymous
+    // and redirects — and the assertions below then measure a race rather than
+    // the behaviour. This failed roughly one run in three before parking.
+    await page.goto('about:blank');
+
     const remaining = (await context.cookies()).filter((c) => c.name !== 'nexuspuppet_access');
     await context.clearCookies();
     await context.addCookies(remaining);
