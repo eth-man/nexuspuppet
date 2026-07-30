@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Inbox, Loader2, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Compass, Inbox, Loader2, ShieldAlert } from 'lucide-react';
 import { ApiError } from '@/lib/client';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -104,11 +104,38 @@ export function Forbidden({ permission }: { permission?: string | undefined }) {
   );
 }
 
+/**
+ * The thing in the URL is not there.
+ *
+ * Absence is not failure. This used to render as the red "Request failed"
+ * banner, which is the same treatment a 500 gets — so an operator following a
+ * bookmark to a group somebody deleted last week saw an alarm rather than an
+ * explanation, with no way onward except the back button.
+ *
+ * Found by the QA fuzzer walking to an id that does not resolve.
+ */
+export function MissingResource({ what = 'That page' }: { what?: string }) {
+  return (
+    <div className="m-3 rounded border border-line bg-panel p-3">
+      <div className="flex items-start gap-2">
+        <Compass className="mt-0.5 size-4 shrink-0 text-ink-faint" aria-hidden />
+        <div>
+          <p className="text-sm font-medium text-ink">{what} could not be found</p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            It may have been deleted or renamed since this link was made.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Routes an error to the right named state rather than a generic failure. */
 export function QueryError({ error }: { error: unknown }) {
   if (error instanceof ApiError) {
     if (error.isPuppetDbUnavailable) return <PuppetDbDown error={error} />;
     if (error.isForbidden) return <Forbidden />;
+    if (error.isNotFound) return <MissingResource />;
   }
 
   return (
