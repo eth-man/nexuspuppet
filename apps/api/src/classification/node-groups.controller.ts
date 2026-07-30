@@ -32,10 +32,12 @@ import {
   planRequestSchema,
   type PlanRequest,
   type PlanResponse,
+  type ConflictReport,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { ClassificationPlanner } from './plan/classification-planner.service';
+import { ConflictReportService } from './conflict-report.service';
 import { ClassificationService, type AuditContext } from './classification.service';
 
 /**
@@ -197,7 +199,25 @@ export class MaterializationController {
   constructor(
     private readonly classification: ClassificationService,
     private readonly planner: ClassificationPlanner,
+    private readonly conflicts: ConflictReportService,
   ) {}
+
+  /**
+   * Every conflict in the estate, grouped by which override it is (ADR-0009).
+   *
+   * The per-node view answers "why is this machine configured this way". This
+   * answers the question an operator arrives with: "is one of my groups silently
+   * overriding another, and how much does that touch". Without it the only way
+   * to find out was to open nodes one at a time.
+   *
+   * Read permission: it exposes group names and parameter keys, which anyone who
+   * may read the classification can already enumerate directly.
+   */
+  @RequirePermission('classification:read')
+  @Get('classification/conflicts')
+  conflictReport(): Promise<ConflictReport> {
+    return this.conflicts.report();
+  }
 
   /**
    * Fact paths available to matching rules.

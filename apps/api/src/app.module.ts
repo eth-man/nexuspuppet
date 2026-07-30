@@ -33,6 +33,7 @@ import { ReconcilerService } from './materialization/reconciler.service';
 import { PrismaService } from './prisma/prisma.service';
 import { AuditDeliveryOutbox } from './auth/audit-delivery.outbox';
 import { ClassificationPlanner } from './classification/plan/classification-planner.service';
+import { ConflictReportService } from './classification/conflict-report.service';
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
 import { ConsoleTlsService } from './system/console-tls.service';
@@ -185,6 +186,12 @@ export class AppModule {
           inject: [PrismaService, MaterializerService],
           useFactory: (prisma: PrismaService, materializer: MaterializerService) =>
             new ClassificationPlanner(prisma, materializer),
+        },
+        {
+          provide: ConflictReportService,
+          inject: [PrismaService],
+          useFactory: (prisma: PrismaService): ConflictReportService =>
+            new ConflictReportService(prisma),
         },
         {
           // Explicit factory: NodeProjectionService is itself factory-built with

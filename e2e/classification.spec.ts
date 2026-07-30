@@ -399,4 +399,26 @@ test.describe('classification', () => {
     await expect(page).toHaveURL(/\/classification$/);
     await expect(page.getByRole('link', { name })).toHaveCount(0);
   });
+
+  /**
+   * ADR-0009 accepts silent last-writer-wins ONLY because conflicts stay
+   * visible, and named two surfaces: the node view, and this estate-wide one.
+   * The second went unbuilt for a long time, so this test exists as much to keep
+   * it present as to check it renders.
+   */
+  test('the estate-wide override report renders on the classification page', async ({ page }) => {
+    // No login() here — the describe's beforeEach already did it. Calling it
+    // again navigates to /login while authenticated and races the redirect
+    // away, which surfaces as a fill() timeout on an input that is visibly
+    // present. Every other test in this file goes straight to goto().
+    await page.goto('/classification');
+
+    const report = page.getByRole('heading', { name: 'Overrides in effect' });
+    await expect(report).toBeVisible();
+
+    // The fixture estate may or may not contain an override, and both are
+    // legitimate — so assert the panel reports SOMETHING about the estate rather
+    // than asserting a count that would make this test a fixture detector.
+    await expect(page.getByText(/node(s)? *$|of \d+ node/).first()).toBeVisible();
+  });
 });

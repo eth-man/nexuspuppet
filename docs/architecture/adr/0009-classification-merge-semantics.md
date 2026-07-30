@@ -48,7 +48,7 @@ Deep-merging hashes is the intuitive choice and the wrong one. It makes the effe
 Silent last-writer-wins is acceptable only if conflicts are visible.
 
 1. `ClassMerger` returns the merged document **and** a `conflicts[]` list: for each overwritten key, the losing group, winning group, and both values.
-2. Conflicts are persisted with the materialization and surfaced in the UI — on the node's classification view and as an estate-wide "conflicting classifications" report.
+2. Conflicts are persisted with the materialization and surfaced in the UI — on the node's classification view, and as an estate-wide report grouped by which override it is (winning group, losing group, key) with the number of nodes each affects. `ENVIRONMENT` conflicts sort above everything: they decide which branch of the control repository a machine runs, so a handful of them outranks a parameter override on hundreds of nodes, and ordering by breadth alone would bury exactly the dangerous case.
 3. Conflicts are **warnings, not errors**. Overriding a base group is a legitimate, common pattern. Blocking it would be wrong; hiding it would also be wrong.
 
 ### Determinism requirements
