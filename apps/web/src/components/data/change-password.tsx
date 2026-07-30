@@ -15,6 +15,11 @@ import { Label } from '@/components/ui/label';
  * form says up front — a password change is usually a response to a suspected
  * compromise, and someone doing it deliberately should know it takes effect
  * everywhere.
+ *
+ * "Every OTHER session" is now literally true. It was not: the API revoked the
+ * caller's token along with the rest, so the person reading this sentence was
+ * signed out too — silently, at their next refresh, up to one access-token
+ * lifetime later. The copy was correct and the implementation disagreed with it.
  */
 export function ChangePasswordCard() {
   const change = useChangeOwnPassword();

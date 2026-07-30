@@ -189,6 +189,8 @@ export class UsersService {
     currentPassword: string,
     newPassword: string,
     context: AuditContext,
+    /** The caller's own refresh token, so their session is the one spared. */
+    currentRefreshToken?: string,
   ): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: actor.userId } });
     if (user === null || user.passwordHash === null) {
@@ -207,10 +209,20 @@ export class UsersService {
       await this.record(tx, actor, context, 'user.password.change', actor.userId, null, null);
     });
 
-    // Every other session dies. A password change is usually a response to a
+    // Every OTHER session dies. A password change is usually a response to a
     // suspected compromise, and leaving existing sessions alive would defeat
     // the point.
-    await this.tokens.revokeAllForUser(actor.userId);
+    //
+    // The caller's own session is spared, which is what the form has always
+    // promised — "this signs you out of every other session". It did not: this
+    // call revoked every token including the caller's, so the person changing
+    // their password was silently logged out at their next refresh, up to one
+    // access-token lifetime later. Reported by an operator who read the message
+    // and asked why their own session should end.
+    //
+    // Sparing it is also the correct behaviour on its own terms: they have just
+    // proved possession of the current password.
+    await this.tokens.revokeAllForUser(actor.userId, currentRefreshToken);
   }
 
   /** An administrator setting someone else's password. */
