@@ -50,6 +50,20 @@ https://{$CONSOLE_HOSTNAME} {
 		header_up X-Forwarded-Proto https
 	}
 
+	# NO HSTS, deliberately. Caddy adds none on its own and none is added here.
+	#
+	# Strict-Transport-Security is trivial to switch on and painful to switch
+	# off: a browser that has seen it refuses plain HTTP to this host for the
+	# max-age, whatever the operator does at the server. That turns "let me drop
+	# to HTTP for ten minutes to work out why the proxy is routing wrongly" into
+	# a per-browser cache-clearing exercise, at exactly the moment nobody has
+	# patience for one.
+	#
+	# It belongs at the edge, where whoever runs it also owns the rollback. To
+	# enable it here anyway, uncomment:
+	#
+	#   header Strict-Transport-Security "max-age=31536000"
+
 	encode zstd gzip
 
 	log {

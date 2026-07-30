@@ -116,8 +116,33 @@ Caddy also defaults to a sensible TLS configuration and does the HTTP→HTTPS re
 The cost is a component most Puppet operators will not have used before. Mitigated by the config being a few lines, and by the whole service being optional.
 
 ## Open questions
-2. **Where do certificates live by default?** A single mounted directory scanned for pairs, or explicit paths in `.env` like the PuppetDB certificates? The latter matches existing practice; the former makes "select between them" natural.
+
+None remain. Every question below was resolved during implementation; they are kept with their answers because the reasoning is the useful part.
+
+2. ~~**Where do certificates live by default?**~~ Resolved: `/etc/nexuspuppet/tls/`, holding `console.pem` and `console.key`.
+
+   A **separate directory from `/etc/nexuspuppet/certs/`**, and the separation is load-bearing rather than tidiness. `certs/` is mounted into the **api**; `tls/` is mounted into the **proxy**. Putting the TLS key alongside the PuppetDB client material would place it inside a directory the api already mounts, which is exactly what §2 of this ADR forbids. Same parent so an operator learns one convention; different leaf so the two mounts cannot blur into each other.
 3. ~~**How is expiry surfaced?**~~ Resolved: a separate `GET /system/tls`, gated on `settings:manage` rather than `inventory:read`. It is infrastructure detail — issuer, subject alternative names, a filesystem path in the error case — and belongs to whoever administers the deployment rather than to everyone who may look at the estate.
 4. ~~**Does the reload need an audit row?**~~ Moot: there is no reload action, see §3.
-5. **What is the exact ownership requirement?** The certificate-ownership defect in [#28](https://github.com/eth-man/nexuspuppet/pull/28) came from the API container's uid; a proxy container will have its own, and the documentation must not repeat that class of mistake.
-6. **HSTS and the HTTP→HTTPS redirect** — on by default, or opt-in? HSTS is difficult to reverse if an operator later needs plain HTTP for a diagnosis.
+5. ~~**What is the exact ownership requirement?**~~ Resolved, and the answer is to stop asking operators to match a uid.
+
+   | Path | Mode | Owner |
+   | --- | --- | --- |
+   | `/etc/nexuspuppet/tls/` | `0755` | `root:root` |
+   | `console.pem` | **`0444`** | `root:root` |
+   | `console.key` | `0400` | `root:root` |
+
+   **`0444` on the certificate is the substance of this.** [#28](https://github.com/eth-man/nexuspuppet/pull/28) happened because a `0600 root:root` file was mounted into a container running as uid 100, and the fix was to document a `chown` — correct, but it leaves the same trap for the next container with a different uid. A certificate is *public*; it is sent to every browser that connects. Making it world-readable means the single-file mount into the api works whatever uid the api runs as, today or after a base-image bump. The failure mode is removed by construction rather than by documentation.
+
+   The key stays `0400 root:root` because only the proxy mounts it, and the proxy runs as root.
+
+   The directory is `0755` because a tighter mode buys nothing: Docker resolves bind sources as root regardless of the container's uid, and nothing secret is revealed by the listing.
+
+   **The proxy's uid is not pinned.** The official Caddy image runs as root so it can bind 80 and 443, and that is left alone. The api image *does* pin `-u 100` ([#33](https://github.com/eth-man/nexuspuppet/pull/33)) because §3 of DEPLOYMENT.md asks operators to name that number for the PuppetDB certificates. The rule the two cases share: pin a uid when the documentation asks an operator to match it, and arrange things so it rarely has to.
+
+   Considered and deferred: running Caddy non-root with Docker owning the privileged port (`443:8443`). Better isolation for the internet-facing component, but it needs a non-root user in an image that ships none, plus writable `/data` and `/config`. Worth doing on its own; not worth bundling into this.
+6. ~~**HSTS**~~ Resolved: **off**, and not offered as a toggle. Caddy adds no `Strict-Transport-Security` header on its own and none is added here.
+
+   A browser that has seen HSTS refuses plain HTTP to that host for the whole `max-age`, regardless of what the server later says. That turns "drop to HTTP for ten minutes to find out why the proxy is routing wrongly" into a per-browser cache-clearing exercise, during an incident. It is trivial to enable at an edge or load balancer, where whoever turns it on also owns the rollback — so it belongs there, not in a default we ship. The Caddyfile carries a commented one-liner for operators who want it anyway.
+
+   The HTTP→HTTPS **redirect** stays on: it is reversible, and serving the console unencrypted by accident is the failure it prevents.

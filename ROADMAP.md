@@ -20,6 +20,7 @@ The core product is complete, verified against real Puppet and OpenVox software,
 | ✅ **Fact projection** | Incremental polling, keyset-paginated full reconcile, prune safety rails, deactivation handling. |
 | ✅ **Local authentication** | JWT sessions, scrypt hashing, account lockout, full audit trail. |
 | ✅ **OpenVox support** | Works unchanged; verified operator-by-operator against a live openvoxdb. |
+| ✅ **Console TLS** | An optional bundled proxy terminating HTTPS from your own CA, and a Settings card reporting the certificate's subject, the names it covers and days remaining. Reads a file, so it works whatever terminates TLS ([ADR-0013](docs/architecture/adr/0013-console-tls-private-ca.md)). |
 | ✅ **Enterprise LDAP / Active Directory** | Nested groups, dialect switching, secure referral handling, admin-managed group→role mapping. |
 | ✅ **Enterprise OIDC SSO** | Authorization-code with PKCE, ID-token validation on `node:crypto` with an algorithm allow-list, discovery and JWKS caching with rotation, claim→role mapping. Verified against a live Keycloak. |
 | ✅ **Enterprise audit export** | A forwarding sink that composes over core's rather than replacing it, a transactional delivery outbox with leases and backoff, and a webhook transport. The local audit trail is never traded for the external copy. |

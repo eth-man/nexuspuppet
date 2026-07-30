@@ -589,12 +589,24 @@ sudo puppetserver ca sign --certname console.example.com   # if not autosigned
 sudo puppetserver ca generate --certname console.example.com
 
 # 2. Put the pair where the proxy can read it, as console.pem / console.key.
-sudo install -d -m 0500 -o 0 -g 0 /etc/nexuspuppet/tls
-sudo install -m 0444 /etc/puppetlabs/puppet/ssl/certs/console.example.com.pem \
+sudo install -d -m 0755 -o 0 -g 0 /etc/nexuspuppet/tls
+sudo install -m 0444 -o 0 -g 0 /etc/puppetlabs/puppet/ssl/certs/console.example.com.pem \
   /etc/nexuspuppet/tls/console.pem
-sudo install -m 0400 /etc/puppetlabs/puppet/ssl/private_keys/console.example.com.pem \
+sudo install -m 0400 -o 0 -g 0 /etc/puppetlabs/puppet/ssl/private_keys/console.example.com.pem \
   /etc/nexuspuppet/tls/console.key
 ```
+
+> **`/etc/nexuspuppet/tls/`, not `/etc/nexuspuppet/certs/`.** The second holds
+> the PuppetDB client material and is mounted into the **api**. Keeping the TLS
+> key out of it is what stops the api from ever being able to read a key it has
+> no business reading.
+
+> **`0444` on the certificate is deliberate.** It is a *public* certificate — it
+> is sent to every browser that connects, so there is nothing to protect and
+> world-readable is correct. It also means the api can read it whatever uid that
+> container runs as, which is the ownership trap in §3 removed rather than
+> documented. The **key** stays `0400 root:root`: only the proxy mounts it, and
+> the proxy runs as root so it can bind 80 and 443.
 
 Then in `.env`:
 
@@ -652,6 +664,8 @@ services:
     volumes:
       - /etc/nexuspuppet/tls/console.pem:/etc/nexuspuppet/console.pem:ro
 ```
+
+That path is `0444`, so this works whatever uid the api container runs as.
 
 **Mount the certificate, never the directory.** The directory holds the private
 key, and the API has no reason to be able to read one.
@@ -818,6 +832,10 @@ architecture exists to provide.
 - [ ] PuppetDB reachable only from hosts that need it — this **cannot** be
       bounded by certificate, so the network is the only control (§3)
 - [ ] `client-auth = need` in PuppetDB's `jetty.ini`, not `want`
+- [ ] TLS in front of the console (§7) — nothing here terminates it by default,
+      and session cookies need a secure context
+- [ ] `/etc/nexuspuppet/tls/console.key` is `0400 root:root` and mounted into
+      the **proxy only** — never into `api`, which has no use for it
 - [ ] ENC directory mounted **read-only** on puppetserver
 - [ ] **No inbound network path from puppetserver to NexusPuppet** (ADR-0003)
 - [ ] Postgres not published to the network
