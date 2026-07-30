@@ -35,6 +35,7 @@ import {
   type ConflictReport,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { UuidParam } from '../common/uuid-param';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { ClassificationPlanner } from './plan/classification-planner.service';
 import { ConflictReportService } from './conflict-report.service';
@@ -61,7 +62,7 @@ export class NodeGroupsController {
 
   @RequirePermission('classification:read')
   @Get(':id')
-  get(@Param('id') id: string): Promise<NodeGroupDetail> {
+  get(@Param('id', UuidParam) id: string): Promise<NodeGroupDetail> {
     return this.classification.get(id);
   }
 
@@ -79,7 +80,7 @@ export class NodeGroupsController {
   @Patch(':id')
   @HttpCode(HttpStatus.ACCEPTED)
   update(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(updateNodeGroupSchema)) body: UpdateNodeGroup,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -90,7 +91,7 @@ export class NodeGroupsController {
   @Delete(':id')
   @HttpCode(HttpStatus.ACCEPTED)
   remove(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<{ materializationQueued: { scope: 'nodes'; certnames: string[] } }> {
     return this.classification.remove(id, principalOf(request), contextOf(request));
@@ -109,7 +110,7 @@ export class NodeGroupsController {
   @Put(':id/rules')
   @HttpCode(HttpStatus.ACCEPTED)
   replaceRules(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(replaceRulesSchema)) body: ReplaceRules,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -120,7 +121,7 @@ export class NodeGroupsController {
   @Put(':id/classes')
   @HttpCode(HttpStatus.ACCEPTED)
   assignClass(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(assignClassSchema)) body: AssignClass,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -131,7 +132,7 @@ export class NodeGroupsController {
   @Delete(':id/classes/:className')
   @HttpCode(HttpStatus.ACCEPTED)
   removeClass(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Param('className', new ZodValidationPipe(puppetClassNameSchema)) className: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -142,7 +143,7 @@ export class NodeGroupsController {
   @Put(':id/parameters')
   @HttpCode(HttpStatus.ACCEPTED)
   setParameter(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(setParameterSchema)) body: SetParameter,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -153,7 +154,7 @@ export class NodeGroupsController {
   @Delete(':id/parameters/:key')
   @HttpCode(HttpStatus.ACCEPTED)
   removeParameter(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Param('key') key: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -164,7 +165,7 @@ export class NodeGroupsController {
   @Post(':id/pins')
   @HttpCode(HttpStatus.ACCEPTED)
   addPins(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(addPinsSchema)) body: AddPins,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
@@ -180,7 +181,7 @@ export class NodeGroupsController {
   @Delete(':id/pins/:certname')
   @HttpCode(HttpStatus.ACCEPTED)
   removePin(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Param('certname') certname: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<ClassificationWriteResult> {
