@@ -6,6 +6,7 @@ import type {
   DeploymentCapabilities,
   FactPathIndex,
   ManagedUser,
+  ManagedUserDetail,
   NodeClassificationExplanation,
   NodeGroupDetail,
   Page,
@@ -189,6 +190,21 @@ export function useUsers(enabled: boolean): UseQueryResult<ManagedUser[]> {
     queryFn: ({ signal }) => api.get<ManagedUser[]>('/users', signal),
     // Only ADMIN may list users; asking as a VIEWER would 403 on every render.
     enabled,
+  });
+}
+
+/**
+ * One user, fetched only while their detail view is open.
+ *
+ * Keyed under ['users', id] so a reset or a deletion invalidating ['users']
+ * refreshes this too — the session count it displays is precisely what those
+ * actions change.
+ */
+export function useUser(id: string | null): UseQueryResult<ManagedUserDetail> {
+  return useQuery({
+    queryKey: ['users', id],
+    queryFn: ({ signal }) => api.get<ManagedUserDetail>(`/users/${id ?? ''}`, signal),
+    enabled: id !== null,
   });
 }
 

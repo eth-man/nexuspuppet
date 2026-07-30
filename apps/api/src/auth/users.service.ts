@@ -13,6 +13,7 @@ import type {
   IAuditSink,
   IAuthProvider,
   ManagedUser,
+  ManagedUserDetail,
   UpdateUser,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
@@ -181,6 +182,91 @@ export class UsersService {
     const updated = await this.update(id, { isActive: false }, actor, context);
     await this.tokens.revokeAllForUser(id);
     return updated;
+  }
+
+  /**
+   * One user, with the state that explains their situation.
+   *
+   * `activeSessions` counts refresh tokens that would still work — unrevoked and
+   * unexpired. It is the honest answer to "is this person logged in somewhere",
+   * which is what an administrator is really asking before they reset a password
+   * or delete an account.
+   */
+  async findOne(id: string): Promise<ManagedUserDetail> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (user === null) throw new NotFoundException('No such user.');
+
+    const activeSessions = await this.prisma.refreshToken.count({
+      where: { userId: id, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
+
+    return {
+      ...toManagedUser(user),
+      updatedAt: user.updatedAt.toISOString(),
+      failedLoginAttempts: user.failedLoginAttempts,
+      lockedUntil: user.lockedUntil === null ? null : user.lockedUntil.toISOString(),
+      activeSessions,
+      // Never the hash itself, not even its length. This object crosses the
+      // wire to a browser.
+      hasLocalPassword: user.passwordHash !== null,
+    };
+  }
+
+  /**
+   * Permanent deletion. Distinct from `deactivate`, which is reversible.
+   *
+   * The audit trail SURVIVES: `AuditLog.actor` is `onDelete: SetNull`, so what
+   * this user did remains recorded, with the actor column emptied. That would
+   * leave rows nobody can attribute, so the email is copied into this
+   * deletion's own audit metadata — the trail then reads "X deleted
+   * user@example.com" and the orphaned rows have a referent.
+   *
+   * The same three guards as `update`, because the consequences are strictly
+   * worse here and every one of them is reachable by a misclick on a row.
+   */
+  async remove(id: string, actor: AuthenticatedPrincipal, context: AuditContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id } });
+      if (user === null) throw new NotFoundException('No such user.');
+
+      if (id === actor.userId) {
+        throw new ForbiddenException('You cannot delete your own account.');
+      }
+
+      if (user.role === 'ADMIN') {
+        const remaining = await tx.user.count({
+          where: { role: 'ADMIN', isActive: true, id: { not: id } },
+        });
+
+        if (remaining === 0) {
+          throw new ConflictException(
+            'This is the last active administrator. Promote another user first, ' +
+              'or nobody will be able to administer this deployment.',
+          );
+        }
+      }
+
+      // Audit BEFORE the delete, in the same transaction: afterwards the row is
+      // gone and its email with it, and an audit write that fails must take the
+      // deletion down with it rather than leave an unexplained absence.
+      await this.record(
+        tx,
+        actor,
+        context,
+        'user.delete',
+        id,
+        {
+          email: user.email,
+          displayName: user.displayName,
+          role: user.role,
+          isActive: user.isActive,
+        },
+        null,
+      );
+
+      // Refresh tokens cascade. Audit rows do not — they SetNull and remain.
+      await tx.user.delete({ where: { id } });
+    });
   }
 
   /** A user changing their own password. Requires the current one. */

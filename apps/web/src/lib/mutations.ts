@@ -219,6 +219,46 @@ export function useDeactivateUser(): UseMutationResult<ManagedUser, Error, strin
   });
 }
 
+/**
+ * An administrator setting somebody else's password.
+ *
+ * Distinct from `useChangeOwnPassword`, which requires the current password
+ * because the caller is proving who they are. An admin has no such proof to
+ * offer and does not need one — they already hold `users:manage`.
+ *
+ * The API revokes EVERY session the target has, and that is correct here: the
+ * usual reason to reset somebody's password is that it may be compromised, so
+ * leaving their sessions alive would defeat the point. It is the opposite of
+ * the self-service path, which now spares the caller's own session.
+ */
+export function useResetPassword(): UseMutationResult<
+  void,
+  Error,
+  { id: string; newPassword: string }
+> {
+  const invalidate = useUserInvalidation();
+  return useMutation({
+    mutationFn: ({ id, newPassword }) => api.post<void>(`/users/${id}/password`, { newPassword }),
+    // The detail view shows a session count that this action zeroes.
+    onSuccess: () => invalidate(),
+  });
+}
+
+/**
+ * Permanent removal.
+ *
+ * `/permanent` rather than the bare `DELETE /users/:id`, which deactivates.
+ * Two different actions with two different paths, so neither can be reached by
+ * assuming the other's convention.
+ */
+export function useDeleteUser(): UseMutationResult<void, Error, string> {
+  const invalidate = useUserInvalidation();
+  return useMutation({
+    mutationFn: (id) => api.delete<void>(`/users/${id}/permanent`),
+    onSuccess: () => invalidate(),
+  });
+}
+
 export function useChangeOwnPassword(): UseMutationResult<void, Error, ChangePassword> {
   return useMutation({
     mutationFn: (input) => api.post<void>('/account/password', input),

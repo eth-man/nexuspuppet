@@ -440,7 +440,125 @@ describe('user administration (integration)', () => {
         expect(await prisma.refreshToken.count({ where: { revokedAt: null } })).toBe(0);
       });
     });
+  });
 
+  /**
+   * Permanent deletion.
+   *
+   * Separate from deactivation, which is the reversible default and keeps the
+   * `DELETE /users/:id` verb. These tests are about the guards, because the
+   * trigger is a small icon one pixel away from the reversible one.
+   */
+  describe('permanent deletion', () => {
+    it('removes the user and their sessions', async () => {
+      const user = await makeUser('user@example.com', 'OPERATOR');
+      await tokens.issue(principalFor(user));
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      await users.remove(user.id, principalFor(admin), CTX);
+
+      expect(await prisma.user.findUnique({ where: { id: user.id } })).toBeNull();
+      // Cascade, not an explicit revoke: a row that no longer exists cannot be
+      // presented, so leaving tokens behind would be a dangling reference.
+      expect(await prisma.refreshToken.count({ where: { userId: user.id } })).toBe(0);
+    });
+
+    it('keeps the audit trail and names who was deleted', async () => {
+      // AuditLog.actor is onDelete:SetNull, so the deleted user's own past
+      // entries survive with an empty actor. Without the email recorded here
+      // those rows would be unattributable forever.
+      const user = await makeUser('gone@example.com', 'OPERATOR');
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      await users.remove(user.id, principalFor(admin), CTX);
+
+      const entry = await prisma.auditLog.findFirst({
+        where: { action: 'user.delete' },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      expect(entry).not.toBeNull();
+      expect(entry!.actorUserId).toBe(admin.id);
+      expect(JSON.stringify(entry!.before)).toContain('gone@example.com');
+    });
+
+    it('refuses to delete your own account', async () => {
+      // Not covered by the last-admin rule when a second admin exists, and it
+      // is the likeliest misclick of the three.
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      await makeUser('other-admin@example.com', 'ADMIN');
+
+      await expect(users.remove(admin.id, principalFor(admin), CTX)).rejects.toThrow(
+        /your own account/i,
+      );
+      expect(await prisma.user.findUnique({ where: { id: admin.id } })).not.toBeNull();
+    });
+
+    it('refuses to delete the last active administrator', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const other = await makeUser('other@example.com', 'ADMIN');
+      // `other` is the only remaining admin once it acts on itself... so use a
+      // third party as the actor to isolate the last-admin rule from the
+      // self-deletion rule above.
+      await prisma.user.update({ where: { id: other.id }, data: { isActive: false } });
+      const operator = await makeUser('op@example.com', 'OPERATOR');
+
+      await expect(users.remove(admin.id, principalFor(operator), CTX)).rejects.toThrow(
+        /last active administrator/i,
+      );
+      expect(await prisma.user.findUnique({ where: { id: admin.id } })).not.toBeNull();
+    });
+
+    it('404s for a user that is not there', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      await expect(
+        users.remove('6e7969f8-d24e-4b80-8ab8-fc0b53ddec23', principalFor(admin), CTX),
+      ).rejects.toThrow(/no such user/i);
+    });
+  });
+
+  describe('detail view', () => {
+    it('counts only sessions that would still work', async () => {
+      // Three tokens, three fates. An earlier version of this test created only
+      // a live one and a revoked one, and so passed happily against a count
+      // that ignored expiry entirely — the expired row is the whole reason the
+      // query has two conditions.
+      const user = await makeUser('user@example.com', 'OPERATOR');
+      await tokens.issue(principalFor(user));
+
+      const revoked = await tokens.issue(principalFor(user));
+      await tokens.revoke(revoked.refreshToken);
+
+      const expired = await tokens.issue(principalFor(user));
+      await prisma.refreshToken.update({
+        where: { tokenHash: createHash('sha256').update(expired.refreshToken).digest('hex') },
+        data: { expiresAt: new Date(Date.now() - 60_000) },
+      });
+
+      expect((await users.findOne(user.id)).activeSessions).toBe(1);
+    });
+
+    it('reports whether a local password exists, never the hash', async () => {
+      const local = await makeUser('local@example.com', 'OPERATOR');
+      const external = await prisma.user.create({
+        data: {
+          email: 'ldap@example.com',
+          displayName: 'Directory User',
+          role: 'VIEWER',
+          authSource: 'ldap',
+          passwordHash: null,
+        },
+      });
+
+      expect((await users.findOne(local.id)).hasLocalPassword).toBe(true);
+      expect((await users.findOne(external.id)).hasLocalPassword).toBe(false);
+
+      // This object is serialised to a browser.
+      expect(JSON.stringify(await users.findOne(local.id))).not.toContain('scrypt');
+    });
+  });
+
+  describe('password change', () => {
     it('refuses for an account with no local password', async () => {
       const external = await prisma.user.create({
         data: {

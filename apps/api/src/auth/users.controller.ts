@@ -19,6 +19,7 @@ import {
   type ChangePassword,
   type CreateUser,
   type ManagedUser,
+  type ManagedUserDetail,
   type ResetPassword,
   type UpdateUser,
 } from '@nexuspuppet/contracts';
@@ -82,6 +83,31 @@ export class UsersController {
     @Req() request: AuthenticatedRequest,
   ): Promise<ManagedUser> {
     return this.users.deactivate(id, principalOf(request), contextOf(request));
+  }
+
+  @RequirePermission('users:manage')
+  @Get(':id')
+  findOne(@Param('id', UuidParam) id: string): Promise<ManagedUserDetail> {
+    return this.users.findOne(id);
+  }
+
+  /**
+   * Permanent deletion, deliberately NOT `DELETE :id`.
+   *
+   * That verb is already taken by deactivation, which is the reversible action
+   * and the right default. Giving irreversible removal its own explicit path
+   * means no client can perform it by guessing REST conventions, and an
+   * operator reading an audit log or a proxy log can tell the two apart at a
+   * glance.
+   */
+  @RequirePermission('users:manage')
+  @Delete(':id/permanent')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @Param('id', UuidParam) id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<void> {
+    await this.users.remove(id, principalOf(request), contextOf(request));
   }
 
   @RequirePermission('users:manage')
