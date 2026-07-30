@@ -266,6 +266,72 @@ describe('classification plan (integration)', () => {
     });
   });
 
+  describe('shapes explain why they are separate', () => {
+    /**
+     * Shapes are keyed on before AND after state, so nodes with different
+     * existing group sets are separate even when the change applied to them is
+     * identical. Reported by someone using the preview: four boxes each showing
+     * the same one-line diff read as repetition rather than as distinct
+     * populations, because the thing that made them separate was not displayed.
+     */
+    it('names the groups each population already matches', async () => {
+      await seedNode('linux0.test', linux(0));
+      await seedNode('linux1.test', linux(1));
+
+      const base = await createGroup('base', 100);
+      await classification.replaceRules(
+        base,
+        { rules: [{ factPath: 'kernel', operator: 'EQUALS', value: 'Linux' }] },
+        ACTOR,
+        CTX,
+      );
+
+      // Matches only half the estate, so two populations exist: nodes with the
+      // base group alone, and nodes with base plus this one.
+      const extra = await createGroup('debian-only', 200);
+      await classification.replaceRules(
+        extra,
+        { rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'Debian' }] },
+        ACTOR,
+        CTX,
+      );
+      await classification.assignClass(
+        extra,
+        { className: 'profile::debian', params: {} },
+        ACTOR,
+        CTX,
+      );
+
+      const target = await createGroup('rollout', 300);
+      await classification.replaceRules(
+        target,
+        { rules: [{ factPath: 'kernel', operator: 'EQUALS', value: 'Linux' }] },
+        ACTOR,
+        CTX,
+      );
+
+      const plan = await planner.plan({
+        operation: 'assign-class',
+        groupId: target,
+        className: 'profile::monitoring',
+        params: {},
+      });
+
+      expect(plan.shapes.length).toBeGreaterThan(0);
+      for (const shape of plan.shapes) {
+        // Never empty for an already-classified node: without this the UI has
+        // nothing to distinguish one shape from another.
+        expect(shape.currentGroups.length).toBeGreaterThan(0);
+        expect(shape.currentGroups).toContain('base');
+      }
+
+      // The populations differ by exactly the group that matches half of them.
+      const withDebian = plan.shapes.filter((s) => s.currentGroups.includes('debian-only'));
+      expect(withDebian.length).toBeGreaterThan(0);
+      expect(withDebian.length).toBeLessThan(plan.shapes.length);
+    });
+  });
+
   describe('shapes', () => {
     /**
      * The design decision that makes this usable. Many nodes, few distinct

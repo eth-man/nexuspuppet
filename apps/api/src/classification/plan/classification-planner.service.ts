@@ -56,6 +56,8 @@ export const DEFAULT_PLANNER_PACING: PlannerPacing = {
 
 interface NodeOutcome {
   certname: string;
+  /** Groups matching BEFORE the change — what makes this shape distinct. */
+  beforeGroups: string[];
   beforeHash: string;
   afterHash: string;
   beforeDoc: MergedDocument;
@@ -94,6 +96,7 @@ export class ClassificationPlanner {
       const after = this.documentFor(node.certname, facts, proposed);
       outcomes.push({
         certname: node.certname,
+        beforeGroups: before.groupNames,
         beforeHash: before.hash,
         afterHash: after.hash,
         beforeDoc: before.document,
@@ -157,7 +160,7 @@ export class ClassificationPlanner {
     certname: string,
     facts: Record<string, unknown>,
     groups: GroupSet,
-  ): { hash: string; document: MergedDocument } {
+  ): { hash: string; document: MergedDocument; groupNames: string[] } {
     const matched = matchGroups({ certname, facts }, groups.evaluable);
     const mergeable = matched
       .map((g) => groups.mergeableById.get(g.id))
@@ -167,6 +170,9 @@ export class ClassificationPlanner {
     const rendered = renderEncDocument(merged.document);
 
     return {
+      // Names, in merge order, because this is what distinguishes one shape
+      // from another and the UI has no other way to explain the split.
+      groupNames: matched.map((g) => g.name),
       // The materializer's own content hash, so "changed" here means exactly
       // what "changed" means when a file is written.
       hash: rendered.contentHash,
@@ -238,6 +244,7 @@ export class ClassificationPlanner {
           kind:
             !hadClasses && hasClasses ? 'added' : hadClasses && !hasClasses ? 'removed' : 'changed',
           diff: diffDocuments(first.beforeDoc, first.afterDoc),
+          currentGroups: first.beforeGroups,
         } satisfies PlanShape;
       });
   }
