@@ -48,13 +48,44 @@ async function toError(response: Response): Promise<ApiError> {
   }
 
   const record = (body ?? {}) as ErrorBody;
-  const message =
+  const base =
     typeof record.message === 'string'
       ? record.message
       : `${response.status} ${response.statusText}`;
   const code = typeof record.error === 'string' ? record.error : undefined;
 
-  return new ApiError(response.status, message, code, body);
+  return new ApiError(response.status, withIssues(base, record.issues), code, body);
+}
+
+/**
+ * Append the actual validation failures to the message.
+ *
+ * The API answers a rejected body with `{ message: "Invalid request
+ * parameters", issues: [{ path, message }] }`. Only the first half was ever
+ * shown, so a mistyped class name reported "Invalid request parameters" — which
+ * names neither the field nor the reason, and is barely more useful than the
+ * 500 it replaced.
+ *
+ * Capped at three: a form with a dozen bad fields should not render a wall of
+ * text where a message belongs.
+ */
+function withIssues(message: string, issues: unknown): string {
+  if (!Array.isArray(issues) || issues.length === 0) return message;
+
+  const described = issues
+    .slice(0, 3)
+    .map((issue) => {
+      const { path, message: detail } = (issue ?? {}) as { path?: unknown; message?: unknown };
+      if (typeof detail !== 'string') return null;
+      return typeof path === 'string' && path !== '' ? `${path}: ${detail}` : detail;
+    })
+    .filter((entry): entry is string => entry !== null);
+
+  if (described.length === 0) return message;
+
+  const more =
+    issues.length > described.length ? ` (+${issues.length - described.length} more)` : '';
+  return `${message} — ${described.join('; ')}${more}`;
 }
 
 /**
