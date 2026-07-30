@@ -107,6 +107,54 @@ test.describe('authentication', () => {
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
   });
 
+  /**
+   * The session survives the access token expiring.
+   *
+   * The test above proves `/auth/refresh` works when something calls it. Nothing
+   * proved the client ever does — and it did not. The access cookie carries
+   * `expires` equal to the token lifetime, so the browser deletes it on expiry
+   * and the next request arrives with no token at all; the guard answers a bare
+   * 401 and the client only refreshed on the API's `TOKEN_EXPIRED` code, which
+   * requires a token to have been presented. Operators were returned to the
+   * login screen every access-token lifetime, holding a refresh cookie good for
+   * another thirty days.
+   *
+   * Deleting the access cookie is exactly what the browser does at expiry, and
+   * takes a second instead of an hour. The refresh cookie is left alone, because
+   * that asymmetry IS the bug.
+   */
+  test('stays signed in when the access token expires', async ({ page, context }) => {
+    await login(page);
+
+    const remaining = (await context.cookies()).filter((c) => c.name !== 'nexuspuppet_access');
+    await context.clearCookies();
+    await context.addCookies(remaining);
+
+    await page.goto('/nodes');
+
+    // Still inside the console, and never sent back to sign in.
+    await expect(page).not.toHaveURL(/\/login/);
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Main' })
+        .getByRole('link', { name: 'Nodes', exact: true }),
+    ).toBeVisible();
+
+    // The recovery must be silent. An operator who sees an error banner has
+    // still had their work interrupted, even if the next click succeeds.
+    await expect(page.getByText(/authentication required/i)).toBeHidden();
+  });
+
+  test('gives up honestly when the refresh token is gone too', async ({ page, context }) => {
+    // The other side of the same change: refreshing on ANY 401 must not turn a
+    // genuinely ended session into a retry loop.
+    await login(page);
+    await context.clearCookies();
+
+    await page.goto('/nodes');
+    await expect(page).toHaveURL(/\/login$/);
+  });
+
   test('signs out and blocks the protected area again', async ({ page }) => {
     await login(page);
     await page.getByRole('button', { name: 'Sign out' }).click();

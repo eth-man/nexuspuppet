@@ -23,7 +23,7 @@ export const envSchema = z.object({
   JWT_SECRET: z
     .string()
     .min(32, 'JWT_SECRET must be at least 32 characters. Generate: openssl rand -base64 48'),
-  ACCESS_TOKEN_TTL: z.string().default('15m'),
+  ACCESS_TOKEN_TTL: z.string().default('60m'),
   REFRESH_TOKEN_TTL: z.string().default('30d'),
 
   /**

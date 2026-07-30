@@ -48,13 +48,44 @@ async function toError(response: Response): Promise<ApiError> {
   }
 
   const record = (body ?? {}) as ErrorBody;
-  const message =
+  const base =
     typeof record.message === 'string'
       ? record.message
       : `${response.status} ${response.statusText}`;
   const code = typeof record.error === 'string' ? record.error : undefined;
 
-  return new ApiError(response.status, message, code, body);
+  return new ApiError(response.status, withIssues(base, record.issues), code, body);
+}
+
+/**
+ * Append the actual validation failures to the message.
+ *
+ * The API answers a rejected body with `{ message: "Invalid request
+ * parameters", issues: [{ path, message }] }`. Only the first half was ever
+ * shown, so a mistyped class name reported "Invalid request parameters" — which
+ * names neither the field nor the reason, and is barely more useful than the
+ * 500 it replaced.
+ *
+ * Capped at three: a form with a dozen bad fields should not render a wall of
+ * text where a message belongs.
+ */
+function withIssues(message: string, issues: unknown): string {
+  if (!Array.isArray(issues) || issues.length === 0) return message;
+
+  const described = issues
+    .slice(0, 3)
+    .map((issue) => {
+      const { path, message: detail } = (issue ?? {}) as { path?: unknown; message?: unknown };
+      if (typeof detail !== 'string') return null;
+      return typeof path === 'string' && path !== '' ? `${path}: ${detail}` : detail;
+    })
+    .filter((entry): entry is string => entry !== null);
+
+  if (described.length === 0) return message;
+
+  const more =
+    issues.length > described.length ? ` (+${issues.length - described.length} more)` : '';
+  return `${message} — ${described.join('; ')}${more}`;
 }
 
 /**
@@ -114,9 +145,28 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   const error = await toError(response);
 
-  // The API distinguishes an expired token from an invalid one precisely so the
-  // client can refresh instead of bouncing the user to a login screen.
-  if (error.status === 401 && error.code === 'TOKEN_EXPIRED' && !retrying) {
+  // ANY 401, not just TOKEN_EXPIRED.
+  //
+  // This used to require `error.code === 'TOKEN_EXPIRED'`, which the API only
+  // sends when it receives an access token that has expired. The common case
+  // never gets that far: the access cookie carries `expires` equal to the
+  // token's own lifetime, so at 15 minutes the BROWSER deletes it and the next
+  // request arrives carrying no token at all. The guard answers a bare 401
+  // "Authentication required.", the condition above was false, and the operator
+  // was bounced to the login screen — with a refresh cookie valid for another
+  // thirty days sitting untouched in the jar.
+  //
+  // Reported as "constantly having to sign back in", and visible in a QA soak
+  // as 1,731 console 401s. Proven by dropping only the access cookie: the app
+  // went to /login without ever calling /api/auth/refresh.
+  //
+  // Keying on the code was the mistake, not the value of the code. The client
+  // had to guess which of three 401 shapes the server would choose, and got it
+  // wrong for the one that actually happens. Refreshing on any 401 needs no
+  // such agreement: if the refresh cookie is good the request succeeds, and if
+  // it is not, /auth/refresh fails and we fall through to the same place we
+  // would have anyway — one wasted request on a genuinely anonymous caller.
+  if (error.status === 401 && !retrying && !path.startsWith('/auth/refresh')) {
     if (await refreshSession()) {
       return apiFetch<T>(path, { ...options, retrying: true });
     }
