@@ -28,7 +28,8 @@
     "dev:stack": "./scripts/dev/stack.sh",
     "dev:puppetdb": "node scripts/dev/puppetdb.mjs",
     "test:e2e:ui": "playwright test --ui",
-    "test:puppetdb": "node scripts/test-puppetdb.mjs"
+    "test:puppetdb": "node scripts/test-puppetdb.mjs",
+    "qa:fuzz": "node scripts/qa/fuzz.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

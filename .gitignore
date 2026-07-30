@@ -77,3 +77,6 @@ playwright-report/
 # Test/site certificates for the optional TLS proxy (ADR-0013). Certificates
 # are mounted from a path the operator chooses; nothing here belongs in git.
 deploy/caddy/certs/
+
+# QA fuzzer output: screenshots and a crash report per run.
+qa-report/
