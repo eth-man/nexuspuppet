@@ -31,6 +31,18 @@ export class ApiError extends Error {
   get isForbidden(): boolean {
     return this.status === 403;
   }
+
+  /**
+   * The thing named in the URL is not there.
+   *
+   * A deleted group, a renamed node, a bookmark older than the estate. Worth
+   * distinguishing from a failure because nothing is wrong — showing "Request
+   * failed" in red for an id that simply no longer exists sends operators
+   * looking for an outage.
+   */
+  get isNotFound(): boolean {
+    return this.status === 404;
+  }
 }
 
 interface ErrorBody {
