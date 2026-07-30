@@ -255,11 +255,22 @@ function ShapeBlock({ shape, defaultOpen }: { shape: PlanShape; defaultOpen: boo
         className="flex w-full items-center justify-between px-2 py-1.5 text-left"
         onClick={() => setOpen((current) => !current)}
       >
+        {/* "25 nodes · e.g. app02" was read as "25 nodes called app02" by
+              someone using it. `e.g.` is doing too much work in a dense line,
+              and the ambiguity is worst for the person who most needs the
+              preview: someone reviewing an estate they did not build. Naming
+              one node and counting the rest cannot be misread. */}
         <span className="text-xs text-ink">
           <span className="font-mono tabular-nums">{shape.count}</span> node
-          {shape.count === 1 ? '' : 's'}
-          <span className="text-ink-faint"> · e.g. </span>
+          {shape.count === 1 ? '' : 's'} change this way
+          <span className="text-ink-faint"> — </span>
           <span className="font-mono text-[11px]">{shape.exemplar}</span>
+          {shape.count > 1 && (
+            <span className="text-ink-faint">
+              {' '}
+              and {shape.count - 1} other{shape.count === 2 ? '' : 's'}
+            </span>
+          )}
         </span>
         <span className="text-[11px] text-ink-faint">{open ? 'hide' : 'show'}</span>
       </button>
