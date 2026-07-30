@@ -255,11 +255,38 @@ function ShapeBlock({ shape, defaultOpen }: { shape: PlanShape; defaultOpen: boo
         className="flex w-full items-center justify-between px-2 py-1.5 text-left"
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="text-xs text-ink">
+        {/* "25 nodes · e.g. app02" was read as "25 nodes called app02" by
+              someone using it. `e.g.` is doing too much work in a dense line,
+              and the ambiguity is worst for the person who most needs the
+              preview: someone reviewing an estate they did not build. Naming
+              one node and counting the rest cannot be misread. */}
+        {/* THE HEADER EXPLAINS THE SPLIT.
+              Shapes are keyed on before AND after state, so nodes with
+              different existing group sets are separate even when the change
+              applied to them is identical. Without the "currently" line the UI
+              rendered several boxes each showing the same one-line diff, which
+              reads as repetition rather than as distinct populations — reported
+              by someone using it as "4 identical blocks... visual noise". */}
+        <span className="min-w-0 text-xs text-ink">
           <span className="font-mono tabular-nums">{shape.count}</span> node
           {shape.count === 1 ? '' : 's'}
-          <span className="text-ink-faint"> · e.g. </span>
-          <span className="font-mono text-[11px]">{shape.exemplar}</span>
+          {shape.currentGroups.length > 0 ? (
+            <>
+              <span className="text-ink-faint"> · currently </span>
+              {shape.currentGroups.map((group, index) => (
+                <span key={group}>
+                  {index > 0 && <span className="text-ink-faint">, </span>}
+                  <span className="font-mono text-[11px] text-ink">{group}</span>
+                </span>
+              ))}
+            </>
+          ) : (
+            <span className="text-ink-faint"> · currently unclassified</span>
+          )}
+          <span className="block truncate text-[11px] text-ink-faint">
+            {shape.exemplar}
+            {shape.count > 1 && ` and ${shape.count - 1} other${shape.count === 2 ? '' : 's'}`}
+          </span>
         </span>
         <span className="text-[11px] text-ink-faint">{open ? 'hide' : 'show'}</span>
       </button>

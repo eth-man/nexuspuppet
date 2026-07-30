@@ -10,6 +10,7 @@ import {
   type NodeRule,
   type PuppetValue,
   type RuleOperator,
+  puppetClassNameSchema,
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { useFactPaths, useNodeGroup } from '@/lib/queries';
@@ -555,6 +556,7 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
   const [className, setClassName] = useState('');
   const [params, setParams] = useState('{}');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   return (
     <Card>
@@ -611,6 +613,22 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
               size="sm"
               disabled={assign.isPending}
               onClick={() => {
+                // The class name, with the SAME schema the API uses. The hint
+                // under the field has always promised this is checked here;
+                // until now it was not, so a single-colon typo reached the API,
+                // failed validation there, and surfaced as "Invalid request
+                // parameters" inside a preview dialog that then offered to
+                // apply the change anyway.
+                const name = puppetClassNameSchema.safeParse(className);
+                if (!name.success) {
+                  setNameError(
+                    name.error.issues[0]?.message ??
+                      'Not a valid Puppet class name (e.g. profile::base)',
+                  );
+                  return;
+                }
+                setNameError(null);
+
                 let raw: unknown;
                 try {
                   raw = JSON.parse(params);
@@ -662,14 +680,22 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
             <Input
               id="className"
               value={className}
-              onChange={(e) => setClassName(e.target.value)}
+              onChange={(e) => {
+                setClassName(e.target.value);
+                setNameError(null);
+              }}
               placeholder="profile::base"
               className="font-mono"
+              aria-invalid={nameError !== null}
             />
-            <p className="text-[11px] text-ink-faint">
-              Lowercase, <code className="font-mono">::</code>-separated. Validated before writing,
-              so an invalid name is rejected here rather than during catalog compilation.
-            </p>
+            {nameError !== null ? (
+              <p className="text-[11px] text-state-failed">{nameError}</p>
+            ) : (
+              <p className="text-[11px] text-ink-faint">
+                Lowercase, <code className="font-mono">::</code>-separated. Validated here, so an
+                invalid name is rejected before it reaches a preview or a catalog compilation.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">

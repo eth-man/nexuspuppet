@@ -23,6 +23,7 @@ import {
   type UpdateUser,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { UuidParam } from '../common/uuid-param';
 import {
   REFRESH_COOKIE,
   RequirePermission,
@@ -60,7 +61,7 @@ export class UsersController {
   @RequirePermission('users:manage')
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(updateUserSchema)) body: UpdateUser,
     @Req() request: AuthenticatedRequest,
   ): Promise<ManagedUser> {
@@ -76,7 +77,10 @@ export class UsersController {
    */
   @RequirePermission('users:manage')
   @Delete(':id')
-  deactivate(@Param('id') id: string, @Req() request: AuthenticatedRequest): Promise<ManagedUser> {
+  deactivate(
+    @Param('id', UuidParam) id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ManagedUser> {
     return this.users.deactivate(id, principalOf(request), contextOf(request));
   }
 
@@ -84,7 +88,7 @@ export class UsersController {
   @Post(':id/password')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(
-    @Param('id') id: string,
+    @Param('id', UuidParam) id: string,
     @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPassword,
     @Req() request: AuthenticatedRequest,
   ): Promise<void> {

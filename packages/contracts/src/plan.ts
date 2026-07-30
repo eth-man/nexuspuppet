@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ClassificationConflict } from './enc';
+import { puppetClassNameSchema, type ClassificationConflict } from './enc';
 
 /**
  * "Plan before apply" — what a classification change would do, before it does it.
@@ -38,17 +38,27 @@ export const planRequestSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('assign-class'),
     groupId: z.string().uuid(),
-    // `params`, matching assignClassSchema exactly. Naming it `parameters`
-    // here would mean the plan took a different body from the write it
-    // previews, which is precisely the divergence this contract exists to
-    // prevent — and it would have been caught only by someone noticing the
-    // preview was wrong.
-    className: z.string().min(1),
+    // Both fields match assignClassSchema exactly. Naming `params` as
+    // `parameters` here would mean the plan took a different body from the
+    // write it previews — the divergence this contract exists to prevent.
+    //
+    // `className` used to be `z.string().min(1)` while the write used
+    // puppetClassNameSchema, which is that same divergence in the very next
+    // line of the comment claiming to avoid it. The plan accepted names the
+    // write rejects, and the preview reached the ENC renderer, whose class-name
+    // assertion threw and escaped as a 500 — so an operator who typed
+    // `Profile::Monitoring` got "internal server error" from the preview where
+    // the write would have said "Not a valid Puppet class name".
+    className: puppetClassNameSchema,
     params: z.record(z.string(), z.unknown()).default({}),
   }),
   z.object({
     operation: z.literal('remove-class'),
     groupId: z.string().uuid(),
+    // Deliberately permissive, unlike assign-class above. Removing a name never
+    // puts it into a rendered document, so it cannot reach the renderer's
+    // assertion — and if an invalid name ever did get stored, refusing to
+    // preview its removal would leave no way to get rid of it.
     className: z.string().min(1),
   }),
   z.object({
@@ -143,6 +153,16 @@ export interface PlanShape {
   certnames: string[];
   kind: 'added' | 'removed' | 'changed';
   diff: PlanDiff;
+  /**
+   * The groups these nodes ALREADY match, in merge order.
+   *
+   * This is what separates one shape from another. Shapes are keyed on the
+   * before AND after state, so nodes with different existing group sets land in
+   * different shapes even when the change applied to them is identical — and
+   * without this field the UI rendered several boxes showing the same single
+   * diff line, which reads as repetition rather than as distinct populations.
+   */
+  currentGroups: string[];
 }
 
 export interface PlanResponse {
