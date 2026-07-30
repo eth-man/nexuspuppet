@@ -19,6 +19,7 @@ import { Select } from '@/components/ui/select';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError } from '@/components/states';
 import { WriteResult } from '@/components/data/write-result';
+import { ConflictReport } from '@/components/data/conflict-report';
 
 /**
  * Node groups, in merge order.
@@ -178,6 +179,10 @@ export default function ClassificationPage() {
           </Table>
         )}
       </Card>
+
+      {/* Below the group list on purpose: the list is how classification is
+          built up, and this is what that construction actually produced. */}
+      <ConflictReport />
 
       <Dialog
         open={open}

@@ -15,6 +15,7 @@ import type {
   ResourceEvent,
   SystemStatus,
   ConsoleTlsStatus,
+  ConflictReport,
 } from '@nexuspuppet/contracts';
 import { api } from './client';
 
@@ -249,6 +250,22 @@ export function useConsoleTls(): UseQueryResult<ConsoleTlsStatus> {
     queryKey: ['console-tls'],
     queryFn: ({ signal }) => api.get<ConsoleTlsStatus>('/system/tls', signal),
     staleTime: 300_000,
+  });
+}
+
+/**
+ * Every conflict in the estate, grouped by which override it is (ADR-0009).
+ *
+ * Recomputed from stored materializations rather than from live merges, so it
+ * follows the materializer rather than leading it — a change shows up here once
+ * the affected nodes have been written, which is the same moment it becomes true
+ * of the estate.
+ */
+export function useConflictReport(): UseQueryResult<ConflictReport> {
+  return useQuery({
+    queryKey: ['conflict-report'],
+    queryFn: ({ signal }) => api.get<ConflictReport>('/classification/conflicts', signal),
+    staleTime: 60_000,
   });
 }
 

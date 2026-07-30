@@ -159,3 +159,32 @@ export interface IEncFileWriter {
    */
   isWritable(): Promise<boolean>;
 }
+
+/**
+ * One conflict, aggregated across every node it affects (ADR-0009).
+ *
+ * The per-node view answers "why is this machine configured this way". This
+ * answers the question an operator actually arrives with: "is one of my groups
+ * silently overriding another, and how much of the estate does that touch".
+ */
+export interface AggregatedConflict {
+  kind: ClassificationConflict['kind'];
+  key: string;
+  winningGroupId: string;
+  winningGroupName: string;
+  losingGroupId: string;
+  losingGroupName: string;
+  /** How many nodes this same override happens on. */
+  nodeCount: number;
+  /** A few affected nodes, to make it clickable rather than abstract. */
+  exampleCertnames: string[];
+}
+
+export interface ConflictReport {
+  /** Most consequential first — see `aggregateConflicts` for the ordering. */
+  conflicts: AggregatedConflict[];
+  /** Nodes with at least one conflict. */
+  nodesAffected: number;
+  /** Nodes materialized at all, so a count means something next to it. */
+  nodesMaterialized: number;
+}
