@@ -54,6 +54,11 @@ Two more worth reading before your first substantive PR: [0009 — merge semanti
 
 Day-to-day working conventions live in [CLAUDE.md](CLAUDE.md).
 
+Worth twenty minutes before your first substantive change:
+[**docs/LESSONS.md**](docs/LESSONS.md) — mistakes this project has actually made,
+what each cost, and what to do instead. Most of them were expensive, and several
+were shipped by people who had read the ADRs.
+
 ---
 
 ## Layout
