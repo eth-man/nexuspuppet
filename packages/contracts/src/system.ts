@@ -102,3 +102,51 @@ export type MaterializationHealth = z.infer<typeof materializationHealthSchema>;
 export type AuditDeliveryHealth = z.infer<typeof auditDeliveryHealthSchema>;
 export type ProjectionHealth = z.infer<typeof projectionHealthSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;
+
+/**
+ * The certificate the console is served with (ADR-0013).
+ *
+ * Read from the PUBLIC certificate only. The API is given a single `.pem` file
+ * and never the directory containing the key, so there is no path by which key
+ * material could reach this response, an audit row, or a log line.
+ *
+ * PROXY-AGNOSTIC BY DESIGN. This reports what is on disk; it does not ask any
+ * proxy what it loaded. Operators replace the bundled Caddy with nginx, HAProxy
+ * or an appliance, and a status surface that only worked with one of those would
+ * be worse than none — it would report "not configured" on a correctly running
+ * deployment.
+ */
+export const certificateSummarySchema = z.object({
+  subject: z.string(),
+  issuer: z.string(),
+  /** The names a browser will match against. */
+  subjectAltNames: z.array(z.string()),
+  validFrom: z.string(),
+  validTo: z.string(),
+  /** Negative once expired, so one field answers "how bad is it". */
+  daysRemaining: z.number(),
+  expired: z.boolean(),
+  notYetValid: z.boolean(),
+  selfSigned: z.boolean(),
+});
+
+export const consoleTlsStatusSchema = z.object({
+  /**
+   * False when no certificate path is configured — the normal state for a
+   * deployment terminating TLS elsewhere, and NOT an error.
+   */
+  configured: z.boolean(),
+  certificate: certificateSummarySchema.nullable(),
+  /** The name operators are expected to reach the console by, if declared. */
+  expectedHostname: z.string().nullable(),
+  /**
+   * Whether the certificate covers that name. Null when either is unknown —
+   * distinct from false, which means a mismatch a browser will reject.
+   */
+  coversExpectedHostname: z.boolean().nullable(),
+  /** Why the certificate could not be read. Null when it could. */
+  error: z.string().nullable(),
+});
+
+export type CertificateSummary = z.infer<typeof certificateSummarySchema>;
+export type ConsoleTlsStatus = z.infer<typeof consoleTlsStatusSchema>;

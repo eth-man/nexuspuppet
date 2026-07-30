@@ -8,6 +8,7 @@ import { QueryError, Spinner } from '@/components/states';
 import { AuthProviderPanel } from '@/components/data/auth-provider-panel';
 import { UsersPanel } from '@/components/data/users-panel';
 import { ChangePasswordCard } from '@/components/data/change-password';
+import { ConsoleTlsCard } from '@/components/data/console-tls-card';
 
 /**
  * Deployment, session, and user administration.
@@ -114,6 +115,11 @@ export default function SettingsPage() {
           </Card>
         )}
       </div>
+
+      {/* Deployment-wide, not account-specific — so outside the password block
+          above, which is conditional on how THIS user authenticates. The
+          certificate is the same whoever is looking at it. */}
+      <ConsoleTlsCard />
 
       {/* Who the directory says may do what. Renders only when a provider
           actually maps groups to roles, so core deployments are unchanged. */}

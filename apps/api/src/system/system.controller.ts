@@ -1,7 +1,8 @@
 import { Controller, Get, Req } from '@nestjs/common';
-import type { SystemStatus } from '@nexuspuppet/contracts';
+import type { ConsoleTlsStatus, SystemStatus } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SystemStatusService } from './system-status.service';
+import { ConsoleTlsService } from './console-tls.service';
 
 /**
  * Operational status for the console.
@@ -14,7 +15,10 @@ import { SystemStatusService } from './system-status.service';
  */
 @Controller('system')
 export class SystemController {
-  constructor(private readonly status: SystemStatusService) {}
+  constructor(
+    private readonly status: SystemStatusService,
+    private readonly tls: ConsoleTlsService,
+  ) {}
 
   /**
    * Gated on `inventory:read`, so anyone who may look at the estate may see
@@ -27,5 +31,24 @@ export class SystemController {
   @Get('status')
   get(@Req() request: AuthenticatedRequest): Promise<SystemStatus> {
     return this.status.status(request.principal?.role === 'ADMIN');
+  }
+
+  /**
+   * The certificate the console is served with, and how long is left on it.
+   *
+   * Gated on `settings:manage` rather than `inventory:read`: this is
+   * infrastructure detail — issuer, subject alternative names, a filesystem path
+   * in the error case — and it belongs to whoever administers the deployment
+   * rather than to everyone who may look at the estate.
+   *
+   * Reports what is ON DISK. It deliberately does not ask any proxy what it
+   * loaded: operators replace the bundled one with nginx, HAProxy or an
+   * appliance, and a check coupled to a particular proxy would report a healthy
+   * deployment as broken.
+   */
+  @RequirePermission('settings:manage')
+  @Get('tls')
+  consoleTls(): Promise<ConsoleTlsStatus> {
+    return this.tls.status();
   }
 }

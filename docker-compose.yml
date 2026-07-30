@@ -58,11 +58,25 @@ services:
       PUPPETDB_KEY_PATH: /etc/nexuspuppet/certs/client.key
       PUPPETDB_CA_PATH: /etc/nexuspuppet/certs/ca.pem
       ENC_OUTPUT_DIR: /srv/nexuspuppet/enc
+      # Reporting only, and optional. Unset means "TLS terminates somewhere I
+      # cannot see", which is the normal state and not an error (ADR-0013).
+      CONSOLE_TLS_CERT_PATH: ${CONSOLE_TLS_CERT_PATH:-}
+      CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
     volumes:
       # Certificates as mounted files, never baked into the image (ADR-0004).
       - ${PUPPETDB_CERT_DIR:-./certs}:/etc/nexuspuppet/certs:ro
       # The ONLY writer of the ENC volume.
       - enc-data:/srv/nexuspuppet/enc
+      # The PUBLIC certificate, as a SINGLE FILE — never the directory holding
+      # the key. The api reports the certificate's expiry in Settings and has no
+      # reason to be able to read a private key, so it is not given the
+      # opportunity (ADR-0013). Mount it yourself in an override; there is no
+      # default, because Docker silently creates a DIRECTORY for a bind source
+      # that does not exist, and a directory where a certificate is expected
+      # produces a worse error than an unset variable.
+      #
+      #   volumes:
+      #     - /etc/nexuspuppet/tls/console.pem:/etc/nexuspuppet/console.pem:ro
     ports:
       # Loopback by DEFAULT. There is no TLS in front of this service until the
       # reverse proxy in DEPLOYMENT.md is in place, so binding every interface
