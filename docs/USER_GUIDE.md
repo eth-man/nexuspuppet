@@ -143,6 +143,28 @@ Classification decides which Puppet classes each node receives. A **node group**
 
 ![Group detail](images/classification-detail.png)
 
+### Every change is previewed first
+
+Whatever you edit — rules, classes, parameters, pins, rank, environment — **Save opens a review rather than writing.**
+
+![Plan review](images/plan-review.png)
+
+It answers the question you would otherwise answer afterwards:
+
+- **How many nodes are affected**, and how many are unchanged.
+- **What changes, grouped by outcome.** Forty-eight nodes rarely change in forty-eight different ways; they change in three or four. Each distinct shape is listed with an example certname and can be expanded to show its diff — classes added and removed, parameters before and after, environment changes.
+- **Any new conflict this introduces**, shown *above* the diff, because a group starting to override another is more likely to stop you than the diff itself.
+
+Two things it is careful about:
+
+**On a large estate, it samples.** Rather than evaluating every node, it examines a bounded subset and tells you so with the numbers — "this estate has 4,000 nodes and this preview examined 2,000". A sampled preview can miss nodes; it says so rather than implying completeness.
+
+**It is a forecast, not a promise.** The plan is computed against the estate as it is now. A node checking in between the preview and Apply changes the outcome, and the dialog says as much.
+
+**Cancel is the focused button.** This exists to make it easy to decide *against* a change.
+
+If the preview itself fails — the API is briefly unreachable, say — the button becomes **Apply without preview**. Losing the forecast should not become an outage of the product; you just proceed without it, knowingly.
+
 ### Creating a group
 
 From **Classification → New group**, give it a name and a rank. Then add rules and classes.
@@ -204,10 +226,20 @@ Groups are applied in **rank order, lowest first**, so the **highest rank wins**
 
 Nested values are not deep-merged deliberately. Deep merge makes a parameter's effective value a function of every group in the chain, so you could not read one group and know what a node receives. Hiera exists for layered data and does it properly. ([ADR-0009](architecture/adr/0009-classification-merge-semantics.md))
 
-**Overrides are reported, not blocked.** When one group overwrites another's parameter, the conflict is recorded with both values and the groups involved, and shown on the node's classification view. Overriding a base group is a legitimate pattern; hiding it would not be.
+**Overrides are reported, not blocked.** Overriding a base group is a legitimate pattern; hiding it would not be. So every override is recorded with both values and the groups involved, and shown in two places:
+
+- **On the node's classification view** — why *this* machine ended up as it did.
+- **On the Classification page, across the whole estate** — where one group is overriding another, and on how many machines.
+
+![Estate-wide overrides](images/conflict-report.png)
+
+The estate-wide view groups by *which* override it is — the setting, the winning group, the losing group — and counts the nodes each affects, so an override on 200 machines is one row rather than 200. Differing values do not split the row: the same override with a per-node winning value is one decision about your configuration, not dozens.
+
+**Environment conflicts sort to the top regardless of count.** An environment disagreement decides which branch of your control repository a machine compiles against, so three nodes disagreeing about it matters more than three hundred disagreeing about a timeout — and ordering by breadth alone would bury exactly the case worth finding.
 
 ### Safety rails
 
+- **Every write is previewed** before it happens — see above.
 - A node matching **zero** groups gets `default.yaml` — never an empty or missing file.
 - Rendered YAML is parsed back and compared before the file is replaced. A document that fails that round-trip is never written.
 - A rule change queues a **full** reconcile, because changing who matches can pull in nodes that did not match before.
@@ -281,6 +313,21 @@ By far the most common problem, and it is usually one of three things.
 1. **The fact is not projected.** Rules match against the projected fact subset, not the full factset. Check the node's **Facts** tab: if the fact is not there, the rule can never match. Add its top-level name to `PUPPETDB_PROJECTED_FACTS` and restart the API.
 2. **The fact does not exist.** `role` is not a Facter fact — it only exists if one of your modules supplies it. `fqdn` and `domain` no longer exist as flat facts on Puppet 8 or OpenVox; use `networking.fqdn`. The API logs, once per start, any projected fact that **no node reports**.
 3. **The path is wrong.** `os.family`, not `osfamily`. The editor shows a live match count as you type — if it says zero for a value you can see on the Facts tab, the path is the problem.
+
+### I set a parameter and it had no effect
+
+Another group is overriding it. This is the single most confusing outcome in any
+rank-ordered classifier, because nothing is broken and nothing warns you — a
+higher-ranked group simply set the same key last and won.
+
+Two places tell you:
+
+1. **The node's classification view** — the override is listed with both values and both groups.
+2. **Classification → Overrides in effect** — whether this is happening to one node or two hundred, and which group is winning.
+
+If the winner should not be winning, lower its rank or remove the key from it. If
+it *should* win, the override is working as intended and the group you edited is
+the wrong place to set that value.
 
 ### A node shows no classification
 
