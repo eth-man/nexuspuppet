@@ -307,11 +307,19 @@ test.describe('classification', () => {
   });
 
   /**
-   * An invalid class name is caught at the API boundary rather than surfacing
-   * during catalog compilation on an agent, where it would be an opaque failure
-   * far from its cause.
+   * An invalid class name is caught AT THE FIELD, before a request is made.
+   *
+   * This test used to assert the older behaviour: the review dialog opened, the
+   * write was attempted, and the API answered 400. That worked, but a real
+   * session found what it cost — a single-colon typo produced a preview that
+   * failed, and the dialog then offered to apply the change anyway. The name is
+   * now validated with the same schema the API uses, so the dialog never opens
+   * for a name that cannot work.
+   *
+   * The API still rejects it; that is covered by plan-contract.spec.ts, which
+   * compares the plan and write schemas against the same inputs.
    */
-  test('rejects an invalid Puppet class name', async ({ page }) => {
+  test('rejects an invalid Puppet class name at the field', async ({ page }) => {
     const name = uniqueGroupName('classname');
 
     await page.goto('/classification');
@@ -321,18 +329,28 @@ test.describe('classification', () => {
     await expect(page).toHaveURL(/\/classification\/[0-9a-f-]{36}$/);
 
     await page.getByRole('button', { name: 'Assign' }).click();
-    await page.getByLabel('Class name').fill('Invalid::ClassName');
+    // A single colon — the typo that prompted this. Ordinary, and previously
+    // answered with "internal server error".
+    await page.getByLabel('Class name').fill('profile:monitoring');
     await page.getByLabel('Parameters (JSON)').fill('{}');
 
-    const [response] = await Promise.all([
-      page.waitForResponse((r) => r.url().includes('/classes') && r.request().method() === 'PUT'),
-      applyReviewed(page, () =>
-        page.getByRole('button', { name: 'Assign', exact: true }).last().click(),
-      ),
-    ]);
+    let requested = false;
+    page.on('request', (r) => {
+      if (r.url().includes('/classes') || r.url().includes('/classification/plan'))
+        requested = true;
+    });
 
-    expect(response.status()).toBe(400);
-    await expect(page.getByText('Change rejected')).toBeVisible();
+    await page.getByRole('button', { name: 'Assign', exact: true }).last().click();
+
+    await expect(page.getByText(/Not a valid Puppet class name/)).toBeVisible();
+    // The whole point: no preview, because there is nothing to preview.
+    await expect(page.getByRole('heading', { name: 'Review change' })).toHaveCount(0);
+    expect(requested, 'an invalid name must not reach the network').toBe(false);
+
+    // And the error clears as soon as the name is corrected, so the field does
+    // not stay red once the problem is fixed.
+    await page.getByLabel('Class name').fill('profile::monitoring');
+    await expect(page.getByText(/Not a valid Puppet class name/)).toHaveCount(0);
   });
 
   /**
