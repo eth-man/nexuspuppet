@@ -142,6 +142,7 @@ sudo ./scripts/dev/openvox-stack.sh && ./scripts/dev/openvox-compat.sh
 | 🧭 [**Roadmap**](ROADMAP.md) | What is built, what is next, and where to help |
 | 📋 [**Changelog**](CHANGELOG.md) | Release notes, known constraints, and what was deliberately deferred |
 | 🤝 [**Contributing**](CONTRIBUTING.md) | Local development, tests, architecture boundaries, how to open a PR |
+| 🧯 [**Lessons**](docs/LESSONS.md) | Mistakes this project made, what they cost, and what to do instead |
 | 🏛 [**Architecture**](docs/architecture/README.md) | C4 diagrams and thirteen ADRs recording the binding decisions |
 
 ---
