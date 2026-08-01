@@ -78,5 +78,11 @@ playwright-report/
 # are mounted from a path the operator chooses; nothing here belongs in git.
 deploy/caddy/certs/
 
-# QA fuzzer output: screenshots and a crash report per run.
-qa-report/
+# QA fuzzer output: screenshots and a report per run.
+#
+# Globbed, because comparing runs means keeping the old one — a seeded replay is
+# only worth anything next to the report it is being replayed against, so
+# `qa-report-baseline/` and similar are the normal way to use this, not a mess to
+# tidy up. The bare `qa-report/` pattern left every one of those untracked and
+# showing in `git status`.
+qa-report*/
