@@ -525,10 +525,17 @@ sudo install -m 0755 nexuspuppet-enc.sh /usr/local/bin/nexuspuppet-enc.sh
 
 ```ini
 # /etc/puppetlabs/puppet/puppet.conf
-[master]
+[server]
 node_terminus  = exec
 external_nodes = /usr/local/bin/nexuspuppet-enc.sh
 ```
+
+> **`[server]`, not `[master]`.** Puppet 8 and OpenVox 8 renamed the section.
+> `[master]` is still honoured as a deprecated alias, so a hand-edit using the
+> old name works and gives no hint that it is obsolete — and `puppet config set
+> --section master` quietly writes `[server]` anyway, so the file will not match
+> what you typed. This guide said `[master]` until an OpenVox 8.15 install was
+> walked end to end.
 
 If the directory is not at the default `/etc/puppetlabs/nexuspuppet`, set
 `NEXUSPUPPET_ENC_DIR` in puppetserver's environment.
@@ -860,9 +867,29 @@ authority; this is the short path that has been walked end to end.
 
 ### A.1 Packages
 
+**Add the OpenVox repository first.** These packages are not in Ubuntu or Debian,
+and without this the install below fails with `Unable to locate package
+openvoxdb` — which reads like a typo rather than a missing repository:
+
+```bash
+curl -fsSLO https://apt.voxpupuli.org/openvox8-release-ubuntu22.04.deb
+sudo dpkg -i openvox8-release-ubuntu22.04.deb
+sudo apt update
+```
+
+Swap the filename for your distribution — `openvox8-release-ubuntu24.04.deb`,
+`openvox8-release-debian12.deb`. All three were confirmed to resolve at the time
+of writing; if yours 404s, the index at <https://apt.voxpupuli.org/> is the
+authority.
+
+Then:
+
 ```bash
 sudo apt install postgresql postgresql-contrib openvoxdb openvoxdb-termini
 ```
+
+If you are also installing the server on this host, `openvox-server` and
+`openvox-agent` come from the same repository.
 
 The service names stay `puppetdb` and `puppetserver` under systemd; only the
 package names carry the OpenVox prefix. That catches people out when reading
