@@ -16,6 +16,7 @@ The core product is complete, verified against real Puppet and OpenVox software,
 | ✅ **Read-only PuppetDB client** | mTLS, parameterised AST queries, no write surface. Verified against real PuppetDB 7.10 and openvoxdb 8.15. |
 | ✅ **Node inventory and run reports** | Filter, sort, page; per-node facts, run history, and resource-level report detail. |
 | ✅ **Classification engine** | Groups, fact rules, class assignment, parameters, pins, rank-ordered merge with conflict reporting. |
+| ✅ **Estate-wide override report** | Where one group overrides another across the whole fleet, grouped by override and counted by nodes affected. Environment conflicts sort first. |
 | ✅ **Transactional outbox** | Every classification change writes its materialization job and audit row in one transaction. |
 | ✅ **Fact projection** | Incremental polling, keyset-paginated full reconcile, prune safety rails, deactivation handling. |
 | ✅ **Local authentication** | JWT sessions, scrypt hashing, account lockout, full audit trail. |
@@ -57,7 +58,7 @@ a specific deployment needs it and not before.
 
 - **Estate-scale validation.** Everything is verified for correctness but not for scale. A 1,000+ node estate with large custom facts will stress pagination, projection and the materializer in ways a local harness does not. **If you run one, we would like to hear what breaks.**
 - **Fixture diversity.** Captured fixtures come from one Debian node on puppet-agent 7.20. Captures from RedHat, Windows and Puppet 8 estates would exercise mappers that nothing currently touches.
-- **Estate-wide conflict report.** Per-node classification conflicts are surfaced today; an estate-wide "these groups disagree" view is designed ([ADR-0009](docs/architecture/adr/0009-classification-merge-semantics.md)) but not built.
+- **Clean-machine deployment testing in CI.** Two defects in `DEPLOYMENT.md` survived to v1.0.0 and were found by installing on a bare VM: Appendix A never added the OpenVox apt repository, and the node terminus section was named `[master]` rather than `[server]`. Neither was reachable by any existing job — `install-smoke` runs on a runner that already has Docker and never installs OpenVox, and nothing parses a section name out of prose. A scheduled job that provisions a bare Ubuntu VM and walks the guide from the top would close the gap. It is real infrastructure, not a script, which is why it is here rather than done.
 
 ---
 
