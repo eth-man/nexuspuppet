@@ -131,7 +131,14 @@ The enterprise layer registers `LICENSE_SERVICE` — **which is the specific def
 
 2. **What does the console show during grace?** A dismissible banner risks being dismissed on day 1 and never seen again; a permanent one trains people to ignore banners. Escalating from dismissible to permanent in the final week is the likely answer, but it needs a decision.
 
-3. **How is a licence replaced without a restart?** Re-reading the file on a timer would allow a renewal to take effect in place — attractive, but it means capability registration can change at runtime, which the DI graph does not currently support. A restart is acceptable for v1; the question is whether that closes off in-place renewal later.
+3. ~~**How is a licence replaced without a restart?**~~ **Decided: it is not, in v1.** Drop in the new file and restart the service. Veteran operators expect a restart when installing a licence, the DI graph does not support changing capability registration at runtime, and inventing a hot-reload path to avoid a ten-second restart is not a trade worth making for a first release.
+
+   Recorded so the eventual path is not rediscovered from scratch. Two established shapes, either of which this design can adopt without revisiting §1:
+
+   - **Upload through the API.** A `settings:manage` endpoint stores the licence in Postgres and refreshes entitlement in place. The most operator-friendly — no shell, no file mount, and it works identically for a clustered deployment where every replica reads the same row. It is also the larger change: the licence stops being a mounted file, which means §1's file-over-environment-variable reasoning has to be re-examined for a database column, and a signed public claim in a database is a different audit story than one on disk.
+   - **Signal the process to re-read the file.** `SIGHUP` is the conventional Unix answer and drops no connections. Note for whoever picks this up: our shipped deployment is Docker Compose, not systemd units, so `systemctl reload` is not the trigger — it would be `docker compose kill -s HUP api`, or a `reload` verb on a native install. Worth stating plainly, because the systemd idiom is what everyone reaches for first and it does not exist here.
+
+   Both need the same prerequisite: a `LICENSE_SERVICE` whose capability set can change after boot, which today it cannot. That prerequisite is the real work, not the trigger mechanism.
 
 4. **Does the grace window survive a restart?** If grace is computed purely from `exp`, yes, and it needs no state. If it is ever anchored to first-observed-expiry, it needs persistence and becomes tamperable. Prefer the stateless reading unless something forces otherwise.
 
