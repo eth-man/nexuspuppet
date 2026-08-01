@@ -321,6 +321,24 @@ export class UsersService {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (user === null) throw new NotFoundException('No such user.');
 
+    // A directory account has no local password to set, and setting one is
+    // worse than a no-op.
+    //
+    // Since ADR-0015 a login dispatches strictly on authSource, so a hash
+    // written here could never authenticate anybody — the local provider is
+    // never asked about an `ldap` account. What it WOULD do is leave a
+    // credential on disk for an identity the directory owns, which is the exact
+    // hazard the create-user dialog already refuses to create: "a stored hash
+    // would keep it usable through local auth after the directory revoked
+    // access". Offering the action and silently doing nothing useful is the
+    // worst of the three options.
+    if (user.authSource !== 'local') {
+      throw new BadRequestException(
+        `${user.email} is authenticated by "${user.authSource}", not by a local password. ` +
+          'Reset it in that directory instead.',
+      );
+    }
+
     const passwordHash = await hashPassword(newPassword);
 
     await this.prisma.$transaction(async (tx) => {
