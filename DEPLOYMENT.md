@@ -137,6 +137,59 @@ deployment can do. Enterprise-only routes exist in the core build and return
 `501` with a `capability` field, never `404` — the feature exists, this
 deployment lacks it.
 
+### Provision your directory accounts BEFORE you set `LDAP_URL` or `OIDC_ISSUER`
+
+Setting either one replaces `AUTH_PROVIDER` **wholesale**. At the next restart:
+
+- `admin@example.com`, and every other account with `authSource: local`, **can no
+  longer sign in.** There is no fallback — the enterprise provider owns the token.
+- Directory users cannot sign in either. NexusPuppet does **not** auto-provision:
+  it authenticates them against the directory and then refuses, logging
+  `authenticated against the directory, but no NexusPuppet account exists`.
+
+If you have not created the accounts first, that is **everybody locked out**, and
+the obvious escape does not work. Unsetting `LDAP_URL` again makes the API refuse
+to start:
+
+```
+Fatal: The enterprise layer is installed but no authentication provider is configured.
+```
+
+A throw from `register()` is fatal by design (ADR-0002) — once the layer is in the
+image, a working provider is mandatory. You cannot back out by removing config.
+
+**So do it in this order**, while local authentication still works:
+
+```bash
+# 1. Sign in as the bootstrap admin and create each directory account.
+#    No password: a stored hash would keep the account usable through local auth
+#    after the directory revoked access.
+curl -s -b jar -X POST http://localhost:3001/users \
+  -H 'content-type: application/json' \
+  -d '{"email":"you@yourorg.com","displayName":"You","role":"VIEWER","authSource":"ldap"}'
+
+# 2. Only now set LDAP_URL / OIDC_ISSUER in .env and restart.
+```
+
+The `role` you set here is a placeholder. Group mapping is authoritative and
+overrides it at every login — an account stored as `VIEWER` whose group maps to
+`ADMIN` signs in as `ADMIN`.
+
+**If you are already locked out**, the account must be inserted directly, which
+bypasses the audit trail and is a recovery action rather than a way to provision:
+
+```bash
+sudo docker compose exec -T db psql -U nexuspuppet -d nexuspuppet -c "
+  INSERT INTO users (id, email, \"displayName\", role, \"isActive\", \"authSource\", \"createdAt\", \"updatedAt\")
+  VALUES (gen_random_uuid(), 'you@yourorg.com', 'You', 'VIEWER', true, 'ldap', now(), now())
+  ON CONFLICT (email) DO UPDATE SET \"authSource\" = 'ldap', \"isActive\" = true;"
+```
+
+Keeping one local break-glass administrator is not possible today: the local
+provider is replaced, not supplemented. [ADR-0014](docs/architecture/adr/0014-enterprise-licensing.md)
+§3 proposes an audited break-glass for the licence-expiry case, and the same
+mechanism would cover this one.
+
 ---
 
 ## 3. PuppetDB certificates
