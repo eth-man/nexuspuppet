@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuthProviderResolver } from '../src/auth/auth-provider.resolver';
 import { LocalAuthProvider, normalizeEmail } from '../src/auth/local-auth.provider';
 import { TokenService } from '../src/auth/token.service';
 import { RbacPolicy } from '../src/auth/rbac.policy';
@@ -68,7 +69,11 @@ describe('auth (integration)', () => {
     await prisma.user.deleteMany();
 
     provider = new LocalAuthProvider(prisma);
-    tokens = new TokenService(prisma, provider, {
+    // A REAL resolver, not a stub. TokenService dispatches through it now
+    // (ADR-0015), and these suites exercise refresh — the path where a resolver
+    // that cannot find a provider must fail closed rather than throw. A stub
+    // would test the stub.
+    tokens = new TokenService(prisma, new AuthProviderResolver([provider], prisma, 0), {
       secret: SECRET,
       accessTtl: '15m',
       refreshTtl: '30d',

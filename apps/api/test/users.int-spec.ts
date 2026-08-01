@@ -4,6 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { TokenService } from '../src/auth/token.service';
 import { UsersService } from '../src/auth/users.service';
+import { AuthProviderResolver } from '../src/auth/auth-provider.resolver';
 import { LocalAuthProvider } from '../src/auth/local-auth.provider';
 import { hashPassword, verifyPassword } from '../src/auth/password';
 
@@ -46,7 +47,11 @@ describe('user administration (integration)', () => {
     await prisma.user.deleteMany();
 
     provider = new LocalAuthProvider(prisma);
-    tokens = new TokenService(prisma, provider, {
+    // A REAL resolver, not a stub. TokenService dispatches through it now
+    // (ADR-0015), and these suites exercise refresh — the path where a resolver
+    // that cannot find a provider must fail closed rather than throw. A stub
+    // would test the stub.
+    tokens = new TokenService(prisma, new AuthProviderResolver([provider], prisma, 0), {
       secret: 'x'.repeat(48),
       accessTtl: '15m',
       refreshTtl: '30d',
