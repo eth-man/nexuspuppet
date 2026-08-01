@@ -522,6 +522,45 @@ describe('user administration (integration)', () => {
     });
   });
 
+  describe('resetting a password', () => {
+    it('sets a new password on a local account', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const user = await makeUser('user@example.com', 'OPERATOR');
+
+      await users.resetPassword(user.id, 'a-brand-new-long-password', principalFor(admin), CTX);
+
+      const result = await provider.authenticate({
+        email: 'user@example.com',
+        password: 'a-brand-new-long-password',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('refuses a directory account, and writes no hash', async () => {
+      // Since ADR-0015 a login dispatches strictly on authSource, so a hash
+      // written here could never authenticate anybody. What it WOULD do is
+      // leave a credential on disk for an identity the directory owns — the
+      // hazard the create-user path already refuses to create.
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const external = await prisma.user.create({
+        data: {
+          email: 'ldap-user@example.com',
+          displayName: 'Directory User',
+          role: 'VIEWER',
+          authSource: 'ldap',
+          passwordHash: null,
+        },
+      });
+
+      await expect(
+        users.resetPassword(external.id, 'a-brand-new-long-password', principalFor(admin), CTX),
+      ).rejects.toThrow(/not by a local password/i);
+
+      const after = await prisma.user.findUnique({ where: { id: external.id } });
+      expect(after?.passwordHash).toBeNull();
+    });
+  });
+
   describe('detail view', () => {
     it('counts only sessions that would still work', async () => {
       // Three tokens, three fates. An earlier version of this test created only

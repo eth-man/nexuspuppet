@@ -184,7 +184,18 @@ export function UsersPanel() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      title="Set a new password"
+                      // A directory account has no local password to set. Since
+                      // ADR-0015 a login dispatches strictly on authSource, so a
+                      // hash written here could never authenticate anybody — it
+                      // would only leave a credential on disk for an identity
+                      // the directory owns. The API refuses it; this stops the
+                      // control offering an action that cannot succeed.
+                      disabled={user.authSource !== 'local'}
+                      title={
+                        user.authSource === 'local'
+                          ? 'Set a new password'
+                          : `Authenticated by ${user.authSource} — reset the password in that directory`
+                      }
                       onClick={() => {
                         setError(null);
                         setResetFor(user);
