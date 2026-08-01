@@ -113,14 +113,31 @@ Bind credentials stored in the database are secrets: never returned by any read 
 
 **Environment-only configuration, no database.** Avoids §4 entirely. Rejected because the settings UI is a stated requirement, and because editing `.env` and restarting to change a search base is the rigidity being complained about.
 
-## Open questions
+## Resolved during design
 
-1. **What is the timing floor, in milliseconds, and is it measured or configured?** A constant is wrong for somebody. Measuring the slowest provider at boot is self-tuning but makes login latency depend on a startup probe. Leaning towards a configured floor with a sane default and a warning when a provider regularly exceeds it.
+All five were answered before implementation began. They are kept with their answers because the reasoning is the useful part.
 
-2. **Where does the encryption key for stored bind credentials live?** `JWT_SECRET` is available and would be reuse of a key for a second purpose, which is usually a mistake. A separate `CONFIG_ENCRYPTION_KEY` is cleaner and is one more thing to lose.
+1. ~~**What is the timing floor, and is it measured or configured?**~~ **Configured, with a sane default. No startup probe.**
 
-3. **What happens to sessions belonging to a provider that is deregistered mid-flight** — licence expiry, or a provider disabled in the UI? Existing refresh tokens resolve through the provider. ADR-0014 §3 says existing sessions continue until their refresh tokens expire; that needs to be true of a resolver that no longer has the provider, which suggests refresh must fail closed and gracefully rather than throw on an unknown `authSource`.
+   A probe makes boot time depend on a network round trip to a directory that may be slow, unreachable, or not yet started — turning a startup into an unpredictable one, in exactly the environments where predictable startup matters. `AUTH_LOGIN_FLOOR_MS` defaults to **1500ms**: comfortably above a scrypt (~100ms) and above a healthy LDAP round trip, low enough not to feel broken. A provider regularly exceeding it warns rather than fails, because a slow directory is an operations problem and not a reason to refuse logins.
 
-4. **Does the login form need to change?** With one provider the form asks for whatever `identifierLabel` says. With two, the label is ambiguous until the account is resolved — and resolving before the password is entered would leak which accounts exist. Probably: keep one form, label it `Email`, resolve server-side, and never tell the browser which provider answered.
+2. ~~**Where does the encryption key for stored bind credentials live?**~~ **A dedicated `CONFIG_ENCRYPTION_KEY`.**
 
-5. **Should `authSource` be visible in the users table?** It already is. Worth confirming it stays, because with two providers live it stops being trivia and becomes the field that explains why a login behaves the way it does.
+   Not `JWT_SECRET`. One key, one purpose: rotating a signing secret should not decide whether stored credentials remain readable, and a key compromised in one role should not hand over the other. It is one more secret to manage, which is the correct price.
+
+   Belongs to the settings-UI work, not to this one — nothing is stored in the database until there is a UI storing it. Recorded here so it is not re-litigated then.
+
+3. ~~**What happens to sessions belonging to a deregistered provider?**~~ **Refresh fails closed; the access token lives out its lifetime.**
+
+   A refresh presenting an `authSource` the resolver no longer knows is rejected cleanly and the session ends. No error page, no crash on an unknown source — a clean rejection and a return to the login screen.
+
+   The access token is deliberately not revoked. It expires within `ACCESS_TOKEN_TTL` anyway, and killing sessions mid-request the instant a licence lapses is the abrupt behaviour [ADR-0014](./0014-enterprise-licensing.md) §2 exists to avoid. Someone mid-edit finishes; nobody starts a new session through a provider that is gone.
+
+4. ~~**Does the login form need to change?**~~ **No. One form, labelled `Email`.**
+
+   The server resolves the provider, applies the timing floor, and answers identically either way. The browser is never told which provider replied — telling it would hand an attacker the enumeration oracle that §2 exists to close, in the response body rather than in the timing.
+
+5. ~~**Should `authSource` stay visible in the users table?**~~ **Yes.**
+
+   With two providers live it stops being trivia and becomes the field that explains behaviour: why one account survived a directory outage, why another cannot reset its password locally, why one login path is slow. It is operational context for whoever is on call.
+
