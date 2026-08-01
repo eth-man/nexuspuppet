@@ -32,6 +32,7 @@ import {
   parseCookies,
   type AuthenticatedRequest,
 } from './auth.guard';
+import { AuthProviderResolver } from './auth-provider.resolver';
 import { RefreshTokenError, TokenService, type SessionTokens } from './token.service';
 import { LoginRateLimiter } from './core-capabilities';
 
@@ -57,6 +58,7 @@ const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
 @Controller('auth')
 export class AuthController {
   constructor(
+    private readonly resolver: AuthProviderResolver,
     @Inject(AUTH_PROVIDER) private readonly provider: IAuthProvider,
     private readonly tokens: TokenService,
     private readonly rateLimiter: LoginRateLimiter,
@@ -92,9 +94,11 @@ export class AuthController {
   @RequirePermission('settings:manage')
   @Get('provider')
   describeProvider(): AuthProviderDescription {
+    const described = this.resolver.describableProvider() ?? this.provider;
+
     return (
-      this.provider.describe?.() ?? {
-        source: this.provider.source,
+      described.describe?.() ?? {
+        source: described.source,
         roleMappings: [],
         refusesUnmappedUsers: false,
         details: [],
@@ -127,7 +131,7 @@ export class AuthController {
       );
     }
 
-    const result = await this.provider.authenticate(credentials);
+    const result = await this.resolver.authenticate(credentials);
 
     if (!result.ok) {
       // One message for every failure. Distinguishing "no such user" from
@@ -168,8 +172,9 @@ export class AuthController {
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,
   ): Promise<void> {
-    const begin = this.provider.beginRedirect?.bind(this.provider);
-    if ((this.provider.mode ?? 'credentials') !== 'redirect' || begin === undefined) {
+    const redirect = this.resolver.redirectProvider();
+    const begin = redirect?.beginRedirect?.bind(redirect);
+    if (redirect === null || begin === undefined) {
       throw new BadRequestException({
         error: 'REDIRECT_NOT_SUPPORTED',
         message: 'This deployment does not use an external identity provider.',
@@ -208,8 +213,9 @@ export class AuthController {
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,
   ): Promise<void> {
-    const complete = this.provider.completeRedirect?.bind(this.provider);
-    if ((this.provider.mode ?? 'credentials') !== 'redirect' || complete === undefined) {
+    const redirect = this.resolver.redirectProvider();
+    const complete = redirect?.completeRedirect?.bind(redirect);
+    if (redirect === null || complete === undefined) {
       throw new BadRequestException({
         error: 'REDIRECT_NOT_SUPPORTED',
         message: 'This deployment does not use an external identity provider.',

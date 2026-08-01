@@ -45,6 +45,22 @@ export interface EnterpriseModuleDescriptor {
   registrations: CapabilityRegistration[];
   /** Optional NestJS module classes to import wholesale. */
   modules?: unknown[];
+
+  /**
+   * Authentication providers contributed ALONGSIDE core's local provider
+   * (ADR-0015).
+   *
+   * Additive, unlike `registrations`, which overrides. A directory provider
+   * listed here is dispatched to for accounts whose `authSource` matches its
+   * `source`; local accounts keep working through core's provider, which is
+   * why an expired licence or a misconfigured directory can no longer lock an
+   * administrator out.
+   *
+   * Registering `AUTH_PROVIDER` through `registrations` is REFUSED. That path
+   * replaced the local provider outright, and an enterprise build able to
+   * unbind local authentication can lock an operator out of their own console.
+   */
+  authProviders?: unknown[];
 }
 
 /** The shape `packages/enterprise` must default-export. */

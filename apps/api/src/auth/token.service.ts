@@ -1,11 +1,8 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  AUTH_PROVIDER,
-  type AuthenticatedPrincipal,
-  type IAuthProvider,
-} from '@nexuspuppet/contracts';
+import { Injectable, Logger } from '@nestjs/common';
+import { type AuthenticatedPrincipal } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthProviderResolver } from './auth-provider.resolver';
 import { parseDuration, signJwt, verifyJwt, JwtError } from './jwt';
 
 /**
@@ -75,7 +72,17 @@ export class TokenService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AUTH_PROVIDER) private readonly authProvider: IAuthProvider,
+    /**
+     * The RESOLVER, not a single provider (ADR-0015).
+     *
+     * This used to be `@Inject(AUTH_PROVIDER)`, one provider for the whole
+     * deployment — so an enterprise directory did not sit beside local
+     * authentication, it replaced it, and every local account lost its way in.
+     * The resolver dispatches by the account's authSource and fails closed when
+     * a source has no provider, which is what makes a refresh survive a licence
+     * expiry as a clean logout rather than a crash.
+     */
+    private readonly authProvider: AuthProviderResolver,
     private readonly options: TokenServiceOptions,
   ) {
     this.accessTtlSeconds = parseDuration(options.accessTtl);
