@@ -4,7 +4,7 @@
 # Install on the puppetserver host and configure:
 #
 #   # /etc/puppetlabs/puppet/puppet.conf
-#   [master]
+#   [server]          # [master] on Puppet 7 and earlier
 #   node_terminus  = exec
 #   external_nodes = /usr/local/bin/nexuspuppet-enc.sh
 #

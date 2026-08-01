@@ -184,7 +184,7 @@ docs/architecture    C4 + ADRs   binding decisions
 
 ```ini
 # /etc/puppetlabs/puppet/puppet.conf
-[master]
+[server]
 node_terminus  = exec
 external_nodes = /usr/local/bin/nexuspuppet-enc.sh
 ```
