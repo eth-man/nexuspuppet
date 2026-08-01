@@ -1,4 +1,4 @@
-# ADR-0016 — A settings store operators can use, and audit records that leave
+# ADR-0016 — A settings store operators can use, and an audit table that stays bounded
 
 - **Status:** Proposed
 - **Deciders:** Architect
@@ -12,7 +12,7 @@ Three requirements arrive together and share one mechanism:
 
 1. **LDAP configured from the console**, viewable, editable and testable without a restart.
 2. **Syslog forwarding of audit records**, configured the same way, alongside the existing webhook transport.
-3. **An audit off-switch**, and a Postgres audit table that behaves as a queue rather than an archive.
+3. **A bound on the audit table**, so a long-lived deployment cannot fill its disk.
 
 They share a store, a precedence rule, an encryption key and a settings surface, so they are designed together rather than three times.
 
@@ -55,80 +55,93 @@ A **Test** action validates a candidate configuration without saving it: bind, s
 
 RFC 5424. `audit.syslog` joins `audit.webhook` as a transport under the existing `IAuditTransport` contract, whose documentation already anticipated it.
 
-**UDP cannot confirm delivery, and that changes what a "successful" send means.** The outbox deletes a record once a transport reports success. Over UDP, success means the kernel accepted the datagram — not that the collector received it, and certainly not that it indexed it. Silently deleting security records on that basis is not acceptable in a product that already refuses to start rather than send audit records over plain HTTP off-localhost.
+**UDP cannot confirm delivery, and the outbox is built on confirmation.** A delivery job is cleared when a transport reports success; over UDP, success means the kernel accepted a datagram — not that the collector received it, and certainly not that it indexed it. A product that already refuses to start rather than send audit records over plain HTTP off-localhost should not quietly call that delivered.
 
 Therefore:
 
 - **TCP is the default. TLS is supported and recommended.**
 - **UDP is opt-in**, marked in the UI as *unconfirmable delivery*, in those terms.
-- **A UDP transport reports best-effort semantics, and the outbox honours them**: records sent over UDP are **not** purged on send (§6). Best-effort delivery must not imply best-effort retention.
+- **A UDP send clears its job but is recorded as unconfirmed**, so `GET /system/status` can report that this deployment cannot prove its audit records arrived. The retention sweeper is unaffected: records age out on the same schedule either way, because retention is about disk and not about delivery.
 
-### 6. Postgres is a queue for forwarded records, not an archive
+### 6. Bounded by a retention policy, not by purge-on-delivery
 
-**Confirmed delivery purges the record.** Once a transport confirms — a TCP/TLS syslog write acknowledged, or a webhook returning success — the `audit_logs` row and its delivery job are removed in one transaction.
+**`AUDIT_RETENTION_DAYS`, default 90, plus `AUDIT_RETENTION_MAX_ROWS` as a ceiling.** A sweeper deletes what falls outside either bound.
 
-The reasoning is the operator's: nothing in the console displays audit records today, so retaining them indefinitely is unbounded growth for data nobody reads locally. The external collector is the system of record.
+The problem being solved is unbounded growth on a host that has to keep running — not the existence of local records. An earlier draft of this ADR purged each record the moment a transport confirmed it. That bounds growth too, and costs more than it needs to:
 
-Four things this must not become:
+- The collector silently becomes the **only** system of record. A misconfigured SIEM that accepts and discards leaves nothing anywhere.
+- There is nothing left to build a local audit view on, so the absence of one becomes permanent by construction.
+- Core, which forwards nowhere, would be bounded by nothing at all — and a core deployment fills a disk exactly as readily as an enterprise one.
 
-- **Core does not purge.** Core forwards nowhere — `NoopAuditTransport` reports `configured: false` — so there is no confirmation and nothing is deleted. **In the core edition Postgres remains the durable audit trail**, exactly as today. Purging is a consequence of successful forwarding, never of time passing.
-- **Unconfirmable sends do not purge.** See §5. UDP retains.
-- **A failing transport retains.** The outbox already backs off and retries; records accumulate until delivery succeeds, which is the point of the pattern.
-- **What survives user deletion changes meaning.** `AuditLog.actor` is `onDelete: SetNull` and the deletion path copies the email into the record precisely so history stays legible ([#52](https://github.com/eth-man/nexuspuppet/pull/52)). With forwarding enabled that history now lives in the collector. **The claim "the audit trail survives" becomes a claim about the SIEM**, and the documentation must say so rather than leave an operator believing Postgres still holds it.
+Retention bounds growth in every edition, keeps the trail, and leaves forwarding to do the job forwarding is for. **The schema already assumed this**: `AuditDeliveryJob` cascades from `AuditLog` and says so — *"if audit retention removes the record, an undelivered job for it is meaningless. Forwarding is best-effort against a retention window."*
 
-**TCP confirms transmission, not durable receipt.** The socket accepting bytes does not mean the collector persisted them. This is an accepted, stated limitation of forwarding-as-retention, not something the design can solve — and it is the strongest argument for TLS with a collector that acknowledges at the application layer where one is available.
+**Retention is core, not enterprise.** Unbounded growth is not a licensed problem.
 
-### 7. Audit recording can be switched off entirely
+#### Two bounds, because one is not enough
 
-`audit.enabled`, false disables recording. Not just forwarding — no rows written.
+Age alone does not bound a burst. A classification change across a large estate writes a great many records in a moment, all comfortably inside a 90-day window. `AUDIT_RETENTION_MAX_ROWS` is the backstop that keeps a single afternoon from filling a disk; age is what keeps the table from creeping.
 
-This was chosen deliberately over the narrower "stop forwarding, keep recording", for deployments that do not require an audit trail and do not want the writes or the I/O. **The concern was raised and the trade accepted**; it is recorded here so it is not rediscovered as an accident.
+#### Deleting must not become the bloat it prevents
 
-The design makes the state legible rather than silent:
+In PostgreSQL a `DELETE` does not reclaim space — it writes dead tuples that autovacuum reclaims later. One enormous delete produces exactly the bloat and I/O spike this section exists to avoid, and can hold a transaction open long enough to block vacuum across the database.
 
-- **Disabling is itself audited.** A final record is written, in the same transaction that flips the setting, before recording stops. An off-switch whose use leaves no trace is the one thing an audit trail exists to catch. Re-enabling is audited on the way back in.
-- **The console says so.** A persistent indicator for anyone holding `settings:manage` — not a toast that is dismissed and forgotten.
-- **`GET /system/status` reports it**, so a monitoring system can alert on an estate whose auditing was turned off.
-- **It is an enterprise setting**, gated on a licensed capability. Core has no switch and always records.
+So the sweeper:
 
-**One implementation hazard, recorded because it is easy to get wrong.** Classification writes place the outbox row and the audit row in a single transaction, and that invariant is load-bearing. Disabling audit must remove the audit write from that transaction without changing when the outbox row is committed. It must not become a conditional that skips the transaction, or a path where a classification change is materialised without its job.
+- **Deletes in bounded batches** with a ceiling per pass, and stops rather than catching up in one go.
+- **Uses `@@index([createdAt])`**, which already exists, so a sweep is a range scan rather than a sequential one.
+- **Runs on a schedule with jitter**, not on every write.
+- **Never runs inside a request.**
+
+Time-based partitioning with `DROP PARTITION` reclaims space without vacuum churn and is the answer at a scale this product has not yet been measured at ([ROADMAP](../../../ROADMAP.md) records that estate-scale validation is outstanding). It is a schema change with migration consequences; batched deletes first, partitioning when there is a measurement that justifies it.
+
+#### An undelivered record is not deleted by age
+
+This is the interaction that matters. A record still queued for a collector must not be swept away because it aged out while the collector was down — that turns an outage into silent data loss, which is the failure the outbox exists to prevent.
+
+- **Age-based sweeping skips rows with a pending delivery job**, however old.
+- **The row ceiling does not skip them**, because something has to bound the case where a collector is down for a month. It deletes oldest-first and **logs how many undelivered records it dropped**, and `GET /system/status` surfaces the count.
+
+A pending queue growing past its ceiling is an operational alarm, not a silent condition.
 
 ## Consequences
 
 ### What this buys
 
 - Operators configure LDAP and syslog from the console, with a test that does not require locking themselves out to discover a typo.
-- Audit records reach a SIEM, and Postgres stops growing without bound for data nobody reads locally.
-- Deployments that do not need auditing stop paying for it.
+- Audit records reach a SIEM, and the local trail stays intact for security review and for a future audit view.
+- **The database is bounded in every edition**, by age and by row count, without anybody having to turn security off to achieve it.
 
 ### What it costs
 
 - A second source of truth for configuration. §2's precedence rule and its escape hatch exist to bound that, and both need tests.
-- Encrypted-at-rest fields and a key to manage, back up and eventually rotate.
-- **Retention becomes a property of a system we do not control.** If the collector is misconfigured, records are confirmed and purged into nothing. That is inherent to the choice, and it is why §6 lists what must not purge.
+- Encrypted-at-rest fields, and a key to manage, back up and eventually rotate.
+- A sweeper is a background job that deletes data. It needs to be conservative, batched, observable, and covered by tests that assert what it does **not** delete.
 
 ### What it does NOT buy
 
-- **Not multi-destination.** One syslog target, as with one webhook. Fan-out to several collectors is a larger change.
-- **Not a local audit viewer.** The absence of one is the premise of §6; building one would reopen the retention question.
-- **Not tamper-evidence.** Neither signed records nor a hash chain. Purge-on-delivery makes the collector the system of record, so integrity guarantees belong there.
+- **Not multi-destination.** One syslog target, as with one webhook.
+- **Not a local audit viewer.** The records are kept and indexed, so one can be built; this ADR does not build it.
+- **Not tamper-evidence.** Neither signed records nor a hash chain. A retained local trail plus a forwarded copy is two places to compare, which is weaker than integrity proof and better than one.
+- **Not unbounded history.** Anything older than the window is gone. A deployment with a statutory retention requirement must forward to something that keeps it.
 
 ## Alternatives considered
 
-**Time-based retention instead of purge-on-delivery.** Keep N days locally regardless of forwarding. Simpler, and keeps a local copy — but it retains for deployments that forward everything and would rather not, which is the stated problem.
+**Purge each record once a transport confirms it.** Drafted, and dropped. It bounds growth only where forwarding is configured — so core, which forwards nowhere, stays unbounded — and it makes the collector the sole system of record, leaving nothing behind if that collector accepts and discards. It also forecloses a local audit view by construction.
 
-**Keep configuration in the environment; add a read-only settings view.** No second source of truth, no encryption key, no precedence rule. Rejected: it does not meet the requirement, and a read-only view of a file the operator must edit by hand is a worse experience than no view.
+**A complete off-switch for audit recording.** Drafted, and dropped once the underlying motivation turned out to be disk growth rather than a wish to stop auditing. Retention solves that without building a control whose entire purpose is to stop recording who did what — and, unlike an off-switch, it keeps working when nobody remembers to set it.
 
-**Forwarding toggle only, no recording off-switch.** Safer, and my initial recommendation. Rejected by the architect for deployments that do not require auditing at all; §7 records the reasoning and the mitigations.
+**Time-based partitioning from the start.** `DROP PARTITION` reclaims space without vacuum churn and is the better mechanism at scale. Deferred rather than rejected: it is a schema change with migration consequences, and this product has no estate-scale measurement yet to size it against.
+
+**Keep configuration in the environment; add a read-only settings view.** No second source of truth, no encryption key, no precedence rule. Rejected: it does not meet the requirement, and a read-only view of a file the operator must still edit by hand is worse than no view.
 
 ## Open questions
 
-1. **What confirms a webhook delivery?** Any 2xx, or a specific status? A collector answering `202 Accepted` has taken responsibility; one answering `200` may merely have a proxy in front of it. Purging on the wrong signal deletes records that never arrived.
+1. **What confirms a webhook delivery?** Any 2xx, or a specific status? A collector answering `202 Accepted` has taken responsibility; one answering `200` may be a proxy in front of it. Less destructive than it was — a wrong answer now clears a delivery job rather than deleting the record — but it still decides whether a record is silently never retried.
 
-2. **Does purge-on-delivery apply retroactively when forwarding is first enabled?** A deployment that ran for a year in core has a large table. Forwarding it all to a SIEM on the first poll is a surprise; leaving it forever is the bloat this addresses. Probably a bounded backfill with an explicit operator action, but it needs deciding.
+2. **What are the right defaults?** 90 days and a row ceiling of what? The ceiling has to be chosen against a realistic burst: a classification change across a large estate writes one record per affected group operation, not per node, but that has not been measured. A default that trips on a normal Tuesday is worse than no ceiling.
 
-3. **Where does `CONFIG_ENCRYPTION_KEY` live in the container deployment?** The convention here is mounted files for key material ([ADR-0013](./0013-console-tls-private-ca.md) §2), which argues for a file rather than an environment variable — but the API needs it before it can read anything.
+3. **Where does `CONFIG_ENCRYPTION_KEY` live in the container deployment?** The convention here is mounted files for key material ([ADR-0013](./0013-console-tls-private-ca.md) §2), which argues for a file — but the API needs it before it can read anything.
 
-4. **What happens to queued records when the audit off-switch is thrown?** Undelivered rows exist and describe real events. Draining them before recording stops is the honest answer; discarding them is not, and neither is leaving them queued forever against a transport nobody will reconfigure.
+4. **Should the sweeper refuse to run when forwarding is configured but has never succeeded?** Deleting on schedule while every delivery fails is technically correct and probably not what the operator wants on day one of a broken SIEM integration. An alarm plus a grace period may be better than a rule.
 
-5. **Does a syslog transport need its own rate limiting?** A classification change across a large estate can produce a burst. RFC 5424 over TCP will apply backpressure; a slow collector could then stall the delivery worker and, through it, the queue.
+5. **Does a syslog transport need its own rate limiting?** RFC 5424 over TCP applies backpressure; a slow collector could stall the delivery worker and, through it, the queue.
