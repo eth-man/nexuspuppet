@@ -118,6 +118,7 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0011](./adr/0011-scoped-rbac.md) | Scoped RBAC: bounding writes by environment — **Deferred** |
 | [0012](./adr/0012-gitops-classification-mirror.md) | GitOps mode: classification mirrored to Git — **Deferred** |
 | [0013](./adr/0013-console-tls-private-ca.md) | TLS for the console, from a private CA |
+| [0014](./adr/0014-enterprise-licensing.md) | Enterprise licensing: signed offline claim, degrading to core — **Proposed** |
 
 ## 11. Open questions
 
