@@ -5,9 +5,32 @@ WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/contracts/package.json packages/contracts/
 COPY apps/api/package.json apps/api/
-# The enterprise layer is absent here by design (ADR-0002). For a private
-# build, run `npm run enterprise:fetch` before docker build and add
-# `COPY packages/enterprise packages/enterprise` above this line.
+# The enterprise layer is absent here by design (ADR-0002).
+#
+# A PRIVATE BUILD NEEDS FOUR EDITS, NOT ONE. This comment used to name only the
+# COPY below, and that is not enough: the build succeeds, the API starts, and
+# the loader reports "No enterprise layer installed — running core edition".
+# It fails SILENTLY INTO CORE, which is the worst available outcome — an
+# operator who paid for SSO gets a working console with local auth and no error
+# anywhere. Verified on a clean VM: `node_modules/@nexuspuppet/` in the runtime
+# image held only `api` and `contracts`.
+#
+#   1. COPY packages/enterprise packages/enterprise      (below, before npm ci)
+#   2. add --workspace @nexuspuppet/enterprise to the npm ci line, or the
+#      workspace is never linked into node_modules
+#   3. in the build stage, `npm run build --workspace @nexuspuppet/enterprise`
+#      after contracts and before api — package.json main is ./dist/index.js
+#   4. in the runtime stage, copy packages/enterprise/dist and its package.json,
+#      or the node_modules symlink copied from build points at nothing
+#
+# Run `npm run enterprise:fetch` AND `npm install` on the host first. `npm ci`
+# fails outright without the second — the committed lock file has no entry for
+# @nexuspuppet/enterprise:
+#   npm error Missing: @nexuspuppet/enterprise@0.1.0 from lock file
+#
+# For LDAP, also `npm install ldapts --workspace @nexuspuppet/enterprise`. It is
+# an optional peer dependency so an OIDC-only deployment does not pull an LDAP
+# client; without it the layer loads and every login fails at runtime.
 RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/api --include-workspace-root
 
 FROM deps AS build
