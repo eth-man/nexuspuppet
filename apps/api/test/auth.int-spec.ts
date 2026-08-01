@@ -32,6 +32,22 @@ const SECRET = 'x'.repeat(48);
 
 jest.setTimeout(60_000);
 
+/**
+ * A resolver holding a single provider, for tests that construct the controller
+ * directly. The controller now dispatches through the resolver (ADR-0015) so
+ * local and directory accounts can both authenticate.
+ */
+const resolverFor = (provider: IAuthProvider): never =>
+  ({
+    describableProvider: () => provider,
+    redirectProvider: () => ((provider.mode ?? 'credentials') === 'redirect' ? provider : null),
+    credentialProviders: () =>
+      (provider.mode ?? 'credentials') === 'credentials' ? [provider] : [],
+    authenticate: (credentials: never) => provider.authenticate(credentials),
+    forSource: (source: string) => (source === provider.source ? provider : null),
+    sources: () => [provider.source],
+  }) as never;
+
 describe('auth (integration)', () => {
   let prisma: PrismaService;
   let provider: LocalAuthProvider;
@@ -424,7 +440,12 @@ describe('auth (integration)', () => {
       // Core's LocalAuthProvider has no describe(): there are no group mappings
       // to explain. The endpoint must still answer, so the UI can decide to
       // render nothing rather than handling an error.
-      const controller = new AuthController(provider, tokens, new LoginRateLimiter());
+      const controller = new AuthController(
+        resolverFor(provider),
+        provider,
+        tokens,
+        new LoginRateLimiter(),
+      );
 
       expect(controller.describeProvider()).toEqual({
         source: 'local',
@@ -447,7 +468,12 @@ describe('auth (integration)', () => {
           details: [{ label: 'Directory', value: 'ldaps://d.example.com' }],
         }),
       };
-      const controller = new AuthController(describing, tokens, new LoginRateLimiter());
+      const controller = new AuthController(
+        resolverFor(describing),
+        describing,
+        tokens,
+        new LoginRateLimiter(),
+      );
 
       expect(controller.describeProvider().roleMappings).toEqual([
         { group: 'cn=ops,dc=x', role: 'OPERATOR' },

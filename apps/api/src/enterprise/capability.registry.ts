@@ -1,5 +1,6 @@
 import { Injectable, Logger, type Provider } from '@nestjs/common';
 import {
+  AUTH_PROVIDER,
   CAPABILITIES,
   type CapabilityName,
   type CapabilityToken,
@@ -12,6 +13,13 @@ import {
  * Core provides a default implementation of EVERY token. The enterprise layer
  * may replace them; it may never introduce a token core does not declare, and
  * it may never import core internals. Registration is one-way.
+ *
+ * AUTHENTICATION IS THE EXCEPTION, and ADR-0015 amends ADR-0002 §5 for it.
+ * Override is the right model where exactly one implementation can exist —
+ * there is one audit sink. It is the wrong model for authentication, where
+ * there must be at least two, because replacing the only provider removes
+ * local accounts rather than shadowing them. Directory providers are therefore
+ * ADDITIVE, and an attempt to override AUTH_PROVIDER is refused below.
  */
 @Injectable()
 export class CapabilityRegistry {
@@ -69,6 +77,27 @@ export class CapabilityRegistry {
     if (descriptor !== null) {
       for (const registration of descriptor.registrations) {
         const token = registration.token;
+
+        if (token === AUTH_PROVIDER) {
+          // REFUSED, not warned-and-ignored (ADR-0015 §3).
+          //
+          // Overriding this token replaced core's local provider outright, and
+          // an enterprise build able to unbind local authentication can lock an
+          // operator out of their own console — which is the defect ADR-0015
+          // exists to close. Directory providers are contributed additively
+          // through descriptor.authProviders and dispatched by authSource.
+          //
+          // Loud rather than silent: an enterprise build still using the old
+          // shape would otherwise appear to work while quietly authenticating
+          // nobody.
+          CapabilityRegistry.logger.error(
+            'The enterprise layer tried to override AUTH_PROVIDER. That would remove local ' +
+              'authentication and can lock every local account out. Contribute the provider ' +
+              'through `authProviders` instead — it is dispatched by the account authSource ' +
+              'alongside core local auth (ADR-0015). Ignoring this registration.',
+          );
+          continue;
+        }
 
         if (!coreDefaults.has(token)) {
           // Enterprise may only override seams core declared. Anything else

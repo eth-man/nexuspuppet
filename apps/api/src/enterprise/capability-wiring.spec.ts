@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import {
   AUDIT_SINK,
+  AUTH_PROVIDERS,
   CAPABILITY_TOKENS,
   CORE_AUDIT_SINK,
   capabilityTokenName,
@@ -141,6 +142,21 @@ function describeProvider(provider: unknown): Registration {
  * factory-backed token appears in this map, so adding a seam without adding it
  * here fails rather than silently going unchecked.
  */
+/**
+ * Seams whose value is a LIST of implementations rather than one.
+ *
+ * The rules below model "one token, one implementation": they resolve a token
+ * to a class and then assert nothing reaches that class around the token. That
+ * is exactly right for AUDIT_SINK, and wrong for AUTH_PROVIDERS, whose members
+ * are individually registered ON PURPOSE — core's LocalAuthProvider is also
+ * bound directly and aliased by AUTH_PROVIDER, because it must exist whatever
+ * an enterprise layer does (ADR-0015).
+ *
+ * Excluded from those rules, and covered instead by the dedicated test below,
+ * which asserts the invariant that actually matters for this seam.
+ */
+const LIST_VALUED: ReadonlySet<symbol> = new Set([Symbol.for('nexuspuppet.AuthProviders')]);
+
 const FACTORY_BACKED: ReadonlyArray<{ token: symbol; module: string; className: string }> = [
   {
     token: Symbol.for('nexuspuppet.PuppetDbClient'),
@@ -213,13 +229,14 @@ describe('capability wiring', () => {
      * default would mean a deployment without the enterprise layer cannot
      * resolve the injector at all — the API would refuse to boot.
      */
-    it.each(CAPABILITY_TOKENS.map((t) => [capabilityTokenName(t), t] as const))(
-      '%s has exactly one core default',
-      (_name, token) => {
-        const owners = registrations.filter((r) => r.token === token);
-        expect(owners).toHaveLength(1);
-      },
-    );
+    it.each(
+      CAPABILITY_TOKENS.filter((t) => !LIST_VALUED.has(t)).map(
+        (t) => [capabilityTokenName(t), t] as const,
+      ),
+    )('%s has exactly one core default', (_name, token) => {
+      const owners = registrations.filter((r) => r.token === token);
+      expect(owners).toHaveLength(1);
+    });
 
     /**
      * Two registrations of the same token would make the effective
@@ -247,28 +264,29 @@ describe('capability wiring', () => {
      * factory-backed token would quietly opt it out of every check here and the
      * suite would still be green.
      */
-    it.each(CAPABILITY_TOKENS.map((t) => [capabilityTokenName(t), t] as const))(
-      '%s exposes an implementation this test can identify',
-      (name, token) => {
-        const registration = registrationFor(token);
-        expect(registration).toBeDefined();
+    it.each(
+      CAPABILITY_TOKENS.filter((t) => !LIST_VALUED.has(t)).map(
+        (t) => [capabilityTokenName(t), t] as const,
+      ),
+    )('%s exposes an implementation this test can identify', (name, token) => {
+      const registration = registrationFor(token);
+      expect(registration).toBeDefined();
 
-        if (resolveImplementation(token) !== null) return;
+      if (resolveImplementation(token) !== null) return;
 
-        // Named in the failure rather than passed to expect(): Jest's expect
-        // takes one argument, and a bare `undefined` here would say nothing
-        // about what to do next.
-        const declared = FACTORY_BACKED.find((f) => f.token === token);
-        const missing = declared
-          ? []
-          : [
-              `${name} is factory-backed, so its implementation cannot be read from ` +
-                `the provider graph. Add it to FACTORY_BACKED so the bypass rule can ` +
-                `check it.`,
-            ];
-        expect(missing).toEqual([]);
-      },
-    );
+      // Named in the failure rather than passed to expect(): Jest's expect
+      // takes one argument, and a bare `undefined` here would say nothing
+      // about what to do next.
+      const declared = FACTORY_BACKED.find((f) => f.token === token);
+      const missing = declared
+        ? []
+        : [
+            `${name} is factory-backed, so its implementation cannot be read from ` +
+              `the provider graph. Add it to FACTORY_BACKED so the bypass rule can ` +
+              `check it.`,
+          ];
+      expect(missing).toEqual([]);
+    });
   });
 
   /**
@@ -304,6 +322,26 @@ describe('capability wiring', () => {
     });
   });
 
+  /**
+   * What LIST_VALUED gives up, replaced by what actually matters here.
+   *
+   * Excluding AUTH_PROVIDERS from the single-implementation rules would leave it
+   * less protected than every other seam, and a seam that quietly stops being
+   * checked is how the defects this suite exists for got in. The invariant worth
+   * guarding is narrower and stronger than anything those rules assert: core's
+   * local provider is in the list, so an administrator can always get in.
+   */
+  describe('AUTH_PROVIDERS keeps local authentication', () => {
+    it('always contains core LocalAuthProvider', () => {
+      const registration = registrationFor(AUTH_PROVIDERS);
+
+      expect(registration).toBeDefined();
+      expect(registration?.dependencies.map((d) => (d as Ctor).name)).toContain(
+        'LocalAuthProvider',
+      );
+    });
+  });
+
   describe('no consumer bypasses a token', () => {
     /**
      * Derived, not listed. Every class a capability token constructs or
@@ -328,6 +366,25 @@ describe('capability wiring', () => {
           // A class provider naming itself is its own constructor, not a
           // dependency on the seam.
           if (consumer.token === cls) continue;
+
+          // The one deliberate exception, pointing the OPPOSITE way to
+          // everything else this rule protects (ADR-0015).
+          //
+          // Normally, injecting an implementation instead of its token means an
+          // enterprise override is registered and never called. Here, going
+          // through AUTH_PROVIDER would let an override remove core's local
+          // provider from the list — and a deployment whose local provider can
+          // be unbound is one whose administrators can be locked out by a
+          // directory that is merely misconfigured. The direct reference is the
+          // fix, not the bug.
+          //
+          // Narrow on purpose: this one pair, not the token in general.
+          if (
+            consumer.token === Symbol.for('nexuspuppet.AuthProviders') &&
+            cls.name === 'LocalAuthProvider'
+          ) {
+            continue;
+          }
 
           if (consumer.dependencies.includes(cls)) {
             violations.push(

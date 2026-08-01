@@ -30,6 +30,7 @@ const TOKENS = {
   PUPPETDB_CLIENT: Symbol.for('nexuspuppet.PuppetDbClient'),
   ENC_FILE_WRITER: Symbol.for('nexuspuppet.EncFileWriter'),
   AUDIT_TRANSPORT: Symbol.for('nexuspuppet.AuditTransport'),
+  AUTH_PROVIDERS: Symbol.for('nexuspuppet.AuthProviders'),
 } as const;
 
 export const AUTH_PROVIDER = TOKENS.AUTH_PROVIDER;
@@ -40,6 +41,21 @@ export const LICENSE_SERVICE = TOKENS.LICENSE_SERVICE;
 export const PUPPETDB_CLIENT = TOKENS.PUPPETDB_CLIENT;
 export const ENC_FILE_WRITER = TOKENS.ENC_FILE_WRITER;
 export const AUDIT_TRANSPORT = TOKENS.AUDIT_TRANSPORT;
+
+/**
+ * Every authentication provider this deployment can dispatch to (ADR-0015).
+ *
+ * PLURAL, and additive. `AUTH_PROVIDER` is a single binding that an enterprise
+ * layer used to replace, which meant enabling a directory did not shadow local
+ * authentication — it removed it, and locked every local account out with no
+ * way back short of writing to the database by hand.
+ *
+ * Core always contributes its local provider to this list and the registry
+ * refuses any attempt to displace it, so an administrator can always get in.
+ * A login is dispatched by the account's `authSource` matching a provider's
+ * `source`; nothing chains or falls back.
+ */
+export const AUTH_PROVIDERS = TOKENS.AUTH_PROVIDERS;
 
 /**
  * Core's own audit sink, exposed so a replacement can COMPOSE over it.

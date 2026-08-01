@@ -147,7 +147,19 @@ describe('external login routes', () => {
       },
     };
 
+    // A resolver holding just this provider. The redirect endpoints now ask the
+    // resolver for the redirect-mode provider rather than assuming the single
+    // configured provider is one (ADR-0015).
+    const resolver = {
+      redirectProvider: () => provider,
+      credentialProviders: () => [],
+      authenticate: (credentials: never) => provider.authenticate(credentials),
+      forSource: (source: string) => (source === provider.source ? provider : null),
+      sources: () => [provider.source],
+    };
+
     controller = new AuthController(
+      resolver as never,
       provider,
       tokens as never,
       { consume: () => true, reset: () => undefined } as never,
@@ -204,7 +216,18 @@ describe('external login routes', () => {
     });
 
     it('refuses when the deployment does not use an external provider', async () => {
-      const local = new AuthController(new StubCredentialsProvider(), {} as never, {} as never);
+      const credentialsOnly = new StubCredentialsProvider();
+      const localResolver = {
+        redirectProvider: () => null,
+        credentialProviders: () => [credentialsOnly],
+        sources: () => [credentialsOnly.source],
+      };
+      const local = new AuthController(
+        localResolver as never,
+        credentialsOnly,
+        {} as never,
+        {} as never,
+      );
 
       await expect(
         local.beginRedirect(undefined, fakeRequest() as never, fakeResponse() as never),

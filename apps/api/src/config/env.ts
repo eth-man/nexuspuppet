@@ -24,6 +24,16 @@ export const envSchema = z.object({
     .string()
     .min(32, 'JWT_SECRET must be at least 32 characters. Generate: openssl rand -base64 48'),
   ACCESS_TOKEN_TTL: z.string().default('60m'),
+  /**
+   * How long a refused login takes, whatever refused it (ADR-0015).
+   *
+   * Configured rather than probed: measuring the slowest provider at boot makes
+   * startup depend on a directory that may be slow or not yet running. A local
+   * refusal costs one scrypt; a directory refusal costs a network round trip,
+   * and without a shared floor the difference tells an attacker which accounts
+   * exist and where they live.
+   */
+  AUTH_LOGIN_FLOOR_MS: z.coerce.number().int().min(0).default(1500),
   REFRESH_TOKEN_TTL: z.string().default('30d'),
 
   /**

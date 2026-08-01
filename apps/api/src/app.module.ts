@@ -1,4 +1,4 @@
-import { Module, type DynamicModule, type Provider } from '@nestjs/common';
+import { Module, type DynamicModule, type Provider, type Type } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import {
@@ -8,6 +8,7 @@ import {
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
   AUTH_PROVIDER,
+  AUTH_PROVIDERS,
   ENC_FILE_WRITER,
   LICENSE_SERVICE,
   PUPPETDB_CLIENT,
@@ -47,6 +48,7 @@ import { AuthGuard } from './auth/auth.guard';
 import { AuthController } from './auth/auth.controller';
 import { AccountController, UsersController } from './auth/users.controller';
 import { UsersService } from './auth/users.service';
+import { AuthProviderResolver } from './auth/auth-provider.resolver';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
 import { RbacPolicy } from './auth/rbac.policy';
 import { TokenService } from './auth/token.service';
@@ -93,6 +95,10 @@ export class AppModule {
       // because the policy is a plain object rather than an injectable — and
       // would silently give the two instances different configuration if it
       // did not.
+      // Core's local provider, and it stays core's local provider. The registry
+      // refuses an enterprise override of this token (ADR-0015): replacing it
+      // removed local authentication outright rather than shadowing it, which
+      // locked every local account out the moment a directory was enabled.
       [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useExisting: LocalAuthProvider }],
       [AUTHORIZATION_POLICY, { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy }],
       [USER_DIRECTORY, { provide: USER_DIRECTORY, useClass: LocalUserDirectory }],
@@ -116,7 +122,30 @@ export class AppModule {
 
     // Registered outside coreDefaults: this is not a capability the enterprise
     // layer may replace, it is a core service the enterprise layer may depend on.
+    // Class constructors, not provider descriptors: each is registered as its
+    // own provider AND used as the injection token for the list below.
+    const enterpriseAuthProviders = (enterprise?.descriptor.authProviders ??
+      []) as Type<IAuthProvider>[];
+
     const coreServices: Provider[] = [
+      // Every provider that can answer a login, local first (ADR-0015).
+      //
+      // The enterprise contributions are ADDITIVE. Core's local provider is
+      // always in this list and the registry refuses any attempt to displace
+      // it, which is what makes an administrator lockout structurally
+      // impossible rather than a documented hazard.
+      ...enterpriseAuthProviders,
+      {
+        provide: AUTH_PROVIDERS,
+        inject: [LocalAuthProvider, ...enterpriseAuthProviders],
+        useFactory: (...providers: IAuthProvider[]): IAuthProvider[] => providers,
+      },
+      {
+        provide: AuthProviderResolver,
+        inject: [AUTH_PROVIDERS, PrismaService],
+        useFactory: (providers: IAuthProvider[], prisma: PrismaService): AuthProviderResolver =>
+          new AuthProviderResolver(providers, prisma, env.AUTH_LOGIN_FLOOR_MS),
+      },
       { provide: CORE_AUDIT_SINK, useClass: PrismaAuditSink },
       AuditDeliveryOutbox,
       // Aliased under a contracts token so a forwarding capability can inject
@@ -233,8 +262,8 @@ export class AppModule {
         { provide: LoginRateLimiter, useFactory: (): LoginRateLimiter => new LoginRateLimiter() },
         {
           provide: TokenService,
-          inject: [PrismaService, AUTH_PROVIDER],
-          useFactory: (prisma: PrismaService, provider: IAuthProvider): TokenService =>
+          inject: [PrismaService, AuthProviderResolver],
+          useFactory: (prisma: PrismaService, provider: AuthProviderResolver): TokenService =>
             new TokenService(prisma, provider, {
               secret: env.JWT_SECRET,
               accessTtl: env.ACCESS_TOKEN_TTL,
