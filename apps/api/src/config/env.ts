@@ -23,6 +23,34 @@ export const envSchema = z.object({
   JWT_SECRET: z
     .string()
     .min(32, 'JWT_SECRET must be at least 32 characters. Generate: openssl rand -base64 48'),
+
+  /**
+   * Encrypts settings an operator stores through the console (ADR-0016 §3).
+   *
+   * OPTIONAL, and absent is a complete configuration: a deployment that
+   * configures everything through the environment stores no secrets and needs
+   * no key. Set it, and stored secrets become possible.
+   *
+   * NOT `JWT_SECRET`, deliberately. One key, one purpose — rotating a signing
+   * secret must not decide whether every stored credential stays readable, and
+   * a key compromised in one role must not surrender the other.
+   *
+   * Validated here only for presence and shape; `parseKey` does the decoding,
+   * because a 32-character string and a key that decodes to 32 BYTES are
+   * different things and only the second one is correct.
+   */
+  CONFIG_ENCRYPTION_KEY: z.string().min(1).optional(),
+
+  /**
+   * Ignore stored settings and read everything from this environment.
+   *
+   * The escape hatch from ADR-0016 §2. Without it, a configuration saved
+   * through the console that does not work leaves an operator unable to
+   * authenticate AND unable to override it, because the database wins. It
+   * requires host access, which whoever is running this has by definition.
+   */
+  SETTINGS_SOURCE: z.enum(['db', 'env']).default('db'),
+
   ACCESS_TOKEN_TTL: z.string().default('60m'),
   /**
    * How long a refused login takes, whatever refused it (ADR-0015).
