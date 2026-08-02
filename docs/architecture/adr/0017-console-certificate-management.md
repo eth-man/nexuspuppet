@@ -2,6 +2,10 @@
 
 - **Status:** Accepted — option B, the privileged helper. Supersedes nothing in
   ADR-0013: its key boundary is preserved, which is why B was chosen over A.
+- **History:** briefly revised to option D, a CSR flow, on the assumption that
+  importing an existing key pair was the exception. It is the rule — enterprise
+  PKI teams issue wildcards with the key bundled. D cannot accept one, so it
+  cannot be the design. See *Why not D*.
 - **Deciders:** Architect
 - **Related:** [ADR-0013](./0013-console-tls-private-ca.md), [ADR-0004](./0004-puppetdb-read-only-pql.md), [ADR-0016](./0016-settings-store-and-audit-forwarding.md)
 
@@ -79,6 +83,59 @@ generate. For private CAs, keep the mounted-file workflow.
 **Cost:** does not answer the request for internal deployments with a private CA
 — which is exactly the deployment this came from.
 
+### D. Never move the key at all
+
+The three options above argue about how to carry a private key from a browser to
+a disk. The question is worth refusing: **the key does not have to travel.**
+
+1. The console asks for a new keypair. It is generated where it will be used and
+   never leaves that volume.
+2. The console shows the resulting **CSR** — public material — for the operator
+   to take to their CA.
+3. The operator pastes back the **signed certificate**. Also public material.
+4. It is installed, the listener reloads, the new certificate is proved to be
+   served, or the previous one is restored.
+
+At no point does a private key exist in a browser, in the API, on the operator's
+laptop, in their clipboard, or in whatever their corporate proxy logs. The
+strongest version of the property ADR-0013 protects is not "the key reaches the
+API safely" — it is that there is no second copy of the key anywhere.
+
+**This needs no fifth container.** The generate-and-install step is a small
+process inside the existing proxy image, and the interface between it and the
+API is the filesystem:
+
+| Path | API | Helper | Caddy |
+|---|---|---|---|
+| `tls/private/` | — | rw | r |
+| `tls/inbox/` | w | r | — |
+| `tls/outbox/` | r | w | — |
+| `tls/live/` | — | rw | r |
+
+The API writes a request and reads a status. It has no mount into
+`tls/private/`, no credential for the helper, and no channel to Caddy's admin
+API. There is nothing to authenticate between them because there is no RPC —
+which is a smaller surface than any design with one.
+
+### Why not D
+
+B was accepted before the renewal frequency was known. At once a year it does
+not earn a fifth container: a component that must be built, shipped, patched and
+security-reviewed in perpetuity, to be exercised annually.
+
+It is also weaker than D on the thing it was chosen for. In B the key still
+exists on the operator's machine and in the browser; B only keeps it out of the
+*API*. D keeps it from existing twice at all.
+
+### What D is still good for
+
+Nothing here forbids generating a key in place later. A deployment that runs its
+own CA, or one that wants a short-lived key it never handles, is well served by
+a CSR flow — and the helper below is the component that would host it.
+
+It is not the first thing to build, because it serves the deployment that does
+not have a problem today.
+
 ## The failure mode that decides the shape
 
 Whatever the transport, one property is non-negotiable: **a bad certificate must
@@ -96,13 +153,20 @@ thing.
 
 ## Decision
 
-**Option B.** A privileged helper beside the proxy owns the key material.
+**Option B.** A privileged helper beside the proxy owns the key material, and
+accepts an uploaded certificate and key from the console.
+
+Chosen because it is the only option that serves the actual deployment: a
+wildcard issued centrally, key bundled, installed by an administrator who did
+not generate it and cannot re-issue it. A is the cheaper way to reach the same
+UX and gives up the boundary to do it; C covers only publicly-resolvable names;
+D refuses the input that matters.
 
 ### The key does not pass through the API
 
 This needs stating precisely, because the obvious implementation of B does not
-actually deliver it. "The API authenticates the request and forwards the body to
-the helper" still puts the private key in the API's heap — where a heap dump, a
+deliver it. "The API authenticates the request and forwards the body to the
+helper" still puts the private key in the API's heap — where a heap dump, a
 crash reporter, or a debug log of a request body reaches it. That is a weaker
 property than ADR-0013 has today, and it would be easy to ship while believing
 otherwise.
@@ -111,7 +175,7 @@ So the upload does not traverse the API at all:
 
 1. The console asks the API to authorise an installation. The API checks
    `settings:manage`, writes the audit row for *intent*, and returns a
-   **short-lived, single-use capability token**. No certificate involved yet.
+   **short-lived, single-use capability token**. No key material involved yet.
 2. The browser `POST`s the certificate and key to `/console-tls/install`, which
    the proxy routes to the **helper**, not the API.
 3. The helper verifies the token, validates the pair, installs, reloads and
@@ -120,9 +184,9 @@ So the upload does not traverse the API at all:
    for the closing audit row. Identity only: subject, issuer, SANs, fingerprint,
    validity. Never key bytes.
 
-The token is what makes this safe to expose: the helper's endpoint is reachable
-from the browser, so it must not be a way to install a certificate without
-having passed an authorisation check first.
+The token is what makes the endpoint safe to expose: it is reachable from a
+browser, so it must not be a way to install a certificate without having passed
+an authorisation check first.
 
 ADR-0013 §2 therefore stands unamended, and literally so. "No private key is
 ever sent to the API, stored in Postgres, written to an audit row, held in an
@@ -133,15 +197,20 @@ ships — which is the entire reason for choosing B over the cheaper A.
 
 *Install this pair.* No read endpoint: nothing can ask the helper for the key it
 holds, so compromising it yields the ability to replace a certificate, not to
-steal the existing one. It binds to the internal network only, and its filesystem
-access is the TLS volume and nothing else.
+steal the existing one. It binds to the internal network only, and its
+filesystem access is the TLS volume and nothing else.
 
 ## Consequences
 
 **What this costs.** A fifth container in the default deployment, which has to
-be built, signed, documented and kept patched. It is privileged in the one way
-that matters — it can write the material the console's identity rests on — so it
-gets the scrutiny that implies, not the scrutiny its size suggests.
+be built, signed, documented and kept patched — for an operation run perhaps
+once a year. That is a poor ratio and it is accepted knowingly: the alternative
+ratios are worse, because A pays for the same convenience with the key boundary
+and D does not do the job at all.
+
+It is privileged in the one way that matters — it can write the material the
+console's identity rests on — so it gets the scrutiny that implies, not the
+scrutiny its size suggests.
 
 **What it does not change.** Certificates still are not stored in Postgres.
 ADR-0013 rejected that and it stays rejected: keys in the database is the outcome
@@ -153,15 +222,13 @@ worse than one that never offered the button.
 
 ## Open questions
 
-1. Is a console certificate installed often enough to justify the fifth
-   container? On a private CA with a 5-year certificate — as on the current test
-   estate, expiring 2031 — this may see one use per deployment lifetime. If that
-   is the true frequency, C plus a documented host command is the better trade,
-   and this ADR should be revisited before the work starts rather than after.
+1. What proves "the listener answers" — a TLS handshake from the helper against
+   the proxy's own port, checking the served certificate is the one just
+   installed? That is the strongest check short of asking the operator's
+   browser, and it should be what ships.
 2. Does the helper reload Caddy through its admin API or by signalling the
    container? The admin API is the cleaner contract; it also means the helper
    must reach a port that is otherwise internal-only.
-3. What proves "the listener answers" in step 3 — a TLS handshake from the
-   helper against the proxy's own port, checking the served certificate is the
-   one just installed? That is the strongest available check short of asking the
-   operator's browser, and it should be what ships.
+3. A wildcard is installed on more than one host. Does the console eventually
+   need to say "this certificate is also serving X", or is that the operator's
+   problem? Out of scope here, but it is the question a wildcard raises.
