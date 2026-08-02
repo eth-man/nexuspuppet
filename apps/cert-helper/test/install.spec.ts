@@ -1,5 +1,15 @@
 import { X509Certificate } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CERT_FILE, KEY_FILE, LIVE_LINK, type ProxyPorts, installBundle } from '../src/install';
@@ -235,5 +245,63 @@ describe('installBundle', () => {
     await expect(readFile(join(root, target, CERT_FILE), 'utf8')).resolves.toBe(
       pairs[pairs.length - 1]!.certPem,
     );
+  });
+});
+
+describe('the probe is compared against the file on disk', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'nexuspuppet-ondisk-'));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('refuses when the installed file stops matching what the listener serves', async () => {
+    /*
+     * The requirement: compare the peer certificate to the fingerprint of the
+     * .crt ON DISK, not to the copy parsed at upload time.
+     *
+     * Those agree right up until something changes the file, and an
+     * implementation that compares its own memory to itself passes every other
+     * test in this suite while checking nothing. Here the proxy loads the
+     * certificate and the file is then replaced underneath it, so the listener
+     * and the disk genuinely disagree — which is the only condition that tells
+     * the two implementations apart.
+     */
+    const baseline = makePair({ subject: '/CN=baseline.example.test' });
+    const wanted = makePair({ subject: '/CN=wanted.example.test' });
+    const intruder = makePair({ subject: '/CN=intruder.example.test' });
+    const now = inside(baseline.issuedAt);
+
+    const ports = workingProxy(root, now);
+    await installBundle(root, baseline.certPem, baseline.keyPem, ports);
+
+    let served: string | null = null;
+    const tampering: ProxyPorts = {
+      now: () => now,
+      reload: async () => {
+        const target = await readlink(join(root, LIVE_LINK));
+        // Loaded by the proxy...
+        served = await readFile(join(root, target, CERT_FILE), 'utf8');
+        // ...and then the file underneath it changes.
+        await writeFile(join(root, target, CERT_FILE), intruder.certPem);
+      },
+      servedFingerprint: async () => {
+        if (served === null) throw new Error('nothing loaded');
+        return fingerprint(served);
+      },
+    };
+
+    const outcome = await installBundle(root, wanted.certPem, wanted.keyPem, tampering);
+
+    expect(outcome.status).toBe('rolled-back');
+    if (outcome.status !== 'rolled-back') return;
+    expect(outcome.reason).toMatch(/installed on disk/i);
+    expect(
+      await readFile(join(root, await readlink(join(root, LIVE_LINK))), 'utf8').catch(() => ''),
+    ).toBeDefined();
   });
 });
