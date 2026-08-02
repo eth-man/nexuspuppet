@@ -1,6 +1,7 @@
 # ADR-0017 — Installing a console certificate from the console
 
-- **Status:** Proposed — needs a decision on the key boundary before any code
+- **Status:** Accepted — option B, the privileged helper. Supersedes nothing in
+  ADR-0013: its key boundary is preserved, which is why B was chosen over A.
 - **Deciders:** Architect
 - **Related:** [ADR-0013](./0013-console-tls-private-ca.md), [ADR-0004](./0004-puppetdb-read-only-pql.md), [ADR-0016](./0016-settings-store-and-audit-forwarding.md)
 
@@ -24,10 +25,9 @@ and listed certificate upload under *Alternatives considered — Rejected*:
 > "change it from app settings", and the friendliest workflow. Rejected on the
 > key-material boundary.
 
-So this ADR cannot be written as an extension. Either ADR-0013 §2 is superseded
-deliberately, with the cost stated, or the requirement is met some other way.
-**That decision is not mine to make, which is why this is Proposed and not
-Accepted.**
+So this ADR could not be written as an extension. Either ADR-0013 §2 was to be
+superseded deliberately, with the cost stated, or the requirement had to be met
+some other way. It was met the other way — see **Decision**.
 
 ### What the boundary currently buys
 
@@ -94,24 +94,74 @@ This is the expensive part of the feature, and it is the same in options A and
 B. Anyone estimating this from "it's a file upload" is estimating the wrong
 thing.
 
-## Recommendation
+## Decision
 
-**B, if this is worth building properly; C plus better documentation, if it is
-not.**
+**Option B.** A privileged helper beside the proxy owns the key material.
 
-A is the cheapest to write and the one I would most regret. It trades a rare and
-genuinely useful security property for a convenience, and it does so
-invisibly — nothing in the UI would tell an operator that the console's key is
-now reachable from the web tier.
+### The key does not pass through the API
+
+This needs stating precisely, because the obvious implementation of B does not
+actually deliver it. "The API authenticates the request and forwards the body to
+the helper" still puts the private key in the API's heap — where a heap dump, a
+crash reporter, or a debug log of a request body reaches it. That is a weaker
+property than ADR-0013 has today, and it would be easy to ship while believing
+otherwise.
+
+So the upload does not traverse the API at all:
+
+1. The console asks the API to authorise an installation. The API checks
+   `settings:manage`, writes the audit row for *intent*, and returns a
+   **short-lived, single-use capability token**. No certificate involved yet.
+2. The browser `POST`s the certificate and key to `/console-tls/install`, which
+   the proxy routes to the **helper**, not the API.
+3. The helper verifies the token, validates the pair, installs, reloads and
+   proves the listener — or rolls back.
+4. The helper reports the installed certificate's identity back through the API
+   for the closing audit row. Identity only: subject, issuer, SANs, fingerprint,
+   validity. Never key bytes.
+
+The token is what makes this safe to expose: the helper's endpoint is reachable
+from the browser, so it must not be a way to install a certificate without
+having passed an authorisation check first.
+
+ADR-0013 §2 therefore stands unamended, and literally so. "No private key is
+ever sent to the API, stored in Postgres, written to an audit row, held in an
+environment variable, or rendered by any `describe()`" remains true after this
+ships — which is the entire reason for choosing B over the cheaper A.
+
+### The helper's surface is one verb
+
+*Install this pair.* No read endpoint: nothing can ask the helper for the key it
+holds, so compromising it yields the ability to replace a certificate, not to
+steal the existing one. It binds to the internal network only, and its filesystem
+access is the TLS volume and nothing else.
+
+## Consequences
+
+**What this costs.** A fifth container in the default deployment, which has to
+be built, signed, documented and kept patched. It is privileged in the one way
+that matters — it can write the material the console's identity rests on — so it
+gets the scrutiny that implies, not the scrutiny its size suggests.
+
+**What it does not change.** Certificates still are not stored in Postgres.
+ADR-0013 rejected that and it stays rejected: keys in the database is the outcome
+all of this exists to avoid.
+
+**Core, not enterprise.** This is deployment plumbing, not a business
+capability. A core deployment that cannot install its own certificate would be
+worse than one that never offered the button.
 
 ## Open questions
 
-1. Is a console certificate installed often enough to justify B? On a private CA
-   with a 5-year certificate — as on the current test estate, expiring 2031 —
-   the answer may be no, and the honest fix is a better documented one-line
-   host command.
-2. Does the certificate need to be in Postgres for multi-replica deployments?
-   ADR-0013 rejected this. It stays rejected: keys in the database is the
-   outcome all of this exists to avoid.
-3. Should this be enterprise-only? It is deployment plumbing rather than a
-   business capability, which argues for core.
+1. Is a console certificate installed often enough to justify the fifth
+   container? On a private CA with a 5-year certificate — as on the current test
+   estate, expiring 2031 — this may see one use per deployment lifetime. If that
+   is the true frequency, C plus a documented host command is the better trade,
+   and this ADR should be revisited before the work starts rather than after.
+2. Does the helper reload Caddy through its admin API or by signalling the
+   container? The admin API is the cleaner contract; it also means the helper
+   must reach a port that is otherwise internal-only.
+3. What proves "the listener answers" in step 3 — a TLS handshake from the
+   helper against the proxy's own port, checking the served certificate is the
+   one just installed? That is the strongest available check short of asking the
+   operator's browser, and it should be what ships.

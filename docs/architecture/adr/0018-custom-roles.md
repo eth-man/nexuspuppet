@@ -1,6 +1,6 @@
 # ADR-0018 — Custom roles with granular permissions
 
-- **Status:** Proposed — needs a core/enterprise decision before implementation
+- **Status:** Accepted — mechanism in core, editing behind an enterprise capability
 - **Deciders:** Architect
 - **Related:** [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0011](./0011-scoped-rbac.md), [ADR-0015](./0015-hybrid-authentication.md), [ADR-0002](./0002-open-core-runtime-discovery.md)
 
@@ -82,17 +82,49 @@ becomes a string naming a role. Consequences worth stating:
 - Deleting a role that a mapping names is refused, the same way as the
   last-admin rule, because the failure would otherwise surface as people being
   unable to sign in.
-- "Highest role wins" on multiple matches stops meaning anything once roles are
-  not ordered. Replace it with **union of permissions** across matched roles,
-  and say so in the UI — it is a different rule and operators must not assume
-  the old one.
 
-That last point is the sharpest edge in this ADR. It changes the meaning of an
-existing configuration: someone in both `ops` and `viewers` today gets
-OPERATOR; under a union they get the same, but someone in two disjoint custom
-roles gets more than either. Migration must not silently re-interpret existing
-mappings — the built-in roles keep their ordered semantics until an operator
-opts a mapping into the new model, or we accept a one-time documented change.
+**Multiple matches: union for custom roles, ordering preserved for built-ins.**
+
+"Highest role wins" stops meaning anything once roles are unordered, so custom
+roles union their permissions. But applying a union everywhere would silently
+re-interpret configurations nobody edited: an upgrade would change what an
+existing mapping grants, with no diff to review and no event to notice.
+
+So the rule is split by what the mapping actually names:
+
+| Mapping names | Rule |
+|---|---|
+| only built-in roles | highest wins — today's behaviour, unchanged |
+| any custom role | union of permissions across all matched roles |
+
+An existing deployment upgrades to identical behaviour. A deployment that opts
+into custom roles opts into the union at the same moment, which is when an
+operator is looking at the screen and can be told. The UI states which rule is
+in force for the mapping set as configured, because a table where the semantics
+depend on the contents needs to say so.
+
+### 6. The mechanism is core; the editing is licensed
+
+The split is not "custom roles are an enterprise feature". It cannot be: the
+roles table, per-request resolution, the lockout rules and the LDAP mapping
+change all sit on paths every deployment takes, and a core build has to run them
+correctly whether or not it can create a role.
+
+| | Core | Enterprise |
+|---|---|---|
+| `roles` table and seeded built-ins | ✓ | |
+| per-request permission resolution | ✓ | |
+| lockout-by-permission | ✓ | |
+| LDAP mapping to role names | ✓ | |
+| **creating / editing / deleting roles** | | ✓ `rbac.custom` |
+
+A core deployment therefore has exactly three roles, behaving exactly as today,
+running on the new mechanism. That is the property that makes this safe to
+merge: the risky part ships to everyone and is exercised by everyone, while the
+part that is merely valuable is gated.
+
+The gate is a capability check, not a separate code path (ADR-0002). One
+implementation, one set of tests.
 
 ## Consequences
 
@@ -109,13 +141,12 @@ inspection, and that goes away.
 
 ## Open questions
 
-1. **Core or enterprise?** Custom RBAC is conventionally a paid tier, and
-   `IAuthorizationPolicy` exists precisely so the enterprise layer can replace
-   the policy. But the lockout rules, the schema and the LDAP mapping change all
-   have to live in core regardless, so "enterprise" here means the *editing* is
-   licensed while the *mechanism* is not. Needs deciding before any code: it
-   determines whether the roles UI is built behind a capability check.
-2. Should a role be assignable to local users only, or also nameable by an OIDC
-   claim? OIDC has no mapping UI yet.
-3. Does the union rule in §5 apply to built-in roles retroactively, or only to
-   mappings an operator has migrated?
+1. Should a role be assignable to local users only, or also nameable by an OIDC
+   claim? OIDC has no mapping UI yet, so this can wait for one.
+2. Does an enterprise licence lapsing strand a deployment on custom roles it can
+   no longer edit? Per ADR-0014 the product degrades to core and must never
+   break — so custom roles must keep *resolving* without a licence, with only
+   the editor withdrawn. Anything else logs people out at renewal time.
+3. Is `builtIn` the right immutability boundary, or should the seeded rows be
+   editable-but-restorable? Leaning to the former: a runbook that says "ADMIN"
+   should not depend on nobody having redefined it.
