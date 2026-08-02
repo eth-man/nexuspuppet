@@ -5,8 +5,10 @@ import type {
   AuthProviderDescription,
   DeploymentCapabilities,
   FactPathIndex,
+  LdapSettings,
   ManagedUser,
   ManagedUserDetail,
+  SettingsView,
   NodeClassificationExplanation,
   NodeGroupDetail,
   Page,
@@ -230,6 +232,22 @@ export function useAuthMode(): UseQueryResult<{ mode: string; source: string }> 
  * Requires settings:manage, so it is fetched only when the caller has it —
  * asking otherwise produces a 403 in the console for no benefit.
  */
+/**
+ * The stored LDAP configuration, without its secrets (ADR-0016).
+ *
+ * `staleTime: 0`, unlike most reads here. A settings screen that shows a cached
+ * copy after somebody saved is worse than a slow one — an operator would be
+ * editing a form that no longer describes the deployment.
+ */
+export function useLdapSettings(enabled: boolean): UseQueryResult<SettingsView<LdapSettings>> {
+  return useQuery({
+    queryKey: ['settings', 'auth.ldap'],
+    queryFn: ({ signal }) => api.get<SettingsView<LdapSettings>>('/settings/auth/ldap', signal),
+    enabled,
+    staleTime: 0,
+  });
+}
+
 export function useAuthProvider(enabled: boolean): UseQueryResult<AuthProviderDescription> {
   return useQuery({
     queryKey: ['auth-provider'],

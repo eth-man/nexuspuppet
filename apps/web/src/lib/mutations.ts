@@ -4,6 +4,9 @@ import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/r
 import type {
   AssignClass,
   ChangePassword,
+  LdapSettings,
+  ProviderVerification,
+  SettingsView,
   CreateUserInput,
   ManagedUser,
   UpdateUser,
@@ -256,6 +259,50 @@ export function useDeleteUser(): UseMutationResult<void, Error, string> {
   return useMutation({
     mutationFn: (id) => api.delete<void>(`/users/${id}/permanent`),
     onSuccess: () => invalidate(),
+  });
+}
+
+/**
+ * Save the LDAP configuration (ADR-0016).
+ *
+ * Omitting `bindPassword` keeps the stored one — the form never receives it, so
+ * it cannot send it back, and treating absence as "clear it" would wipe the
+ * credential every time somebody corrected a search base.
+ */
+export function useSaveLdapSettings(): UseMutationResult<
+  SettingsView<LdapSettings>,
+  Error,
+  LdapSettings
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.put<SettingsView<LdapSettings>>('/settings/auth/ldap', input),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.ldap'] }),
+  });
+}
+
+/** Discard the stored configuration and fall back to the environment. */
+export function useClearLdapSettings(): UseMutationResult<void, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>('/settings/auth/ldap'),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.ldap'] }),
+  });
+}
+
+/**
+ * Try a configuration without saving it.
+ *
+ * Deliberately does NOT invalidate anything: a test changes nothing, and
+ * refetching after one would make it look as though it had.
+ */
+export function useTestLdapSettings(): UseMutationResult<
+  ProviderVerification,
+  Error,
+  LdapSettings
+> {
+  return useMutation({
+    mutationFn: (input) => api.post<ProviderVerification>('/settings/auth/ldap/test', input),
   });
 }
 
