@@ -10,6 +10,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { hashPassword } from './password';
 import { normalizeEmail } from './local-auth.provider';
+import { builtInRoleId } from './users.service';
 
 /**
  * Core implementations of the remaining capability tokens.
@@ -150,6 +151,8 @@ export class BootstrapService {
         displayName: 'Administrator',
         passwordHash: await hashPassword(this.password),
         role: 'ADMIN',
+        // In lockstep with the enum from the very first user onwards (ADR-0018).
+        roleId: await builtInRoleId(this.prisma, 'ADMIN'),
         authSource: 'local',
       },
     });

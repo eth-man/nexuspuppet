@@ -85,6 +85,11 @@ export class UsersService {
           email,
           displayName: input.displayName,
           role: input.role,
+          // Kept in lockstep with the enum while the enum is still what
+          // resolves permissions (ADR-0018 §1). Nothing reads this yet; the
+          // point is that when resolution moves over, every row already has
+          // one and the NOT NULL migration has nothing to backfill.
+          roleId: await builtInRoleId(tx, input.role),
           passwordHash,
           authSource,
         },
@@ -165,7 +170,11 @@ export class UsersService {
         where: { id },
         data: {
           ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
-          ...(input.role === undefined ? {} : { role: input.role }),
+          // The two move together or they drift, and a drift here is invisible
+          // until the release that starts reading roleId (ADR-0018 §1).
+          ...(input.role === undefined
+            ? {}
+            : { role: input.role, roleId: await builtInRoleId(tx, input.role) }),
           ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
         },
       });
@@ -423,4 +432,32 @@ function toManagedUser(user: UserRow): ManagedUser {
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
   };
+}
+
+/**
+ * The id of the seeded role with this name (ADR-0018 §1).
+ *
+ * Every write that sets `role` also sets `roleId`, so the column is never
+ * partially populated and the migration that makes it NOT NULL has nothing left
+ * to do. Nothing reads it yet — this is the expand half of expand/migrate.
+ *
+ * Throws rather than returning null if the row is missing. A seeded built-in
+ * absent from the table means the migration did not run, and continuing would
+ * write a user the next release cannot resolve permissions for. Failing at the
+ * point of the write names the cause; failing later would not.
+ */
+export async function builtInRoleId(
+  tx: { role: { findUnique(args: { where: { name: string } }): Promise<{ id: string } | null> } },
+  name: string,
+): Promise<string> {
+  const row = await tx.role.findUnique({ where: { name } });
+
+  if (row === null) {
+    throw new Error(
+      `No role named "${name}" exists. The built-in roles are seeded by the ` +
+        'roles_table migration; this deployment has not run it.',
+    );
+  }
+
+  return row.id;
 }
