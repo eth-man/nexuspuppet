@@ -400,6 +400,43 @@ model AuditDeliveryJob {
   @@map("audit_delivery_jobs")
 }
 
+/// Configuration an operator can change from the console (ADR-0016).
+///
+/// One row per kind — `auth.ldap`, `audit.syslog`, `audit.webhook` — because a
+/// deployment reads a configuration entirely from here or entirely from the
+/// environment. Merging the two per field produces a state nobody can reproduce
+/// from either source.
+///
+/// Deliberately NOT the generic AppSetting key/value table. Secrets need a
+/// column of their own so that a careless select, a generic settings endpoint
+/// or a debug log cannot carry them; a shared JSON blob makes that a matter of
+/// remembering rather than of structure.
+model ProviderSetting {
+  /// The configuration this row owns. One row per kind, enforced by the key.
+  kind String @id @db.VarChar(64)
+
+  /// Non-secret configuration: URLs, search bases, role mappings, ports. Safe
+  /// to render in a browser and safe to log.
+  config Json
+
+  /// Secret fields, encrypted with CONFIG_ENCRYPTION_KEY and NEVER returned by
+  /// any read endpoint (ADR-0016 §3). Bytes rather than Json so it cannot be
+  /// spread into a response by accident — a ciphertext blob has no fields to
+  /// pick up.
+  secrets Bytes?
+
+  /// A stored configuration that is present but switched off. Distinct from an
+  /// absent row: absent falls back to the environment, disabled does not.
+  enabled Boolean @default(true)
+
+  updatedAt      DateTime @updatedAt
+  /// Denormalised like AuditLog.actorEmail, so "who last changed this" survives
+  /// the deletion of the account that changed it.
+  updatedByEmail String?
+
+  @@map("provider_settings")
+}
+
 model AppSetting {
   key       String   @id @db.VarChar(128)
   value     Json
