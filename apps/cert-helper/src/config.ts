@@ -99,6 +99,10 @@ export async function assertWritable(
         `  sudo chown -R ${uid}:101 ${root}\n` +
         'The proxy keeps its own read-only mount of the same directory, so this does not widen ' +
         'who can read the key — it changes which single account owns it.',
+      // The errno matters when the cause is NOT permissions — a read-only
+      // mount, a full disk — because the advice above is then a red herring and
+      // the original message is the only thing that says so.
+      { cause: error },
     );
   }
 }

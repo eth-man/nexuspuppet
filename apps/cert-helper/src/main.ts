@@ -10,6 +10,16 @@ import { createHelperServer } from './server';
 /** How often the rollback deadline is checked when nothing is arriving. */
 const SWEEP_INTERVAL_MS = 5000;
 
+/*
+ * console, not a logging framework.
+ *
+ * This process has no framework by design — it is the one component that writes
+ * the console's private key, and every dependency added to it widens that
+ * surface. Two informational lines at boot do not justify one, and Compose
+ * captures stdout the same way it does for every other service.
+ */
+/* eslint-disable no-console */
+
 async function main(): Promise<void> {
   const env = readEnv(process.env);
 
