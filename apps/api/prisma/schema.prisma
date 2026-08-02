@@ -31,6 +31,34 @@ enum UserRole {
   ADMIN
 }
 
+/// A named set of permissions (ADR-0018).
+///
+/// Added ahead of the resolution change on purpose. This migration is purely
+/// additive: the table is created, the three built-ins are seeded to exactly the
+/// sets `ROLE_PERMISSIONS` grants today, and every user is pointed at the row
+/// matching the enum they already have. Nothing reads `roleId` yet, so this step
+/// cannot change who can do what — which is the point of separating it from the
+/// step that can.
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Matches the UserRole enum for the seeded rows, so a mapping or a runbook
+  /// naming "ADMIN" keeps meaning the same thing after the enum goes away.
+  name        String  @unique @db.VarChar(64)
+  description String?
+  /// Permission strings from `permissionSchema` in @nexuspuppet/contracts.
+  /// Not an enum: a Postgres enum would need a migration per permission added,
+  /// and the authoritative list is the Zod schema the API validates against.
+  permissions String[]
+  /// Seeded by the product rather than created by an operator. Not deletable
+  /// and not renamable — the names appear in directory role mappings, in audit
+  /// history, and in other people's runbooks.
+  builtIn     Boolean @default(false)
+
+  users User[]
+
+  @@map("roles")
+}
+
 model User {
   id                  String    @id @default(uuid()) @db.Uuid
   /// Normalised to lowercase on write. Plain text rather than citext so the
@@ -42,6 +70,12 @@ model User {
   /// authentication (enterprise LDAP/SAML).
   passwordHash        String?
   role                UserRole  @default(VIEWER)
+  /// Nullable for one release only (ADR-0018). The backfill in this migration
+  /// sets it for every existing row; new rows get it from the same place the
+  /// enum comes from. It becomes required when resolution moves off the enum,
+  /// which is a separate change with its own migration.
+  roleId              String?   @db.Uuid
+  roleRef             Role?     @relation(fields: [roleId], references: [id], onDelete: Restrict)
   isActive            Boolean   @default(true)
   /// Identifier of the auth provider that owns this account.
   authSource          String    @default("local")
