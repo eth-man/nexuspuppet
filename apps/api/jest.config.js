@@ -10,6 +10,7 @@ module.exports = {
     // Resolve the workspace sibling to source, so a contracts change is visible
     // to tests without a build step.
     '^@nexuspuppet/contracts$': '<rootDir>/../../../packages/contracts/src/index.ts',
+    '^@nexuspuppet/tls-grant$': '<rootDir>/../../../packages/tls-grant/src/index.ts',
   },
   collectCoverageFrom: ['**/*.ts', '!**/*.spec.ts', '!main.ts', '!**/*.module.ts'],
   coverageThreshold: {

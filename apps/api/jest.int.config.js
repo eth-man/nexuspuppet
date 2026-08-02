@@ -18,7 +18,10 @@ module.exports = {
     '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
   },
   moduleNameMapper: {
+    // Source, not dist: this job does not run a build step, so a package that
+    // resolves through dist/ is a package this suite cannot see.
     '^@nexuspuppet/contracts$': '<rootDir>/../../packages/contracts/src/index.ts',
+    '^@nexuspuppet/tls-grant$': '<rootDir>/../../packages/tls-grant/src/index.ts',
   },
   // Advisory-lock tests hold real connections; keep them serial.
   maxWorkers: 1,
