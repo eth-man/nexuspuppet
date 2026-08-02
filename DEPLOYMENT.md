@@ -493,6 +493,21 @@ sudo chown -R 100:101 /etc/nexuspuppet/tls
 The helper refuses to start if it cannot write there, naming this command, rather
 than failing halfway through an operator's first certificate installation.
 
+**Point `CONSOLE_TLS_CERT_PATH` through `live/`.** The Console certificate card
+reads that path directly, so a path naming a fixed file keeps reporting the
+certificate that was there when the deployment was set up — an operator installs
+a new one, the install confirms, and the card above the form still shows the old
+expiry. Mount and name the symlinked copy instead:
+
+```yaml
+# docker-compose.override.yml, api service
+volumes:
+  - /etc/nexuspuppet/tls/live/console.pem:/etc/nexuspuppet/console.pem:ro
+```
+
+The api still receives a single public file and never the directory holding the
+key (ADR-0013 §2); it is simply the file that moves with each install.
+
 **Order matters on upgrade.** Start `cert-helper` BEFORE reloading the proxy. The
 shipped Caddyfile now reads `live/console.pem`, and the helper is what creates
 that link by adopting the files already in place. Starting the proxy first points
