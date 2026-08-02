@@ -123,19 +123,54 @@ export async function installBundle(
     };
   }
 
+  /*
+   * Read the fingerprint back OFF DISK, not from the parse in memory.
+   *
+   * The probe has to be compared against what was actually written, not against
+   * what we intended to write. A truncated or partial write produces a file the
+   * proxy may still load — or may load stale — and comparing two in-memory
+   * values would agree with itself and notice nothing.
+   */
+  const written = await fingerprintOf(root, join(SETS_DIR, setName));
+
+  if (written === null || normalise(written) !== normalise(check.identity.fingerprint)) {
+    return await rollback(
+      root,
+      previous,
+      previousFingerprint,
+      ports,
+      'The certificate written to disk does not match the one uploaded. The write did not ' +
+        'complete correctly.',
+    );
+  }
+
   try {
     await ports.reload();
     const served = await ports.servedFingerprint();
 
-    if (normalise(served) !== normalise(check.identity.fingerprint)) {
-      // The proxy reloaded and is serving something else. Usually a chain it
-      // would not accept, or a reload that reported success and did nothing.
+    /*
+     * Re-read from disk, AFTER the reload, and compare the listener to that.
+     *
+     * Not to the parse held in memory. The claim being made is "the certificate
+     * this listener is serving is the file that is installed right now" — and
+     * checking that against a value computed before any of it happened only
+     * proves memory agrees with itself. Anything that changed the file between
+     * the write and the handshake goes unnoticed.
+     *
+     * A completed handshake is not evidence either: Caddy answers /load with 200
+     * even when it skips the reload, and then serves the PREVIOUS certificate
+     * quite happily. Measured; see ADR-0017.
+     */
+    const installed = await fingerprintOf(root, join(SETS_DIR, setName));
+
+    if (installed === null || normalise(served) !== normalise(installed)) {
       return await rollback(
         root,
         previous,
         previousFingerprint,
         ports,
-        'The proxy reloaded but is serving a different certificate than the one uploaded.',
+        `The proxy is serving a different certificate than the one installed on disk. ` +
+          `Expected ${installed ?? '(unreadable)'}, the listener presented ${served}.`,
       );
     }
   } catch (error) {
