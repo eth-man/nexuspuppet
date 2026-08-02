@@ -19,7 +19,7 @@ export const KEY_FILE = 'console.key';
 
 /** The symlink Caddy reads through. Swapping it is the atomic step. */
 export const LIVE_LINK = 'live';
-const SETS_DIR = 'sets';
+export const SETS_DIR = 'sets';
 
 /**
  * Previous sets kept for manual recovery.
@@ -44,7 +44,19 @@ export interface ProxyPorts {
 }
 
 export type InstallOutcome =
-  | { status: 'installed'; identity: BundleIdentity }
+  /**
+   * Swapped, reloaded, and the proxy is serving it. NOT yet committed — the
+   * caller marks it pending and waits for a client to confirm (ADR-0017). The
+   * staging details are carried out so the confirmation layer can roll back to
+   * exactly what was replaced.
+   */
+  | {
+      status: 'installed';
+      identity: BundleIdentity;
+      setName: string;
+      previousTarget: string | null;
+      previousFingerprint: string | null;
+    }
   | { status: 'rejected'; rejection: BundleRejection }
   /** The new material did not take. The previous certificate is serving again. */
   | { status: 'rolled-back'; reason: string }
@@ -130,8 +142,18 @@ export async function installBundle(
     return await rollback(root, previous, previousFingerprint, ports, describe(error));
   }
 
+  // Pruned here rather than on confirmation: prune() keeps both the live set
+  // and the one before it, which is precisely what a rollback needs, so there
+  // is nothing to gain by deferring it and one more state to reason about.
   await prune(root, setName, previous);
-  return { status: 'installed', identity: check.identity };
+
+  return {
+    status: 'installed',
+    identity: check.identity,
+    setName,
+    previousTarget: previous,
+    previousFingerprint,
+  };
 }
 
 /**
@@ -141,7 +163,7 @@ export async function installBundle(
  * serve, the operator has to know now — while they can still read the page —
  * rather than discovering it when the console stops answering.
  */
-async function rollback(
+export async function rollback(
   root: string,
   previous: string | null,
   previousFingerprint: string | null,
@@ -187,7 +209,7 @@ async function rollback(
 }
 
 /** Atomic: create the link under a temporary name, then rename over the old one. */
-async function swapLive(root: string, target: string): Promise<void> {
+export async function swapLive(root: string, target: string): Promise<void> {
   const staging = join(root, `.${LIVE_LINK}.staging`);
   await rm(staging, { force: true });
   await symlink(target, staging);
@@ -195,7 +217,7 @@ async function swapLive(root: string, target: string): Promise<void> {
   await fsyncDir(root);
 }
 
-async function currentTarget(root: string): Promise<string | null> {
+export async function currentTarget(root: string): Promise<string | null> {
   try {
     return await readlink(join(root, LIVE_LINK));
   } catch {
@@ -203,7 +225,7 @@ async function currentTarget(root: string): Promise<string | null> {
   }
 }
 
-async function fingerprintOf(root: string, target: string): Promise<string | null> {
+export async function fingerprintOf(root: string, target: string): Promise<string | null> {
   try {
     const pem = await readFile(join(root, target, CERT_FILE), 'utf8');
     const first = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/);
@@ -214,7 +236,11 @@ async function fingerprintOf(root: string, target: string): Promise<string | nul
 }
 
 /** Keep the live set, the one before it, and KEEP_SETS others. */
-async function prune(root: string, keepName: string, previous: string | null): Promise<void> {
+export async function prune(
+  root: string,
+  keepName: string,
+  previous: string | null,
+): Promise<void> {
   const previousName = previous?.split('/').pop() ?? null;
   let names: string[];
   try {
