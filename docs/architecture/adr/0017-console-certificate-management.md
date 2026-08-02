@@ -193,6 +193,86 @@ ever sent to the API, stored in Postgres, written to an audit row, held in an
 environment variable, or rendered by any `describe()`" remains true after this
 ships — which is the entire reason for choosing B over the cheaper A.
 
+### Commit-confirm: the browser is the authority, not the sidecar
+
+An earlier draft of this ADR said the internal probe was "the only step that
+separates installed from installed and broken". That was too strong. The probe
+runs from inside the deployment and answers one question: did the proxy load
+this certificate. It cannot answer the question that actually matters — will the
+operator's browser accept it.
+
+Those differ whenever the chain is incomplete, the issuing CA is not in the
+operator's trust store, or something between them and the console interferes.
+In every one of those cases the internal probe passes and the operator is locked
+out.
+
+So the install is **staged, not committed**, and the client is what commits it:
+
+1. Helper validates, swaps, reloads, and runs the internal probe. A failure here
+   rolls back immediately — this is a fast pre-check, not the decision.
+2. Helper marks the set **pending** and starts a rollback timer.
+3. API answers `202 Accepted` with a single-use confirmation token.
+4. The browser polls `/console-tls/confirm` with the token. Reaching it at all
+   means a TLS handshake against the new certificate succeeded in the client
+   that has to live with it.
+5. On confirmation the pending state clears. On timeout the helper rolls back
+   and reloads, unasked.
+
+Both checks are kept. The internal probe fails in about a second when the proxy
+did not load the file at all; without it every such mistake would cost the
+operator the full timer with the console dark.
+
+#### The reload must be forced, or the confirmation is worthless
+
+Caddy skips a reload when the submitted config is byte-identical to the running
+one — and the config *is* identical here, because only the files behind it
+changed. A skipped reload means the old certificate stays loaded, the poll
+succeeds against it, and the change is confirmed without ever having been
+applied.
+
+`Cache-Control: must-revalidate` on `POST /load` is what forces it. One header,
+and the entire commit-confirm loop is meaningless without it.
+
+#### A connection established before the swap does not prove the new certificate
+
+Or rather: it would not, and it turns out not to be a problem here. Measured
+against Caddy 2 with a pooled keep-alive connection:
+
+| | socket | certificate |
+|---|---|---|
+| before swap | #1 | A |
+| again, reused | #1 | A |
+| after 2.5s idle, reused | #1 | A |
+| **after swap + forced reload** | **#2** | **B** |
+
+A forced reload recycles the listener, so the client's next request is a new
+handshake and the poll exercises the new certificate rather than an old session.
+This is a property of the proxy, not of the design, so it is written down: a
+proxy that reloads certificates *without* dropping connections would silently
+break this loop, and the symptom would be a confirmation that means nothing.
+
+#### What this proves, and what it does not
+
+It proves **the operator who is installing the certificate is not locked out**.
+That is the goal, and it is achieved.
+
+It does not prove the certificate works for everyone else. A confirmation from
+one browser on one network says nothing about a colleague behind a different
+proxy, or a mobile client with a different trust store. Nothing available at
+install time can prove that, and claiming otherwise would be worse than the
+honest limit.
+
+#### The failure the timer itself introduces
+
+If the helper dies while a set is pending, the timer dies with it and a
+certificate nobody confirmed stays installed for good. So `pending` is a file,
+not a variable: on start the helper checks for one, and rolls back anything left
+uncommitted before serving a request.
+
+Closing the tab therefore rolls the change back. That is the correct default —
+an unattended install cannot be confirmed by anyone — but it is surprising, so
+the screen has to say it before the upload rather than after.
+
 ### The helper's surface is one verb
 
 *Install this pair.* No read endpoint: nothing can ask the helper for the key it
@@ -232,3 +312,10 @@ worse than one that never offered the button.
 3. A wildcard is installed on more than one host. Does the console eventually
    need to say "this certificate is also serving X", or is that the operator's
    problem? Out of scope here, but it is the question a wildcard raises.
+4. How long is the confirmation window? 60s is tight for a private CA, where the
+   operator may have to click through a browser interstitial before the poll can
+   succeed at all. Leaning to 120s and a visible countdown, with the window
+   configurable for slow estates.
+5. Should confirmation be extendable — "still working, hold the rollback"? It
+   turns a fixed deadline into an open one if it can be repeated indefinitely,
+   so probably capped rather than unbounded.
