@@ -153,6 +153,31 @@ export interface IAuthProvider {
    * nothing to test.
    */
   verifyConfiguration?(config: unknown): Promise<ProviderVerification>;
+
+  /**
+   * Report the configuration this provider is CURRENTLY running with.
+   *
+   * The settings screen has to open on something. When a deployment configures
+   * its directory through the environment — every enterprise install before this
+   * feature existed — core has no way to show it: the variables are parsed by
+   * the enterprise layer, and core may not import it (ADR-0002). Without this,
+   * the form opens blank in front of an operator whose directory is plainly
+   * working, and the obvious next move is to retype settings that are already
+   * correct.
+   *
+   * MUST NOT include secrets. The result is rendered in a browser. Core strips
+   * the fields it knows to be sensitive before returning them, but that is a
+   * backstop and not permission to return a bind password here.
+   *
+   * Shaped to the settings schema for the provider's own source, so core can
+   * validate it without knowing what the provider is. Anything that fails to
+   * validate is discarded — a provider that reports nonsense degrades to the
+   * blank form it would have shown anyway.
+   *
+   * Optional: a provider with no external configuration — core's local one — has
+   * nothing to report.
+   */
+  currentConfiguration?(): unknown;
 }
 
 /** A directory group and the role it grants. */

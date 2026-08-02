@@ -86,6 +86,22 @@ export function LdapSettingsPanel() {
 
   const holdsPassword = view?.secretsHeld.includes('bindPassword') === true;
 
+  /**
+   * The form is populated from the environment, which supplies a bind DN but
+   * never its password — that value stays in the running provider.
+   *
+   * So the fields describe an account whose password this screen does not have
+   * and cannot carry forward. Saving would store a configuration that binds
+   * anonymously, and the first person to notice would be whoever could no longer
+   * log in. Blocking Save until the password is retyped is the only honest
+   * option: the alternative is a form that looks complete and is not.
+   */
+  const needsPasswordToAdopt =
+    view?.source === 'environment' &&
+    (form.bindDn ?? '') !== '' &&
+    !holdsPassword &&
+    password === '';
+
   return (
     <Card>
       <CardHeader>
@@ -165,9 +181,12 @@ export function LdapSettingsPanel() {
             id="ldap-bind-password"
             label="Bind password"
             hint={
-              holdsPassword
-                ? 'A password is stored. Leave blank to keep it; type to replace it.'
-                : 'Stored encrypted. Never shown again once saved.'
+              needsPasswordToAdopt
+                ? 'Required. These settings come from the environment, which does not share the ' +
+                  'password with this screen — retype it to save them here.'
+                : holdsPassword
+                  ? 'A password is stored. Leave blank to keep it; type to replace it.'
+                  : 'Stored encrypted. Never shown again once saved.'
             }
           >
             <Input
@@ -234,7 +253,15 @@ export function LdapSettingsPanel() {
           <Button
             variant="secondary"
             size="sm"
-            disabled={test.isPending || form.url === '' || form.searchBase === ''}
+            // Blocked for the same reason as Save: with no password to bind
+            // with, a test of these settings would fail and blame the
+            // directory rather than the missing field.
+            disabled={
+              test.isPending ||
+              form.url === '' ||
+              form.searchBase === '' ||
+              needsPasswordToAdopt
+            }
             onClick={() => {
               setError(null);
               test.mutate(submission(), { onSuccess: setResult, onError: fail });
@@ -246,7 +273,12 @@ export function LdapSettingsPanel() {
           <Button
             variant="primary"
             size="sm"
-            disabled={save.isPending || form.url === '' || form.searchBase === ''}
+            disabled={
+              save.isPending ||
+              form.url === '' ||
+              form.searchBase === '' ||
+              needsPasswordToAdopt
+            }
             onClick={() => {
               setError(null);
               save.mutate(submission(), {

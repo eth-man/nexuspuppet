@@ -32,6 +32,10 @@ Unchanged from [ADR-0015 §4](./0015-hybrid-authentication.md), now applied to e
 
 **`SETTINGS_SOURCE=env` forces the environment and ignores stored rows.** Without it a configuration saved through the UI that does not work leaves an operator unable to authenticate *and* unable to override, because the database wins. It requires host access, which the operator running the product has by definition.
 
+**Core reads the baseline from the provider, not from the environment.** For `auth.ldap` the variables are parsed by the enterprise layer, which core may not import ([ADR-0002](./0002-open-core-runtime-discovery.md)). So `IAuthProvider.currentConfiguration()` reports what the running provider was built from, and core uses that as the baseline. The alternative — teaching core to parse `LDAP_*` itself — puts the same variables in two parsers and guarantees they disagree eventually.
+
+The report is validated against the settings schema and discarded if it fails, and core strips known secret fields regardless of what the provider returns; the settings view is rendered in a browser. A provider that does not implement the method, which is every provider written before it existed, simply has no baseline and opens an empty form.
+
 ### 3. `CONFIG_ENCRYPTION_KEY`, distinct from `JWT_SECRET`
 
 One key, one purpose. Rotating a signing secret must not decide whether stored credentials remain readable, and a key compromised in one role must not surrender the other.

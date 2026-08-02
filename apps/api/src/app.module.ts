@@ -50,6 +50,7 @@ import { AccountController, UsersController } from './auth/users.controller';
 import { UsersService } from './auth/users.service';
 import { AuthProviderResolver } from './auth/auth-provider.resolver';
 import { SettingsController } from './settings/settings.controller';
+import { ldapEnvBaseline } from './settings/provider-baseline';
 import { SettingsService } from './settings/settings.service';
 import { SettingsStore } from './settings/settings.store';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
@@ -161,10 +162,10 @@ export class AppModule {
             store,
             audit,
             // The environment baseline for LDAP is owned by the enterprise
-            // layer's own parser, which core cannot call (ADR-0002). Core knows
-            // only whether the environment configures one at all; the provider
-            // that reads it in detail is the licensed one.
-            () => null,
+            // layer's own parser, which core cannot call (ADR-0002) — so core
+            // asks the provider built from it what it is running with, rather
+            // than reading the variables itself.
+            () => ldapEnvBaseline(resolver),
             () => resolver.forSource('ldap') !== null,
           ),
       },
