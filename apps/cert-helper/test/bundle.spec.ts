@@ -1,7 +1,10 @@
 import { checkBundle, explainRejection, splitPemBlocks } from '../src/pure/bundle';
-import { makePair } from './fixtures';
+import { DAY_MS, makePair } from './fixtures';
 
 jest.setTimeout(60_000); // openssl genpkey
+
+/** An instant comfortably inside a freshly issued certificate's window. */
+const inside = (issuedAt: Date) => new Date(issuedAt.getTime() + 60_000);
 
 /**
  * Validation before installation (ADR-0017).
@@ -11,15 +14,13 @@ jest.setTimeout(60_000); // openssl genpkey
  * at the next TLS handshake — on the connection they would need to undo it.
  */
 describe('checkBundle', () => {
-  const NOW = new Date();
-
   it('accepts a matching pair and reports its identity', () => {
-    const { certPem, keyPem } = makePair({
+    const { certPem, keyPem, issuedAt } = makePair({
       subject: '/CN=console.example.test',
       sans: ['console.example.test', 'nexus.example.test'],
     });
 
-    const result = checkBundle(certPem, keyPem, NOW);
+    const result = checkBundle(certPem, keyPem, inside(issuedAt));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -37,49 +38,51 @@ describe('checkBundle', () => {
     const a = makePair({ subject: '/CN=a.example.test' });
     const b = makePair({ subject: '/CN=b.example.test' });
 
-    const result = checkBundle(a.certPem, b.keyPem, NOW);
+    const result = checkBundle(a.certPem, b.keyPem, inside(a.issuedAt));
 
     expect(result).toMatchObject({ ok: false, rejection: { reason: 'mismatch' } });
   });
 
   it('refuses an expired certificate', () => {
-    const { certPem, keyPem } = makePair({ daysFrom: -400, daysTo: -30 });
+    const { certPem, keyPem, issuedAt } = makePair({ days: 1 });
 
-    const result = checkBundle(certPem, keyPem, NOW);
+    // Two days after issue. Moving the clock rather than backdating the
+    // certificate keeps this working on every openssl.
+    const result = checkBundle(certPem, keyPem, new Date(issuedAt.getTime() + 2 * DAY_MS));
 
     expect(result).toMatchObject({ ok: false, rejection: { reason: 'expired' } });
   });
 
   it('refuses one that is not valid yet', () => {
-    const { certPem, keyPem } = makePair({ daysFrom: 30, daysTo: 400 });
+    const { certPem, keyPem, issuedAt } = makePair({ days: 365 });
 
-    const result = checkBundle(certPem, keyPem, NOW);
+    const result = checkBundle(certPem, keyPem, new Date(issuedAt.getTime() - DAY_MS));
 
     expect(result).toMatchObject({ ok: false, rejection: { reason: 'not-yet-valid' } });
   });
 
   it('names the certificate when the certificate is the unreadable one', () => {
-    const { keyPem } = makePair({});
+    const { keyPem, issuedAt } = makePair();
 
-    const result = checkBundle('not a certificate', keyPem, NOW);
+    const result = checkBundle('not a certificate', keyPem, inside(issuedAt));
 
     expect(result).toMatchObject({ ok: false, rejection: { reason: 'certificate-unreadable' } });
   });
 
   it('names the key when the key is the unreadable one', () => {
-    const { certPem } = makePair({});
+    const { certPem, issuedAt } = makePair();
 
-    const result = checkBundle(certPem, 'not a key', NOW);
+    const result = checkBundle(certPem, 'not a key', inside(issuedAt));
 
     expect(result).toMatchObject({ ok: false, rejection: { reason: 'key-unreadable' } });
   });
 
   it('says so plainly when the key is passphrase-protected', () => {
-    const { certPem } = makePair({});
+    const { certPem, issuedAt } = makePair();
     const encrypted =
       '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkq\n-----END ENCRYPTED PRIVATE KEY-----\n';
 
-    const result = checkBundle(certPem, encrypted, NOW);
+    const result = checkBundle(certPem, encrypted, inside(issuedAt));
 
     // Without this branch the operator gets a DER parse error and goes looking
     // for a corrupt file.
@@ -93,7 +96,7 @@ describe('checkBundle', () => {
     const issuer = makePair({ subject: '/CN=issuer.example.test' });
     const fullchain = `${leaf.certPem}${issuer.certPem}`;
 
-    const result = checkBundle(fullchain, leaf.keyPem, NOW);
+    const result = checkBundle(fullchain, leaf.keyPem, inside(leaf.issuedAt));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -106,7 +109,11 @@ describe('checkBundle', () => {
     const leaf = makePair({ subject: '/CN=leaf.example.test' });
     const other = makePair({ subject: '/CN=other.example.test' });
 
-    const result = checkBundle(`${leaf.certPem}${other.certPem}`, other.keyPem, NOW);
+    const result = checkBundle(
+      `${leaf.certPem}${other.certPem}`,
+      other.keyPem,
+      inside(leaf.issuedAt),
+    );
 
     expect(result).toMatchObject({ ok: false, rejection: { reason: 'mismatch' } });
   });
