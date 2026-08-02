@@ -1,7 +1,8 @@
+import { mkdir, rm } from 'node:fs/promises';
 import { caddyReload } from './adapters/caddy-reload';
 import { tlsProbe } from './adapters/tls-probe';
 import { adoptExisting } from './adopt';
-import { readEnv } from './config';
+import { assertWritable, readEnv } from './config';
 import type { ProxyPorts } from './install';
 import { expireIfDue, recoverOnStart } from './pending';
 import { createHelperServer } from './server';
@@ -17,6 +18,9 @@ async function main(): Promise<void> {
     servedFingerprint: tlsProbe(env.probeHost, env.probePort, env.probeServername),
     now: () => new Date(),
   };
+
+  // Before anything else touches the directory, so the failure names the fix.
+  await assertWritable(env.root, { mkdir, rm }, process.getuid?.() ?? 100);
 
   const adopted = await adoptExisting(env.root, new Date());
   if (adopted === 'adopted') {
