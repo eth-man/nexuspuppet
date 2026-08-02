@@ -202,7 +202,10 @@ export function ConsoleTlsInstall() {
                 id="tls-key"
                 rows={5}
                 className="font-mono text-[11px]"
-                placeholder="-----BEGIN PRIVATE KEY-----"
+                // Deliberately not the literal PEM banner. CI greps the tree for one
+                // to catch a committed key, and a placeholder that trips that guard is
+                // a reason to change the placeholder — never the guard.
+                placeholder="The PEM private key for that certificate"
                 value={privateKey}
                 onChange={(e) => setPrivateKey(e.target.value)}
               />
