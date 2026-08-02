@@ -49,6 +49,9 @@ import { AuthController } from './auth/auth.controller';
 import { AccountController, UsersController } from './auth/users.controller';
 import { UsersService } from './auth/users.service';
 import { AuthProviderResolver } from './auth/auth-provider.resolver';
+import { SettingsController } from './settings/settings.controller';
+import { SettingsService } from './settings/settings.service';
+import { SettingsStore } from './settings/settings.store';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
 import { RbacPolicy } from './auth/rbac.policy';
 import { TokenService } from './auth/token.service';
@@ -141,6 +144,31 @@ export class AppModule {
         useFactory: (...providers: IAuthProvider[]): IAuthProvider[] => providers,
       },
       {
+        provide: SettingsStore,
+        inject: [PrismaService],
+        useFactory: (prisma: PrismaService): SettingsStore =>
+          new SettingsStore(prisma, env.CONFIG_ENCRYPTION_KEY, env.SETTINGS_SOURCE),
+      },
+      {
+        provide: SettingsService,
+        inject: [SettingsStore, AUDIT_SINK, AuthProviderResolver],
+        useFactory: (
+          store: SettingsStore,
+          audit: IAuditSink,
+          resolver: AuthProviderResolver,
+        ): SettingsService =>
+          new SettingsService(
+            store,
+            audit,
+            // The environment baseline for LDAP is owned by the enterprise
+            // layer's own parser, which core cannot call (ADR-0002). Core knows
+            // only whether the environment configures one at all; the provider
+            // that reads it in detail is the licensed one.
+            () => null,
+            () => resolver.forSource('ldap') !== null,
+          ),
+      },
+      {
         provide: AuthProviderResolver,
         inject: [AUTH_PROVIDERS, PrismaService],
         useFactory: (providers: IAuthProvider[], prisma: PrismaService): AuthProviderResolver =>
@@ -191,6 +219,7 @@ export class AppModule {
         UsersController,
         AccountController,
         SystemController,
+        SettingsController,
       ],
       providers: [
         ...coreServices,
