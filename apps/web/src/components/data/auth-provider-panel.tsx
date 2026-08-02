@@ -6,13 +6,20 @@ import { useAuth } from '@/providers/auth-provider';
 import { useAuthProvider } from '@/lib/queries';
 
 /**
+ * Sources that have their own editable settings card on this page.
+ *
+ * For these, this panel is pure duplication — the same connection details and
+ * the same mappings, one screenful apart, one of them editable. The editable
+ * card wins.
+ */
+const HAS_EDITABLE_CARD = new Set(['ldap']);
+
+/**
  * Who gets which role, according to the directory.
  *
- * Read-only on purpose. These mappings decide who can reclassify a thousand
- * machines, and they are currently owned by the deployment's environment —
- * versioned in whatever manages your configuration, changed by a restart, and
- * not editable from inside the application. This panel exists so an
- * administrator can SEE what is in force without reading a container's
+ * Read-only, and the fallback rather than the norm. It exists for a provider
+ * core cannot offer a form for — OIDC today — whose mappings still come from
+ * the environment and are still worth seeing without reading a container's
  * environment over someone's shoulder.
  *
  * Rendered without interpretation: core does not know what LDAP is, and the
@@ -26,6 +33,11 @@ export function AuthProviderPanel() {
   if (!manages) return null;
 
   const description = provider.data;
+
+  // Deleting this component outright was the ask, and it would have been wrong:
+  // it is not the LDAP panel, it is whatever the describable provider reports.
+  // An OIDC deployment would have silently lost its role mappings.
+  if (description !== undefined && HAS_EDITABLE_CARD.has(description.source)) return null;
 
   // A provider with no group mappings has nothing to explain — core's local
   // password auth is the usual case. Showing an empty table would imply

@@ -221,6 +221,73 @@ describe('user administration (integration)', () => {
     });
   });
 
+  describe('a directory-sourced role is not editable here', () => {
+    // The role is recomputed from group membership at every sign-in
+    // (ADR-0015). Writing one locally does not fail — it is overwritten at the
+    // next login, with nothing to tell the administrator it did not stick.
+    const makeLdapUser = async (email: string, role: 'VIEWER' | 'OPERATOR' | 'ADMIN') =>
+      prisma.user.create({
+        data: { email, displayName: email, role, isActive: true, authSource: 'ldap' },
+      });
+
+    it('refuses a role change on an externally-authenticated account', async () => {
+      await makeUser('admin@example.com', 'ADMIN');
+      const admin = await makeUser('admin2@example.com', 'ADMIN');
+      const alice = await makeLdapUser('alice@example.com', 'VIEWER');
+
+      await expect(
+        users.update(alice.id, { role: 'ADMIN' }, principalFor(admin), CTX),
+      ).rejects.toThrow(/recomputes their role/);
+    });
+
+    it('leaves the stored role untouched when it refuses', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const alice = await makeLdapUser('alice@example.com', 'VIEWER');
+
+      await users.update(alice.id, { role: 'ADMIN' }, principalFor(admin), CTX).catch(() => {});
+
+      const after = await prisma.user.findUniqueOrThrow({ where: { id: alice.id } });
+      expect(after.role).toBe('VIEWER');
+    });
+
+    it('still permits the edits that are genuinely local', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const alice = await makeLdapUser('alice@example.com', 'VIEWER');
+
+      // Deactivation is a local decision — it denies access regardless of what
+      // the directory says — and renaming does not touch the mapping.
+      await expect(
+        users.update(alice.id, { isActive: false }, principalFor(admin), CTX),
+      ).resolves.toMatchObject({ isActive: false });
+      await expect(
+        users.update(alice.id, { displayName: 'Alice N' }, principalFor(admin), CTX),
+      ).resolves.toMatchObject({ displayName: 'Alice N' });
+    });
+
+    it('permits a no-op role patch, so an unrelated edit is not blocked', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const alice = await makeLdapUser('alice@example.com', 'VIEWER');
+
+      await expect(
+        users.update(
+          alice.id,
+          { role: 'VIEWER', displayName: 'Alice N' },
+          principalFor(admin),
+          CTX,
+        ),
+      ).resolves.toMatchObject({ displayName: 'Alice N' });
+    });
+
+    it('does not interfere with a local account', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const bob = await makeUser('bob@example.com', 'VIEWER');
+
+      await expect(
+        users.update(bob.id, { role: 'OPERATOR' }, principalFor(admin), CTX),
+      ).resolves.toMatchObject({ role: 'OPERATOR' });
+    });
+  });
+
   describe('deactivation ends access', () => {
     it('revokes every session, not just future logins', async () => {
       const admin = await makeUser('admin@example.com', 'ADMIN');

@@ -19,9 +19,12 @@ import { ConsoleTlsCard } from '@/components/data/console-tls-card';
  * session", because the cards are all short and the table is the only thing
  * with real content — the page read as half-finished.
  *
- * `items-start` keeps each card at its natural height. Stretching them to match
- * the tallest would pad Deployment with empty space to align with a password
- * form, which is the opposite of dense.
+ * The three cards stretch to a common height. They previously kept their
+ * natural heights — 119px, 281px and 256px in practice — on the argument that
+ * padding "Deployment" to match a password form wastes space. Measured on a
+ * real deployment the ragged bottom edge cost more than the padding saved: three
+ * cards of three different heights read as a rendering fault rather than a
+ * decision. Density is worth less than a strip that looks deliberate.
  */
 export default function SettingsPage() {
   const capabilities = useCapabilities();
@@ -34,7 +37,7 @@ export default function SettingsPage() {
         <p className="text-xs text-ink-muted">Deployment, session, and users</p>
       </header>
 
-      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>Deployment</CardTitle>
