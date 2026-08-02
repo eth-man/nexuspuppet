@@ -136,6 +136,23 @@ export interface IAuthProvider {
    * browser — see AuthProviderDescription for what must never appear in it.
    */
   describe?(): AuthProviderDescription;
+
+  /**
+   * Try a CANDIDATE configuration without adopting it (ADR-0016 §4).
+   *
+   * The settings screen offers a Test button, and core cannot implement it:
+   * reaching a directory needs the client, and that lives in the enterprise
+   * layer which core may not import (ADR-0002). So the provider does the work
+   * and core owns the endpoint.
+   *
+   * MUST NOT mutate anything. Not the live configuration, not a connection
+   * pool, not a cached bind. An operator testing a typo must not disturb the
+   * directory the deployment is currently using.
+   *
+   * Optional, because a provider with nothing to reach — core's local one — has
+   * nothing to test.
+   */
+  verifyConfiguration?(config: unknown): Promise<ProviderVerification>;
 }
 
 /** A directory group and the role it grants. */
@@ -158,6 +175,25 @@ export interface RoleMapping {
  * leave it out: an operator can read the deployment's environment, and a
  * secret rendered in a page ends up in screenshots and support tickets.
  */
+/**
+ * The outcome of testing a candidate configuration (ADR-0016 §4).
+ *
+ * Deliberately not an exception. "I could not reach that directory" is an
+ * ordinary answer to "does this configuration work", and the operator needs the
+ * detail rather than a 500.
+ */
+export interface ProviderVerification {
+  ok: boolean;
+  /** One line an operator can act on. Never a raw stack trace. */
+  message: string;
+  /**
+   * What the provider established, when it got far enough to establish
+   * anything: bound successfully, found N users under the search base, resolved
+   * these groups. Rendered as a list; each entry must be safe to show a browser.
+   */
+  details?: Array<{ label: string; value: string }>;
+}
+
 export interface AuthProviderDescription {
   /** Matches IAuthProvider.source. */
   source: string;
@@ -504,4 +540,67 @@ export interface ManagedUser {
   authSource: string;
   lastLoginAt: string | null;
   createdAt: string;
+}
+
+/**
+ * LDAP configuration as the console sends and receives it (ADR-0016).
+ *
+ * Declared in CONTRACTS, not in the enterprise layer, even though only the
+ * enterprise layer can act on it. Core owns the endpoint, validates the body
+ * and stores it; the provider that consumes it is licensed. A shape that lived
+ * in the private package could not be validated by core at all, and the API
+ * would be accepting whatever it was handed.
+ *
+ * `bindPassword` is WRITE-ONLY. It is accepted here and never returned — a read
+ * reports whether one is held, not what it is.
+ */
+export const ldapSettingsSchema = z.object({
+  url: z
+    .string()
+    .min(1)
+    .refine((value) => /^ldaps?:\/\//i.test(value), {
+      message: 'Must use the ldap:// or ldaps:// scheme',
+    }),
+  bindDn: z.string().min(1).optional(),
+  /** Omit to keep the stored one. Never returned by a read. */
+  bindPassword: z.string().min(1).optional(),
+  dialect: z.enum(['openldap', 'ad']).default('openldap'),
+  searchBase: z.string().min(1),
+  groupSearchBase: z.string().min(1).optional(),
+  searchFilter: z.string().min(1).optional(),
+  nestedGroups: z.boolean().default(false),
+  roleMappings: z
+    .array(z.object({ groupDn: z.string().min(1), role: z.enum(['VIEWER', 'OPERATOR', 'ADMIN']) }))
+    .default([]),
+  timeoutMs: z.number().int().positive().max(60_000).default(10_000),
+  /**
+   * Turning this off accepts any certificate the directory presents, which
+   * removes the point of ldaps://. Allowed because test directories exist;
+   * surfaced in the UI as the warning it is.
+   */
+  tlsRejectUnauthorized: z.boolean().default(true),
+});
+
+export type LdapSettings = z.infer<typeof ldapSettingsSchema>;
+
+/** What a read of stored settings returns. Never carries a secret value. */
+export interface SettingsView<T> {
+  /** Where this configuration came from: stored, the environment, or nowhere. */
+  source: 'database' | 'environment' | 'unset';
+  /** Absent when nothing is configured, or when a stored row is switched off. */
+  config: T | null;
+  /** A stored configuration that exists but is switched off. */
+  disabled: boolean;
+  /** Names of secrets held for this configuration. Never their values. */
+  secretsHeld: string[];
+  updatedAt: string | null;
+  updatedByEmail: string | null;
+  /**
+   * Whether a change here takes effect without a restart.
+   *
+   * False when the provider is not registered — configuring LDAP for the first
+   * time still needs a restart, because registration builds the DI graph
+   * (ADR-0016 §4). The console must say so rather than appear to have worked.
+   */
+  liveReload: boolean;
 }
