@@ -100,6 +100,8 @@ describe('ldapEnvBaseline', () => {
 
     ldapEnvBaseline(reporting({ url: 'nonsense' }));
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('does not match the settings schema'));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('does not match the settings schema'),
+    );
   });
 });

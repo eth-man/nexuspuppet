@@ -257,10 +257,7 @@ export function LdapSettingsPanel() {
             // with, a test of these settings would fail and blame the
             // directory rather than the missing field.
             disabled={
-              test.isPending ||
-              form.url === '' ||
-              form.searchBase === '' ||
-              needsPasswordToAdopt
+              test.isPending || form.url === '' || form.searchBase === '' || needsPasswordToAdopt
             }
             onClick={() => {
               setError(null);
@@ -274,10 +271,7 @@ export function LdapSettingsPanel() {
             variant="primary"
             size="sm"
             disabled={
-              save.isPending ||
-              form.url === '' ||
-              form.searchBase === '' ||
-              needsPasswordToAdopt
+              save.isPending || form.url === '' || form.searchBase === '' || needsPasswordToAdopt
             }
             onClick={() => {
               setError(null);
