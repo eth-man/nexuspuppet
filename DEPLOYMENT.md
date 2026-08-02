@@ -123,7 +123,28 @@ export NEXUSPUPPET_ENTERPRISE_REPO='git@github.com:yourorg/nexuspuppet-enterpris
 export NEXUSPUPPET_ENTERPRISE_REF=v1.0.0      # default: main
 npm run enterprise:fetch                       # clones into packages/enterprise/
 npm install
+npm install ldapts --workspace @nexuspuppet/enterprise   # LDAP deployments only
 ```
+
+**That last line is needed again after every `npm install` that replaces
+`packages/enterprise`** — a fresh clone, a new tag, another `enterprise:fetch`.
+It is not a one-off.
+
+`ldapts` is declared as an *optional peer* dependency, so an OIDC-only deployment
+does not pull an LDAP client it will never use. The consequence is that
+`npm install ldapts --workspace …` adds **no** entry to that package's
+`dependencies` — npm treats the install as satisfying the peer — and it survives
+in `package-lock.json` alone. Replace the package and the next `npm install`
+reconciles the tree, finds nothing requiring an optional peer, and removes it.
+
+The deployment then starts, loads the enterprise layer, reports `directory.ldap`
+in `GET /capabilities`, and fails **every** LDAP login with:
+
+```
+The `ldapts` package is not installed, so LDAP authentication cannot run.
+```
+
+Loud and self-explaining, but after deploy rather than during build.
 
 `npm run enterprise:fetch` with no repository set exits 0 with a notice and does
 nothing. That is intended: the public pipeline runs it on every commit to prove

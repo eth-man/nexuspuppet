@@ -31,6 +31,27 @@ COPY apps/api/package.json apps/api/
 # For LDAP, also `npm install ldapts --workspace @nexuspuppet/enterprise`. It is
 # an optional peer dependency so an OIDC-only deployment does not pull an LDAP
 # client; without it the layer loads and every login fails at runtime.
+#
+# RE-RUN THAT ON EVERY REBUILD, not only the first install. It does not stick
+# the way a normal dependency does, and the reason is worth knowing:
+#
+#   - `npm install ldapts --workspace @nexuspuppet/enterprise` does NOT add it to
+#     that package's `dependencies`. ldapts is already declared as an optional
+#     PEER dependency, so npm treats the install as satisfying the peer and
+#     writes no dependency entry.
+#   - It survives in package-lock.json alone. Replace packages/enterprise — a
+#     fresh clone, a new tag, re-running enterprise:fetch — and the next
+#     `npm install` reconciles the tree, finds nothing that requires an optional
+#     peer, and removes it.
+#
+# So a rebuild that worked yesterday produces an image where the enterprise
+# layer loads, reports directory.ldap, and fails every LDAP login at runtime.
+# Found doing exactly that: rebuilding a working enterprise deployment from a
+# clean checkout of main.
+#
+# The failure is at least loud and self-explaining — the provider says "The
+# `ldapts` package is not installed" and names the fix — but it happens after
+# deploy rather than during build, which is the expensive place to find it.
 RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/api --include-workspace-root
 
 FROM deps AS build
