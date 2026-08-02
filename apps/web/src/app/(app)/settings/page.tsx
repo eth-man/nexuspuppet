@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { QueryError, Spinner } from '@/components/states';
 import { AuthProviderPanel } from '@/components/data/auth-provider-panel';
+import { LdapSettingsPanel } from '@/components/data/ldap-settings-panel';
 import { UsersPanel } from '@/components/data/users-panel';
 import { ChangePasswordCard } from '@/components/data/change-password';
 import { ConsoleTlsCard } from '@/components/data/console-tls-card';
@@ -123,6 +124,7 @@ export default function SettingsPage() {
 
       {/* Who the directory says may do what. Renders only when a provider
           actually maps groups to roles, so core deployments are unchanged. */}
+      <LdapSettingsPanel />
       <AuthProviderPanel />
 
       {/* Full width: the only panel on this page with substantial content. */}
