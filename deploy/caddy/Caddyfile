@@ -41,13 +41,39 @@ http://{$CONSOLE_HOSTNAME} {
 }
 
 https://{$CONSOLE_HOSTNAME} {
-	tls /etc/caddy/certs/console.pem /etc/caddy/certs/console.key
+	# Read through the `live` symlink, not directly.
+	#
+	# The certificate and its key must change as a UNIT: two file renames are two
+	# moments, and a crash between them leaves a mismatched pair that fails every
+	# handshake — on the interface the operator would use to undo it. Swapping one
+	# symlink is a single atomic rename (ADR-0017).
+	#
+	# An upgrade from a deployment that mounted console.pem/console.key directly
+	# keeps working: cert-helper adopts them into a set and creates this link on
+	# first boot, leaving the originals untouched.
+	tls /etc/caddy/certs/live/console.pem /etc/caddy/certs/live/console.key
 
 	# The console is a single upstream. There is no load balancing to do and no
 	# second backend to route to — the API is reached through the web tier's
 	# server-side relay, never directly from the browser (ADR-0004).
-	reverse_proxy web:3000 {
-		header_up X-Forwarded-Proto https
+	# Certificate installation goes to the helper, NOT to the api.
+	#
+	# This is the routing that keeps ADR-0013 §2 literally true: the private key
+	# is uploaded by the browser to a component that never shares a process with
+	# the API, so it cannot reach the API's heap, logs or crash dumps. The api
+	# authorises the upload with a signed grant; it never carries one.
+	# Both routes are `handle` blocks, and that is deliberate: handle blocks are
+	# mutually exclusive and matched in order, whereas a bare directive alongside
+	# them is ordered by Caddy's own directive table rather than by what is
+	# written here. Being explicit costs two lines and removes the question.
+	handle /console-tls/* {
+		reverse_proxy cert-helper:8099
+	}
+
+	handle {
+		reverse_proxy web:3000 {
+			header_up X-Forwarded-Proto https
+		}
 	}
 
 	# NO HSTS, deliberately. Caddy adds none on its own and none is added here.

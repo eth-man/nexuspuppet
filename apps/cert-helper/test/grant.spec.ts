@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { GRANT_VERSION, SpentGrants, mintGrant, verifyGrant } from '../src/grant';
+import { GRANT_VERSION, SpentGrants, mintGrant, verifyGrant } from '@nexuspuppet/tls-grant';
 
 const SECRET = 'a'.repeat(48);
 const OTHER = 'b'.repeat(48);

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { ProxyPorts } from './install';
-import { SpentGrants, verifyGrant } from './grant';
+import { SpentGrants, verifyGrant } from '@nexuspuppet/tls-grant';
 import { confirmPending, expireIfDue, readPending, stageBundle } from './pending';
 
 /**

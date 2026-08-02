@@ -171,6 +171,19 @@ export const envSchema = z.object({
   CONSOLE_TLS_CERT_PATH: z.string().optional(),
   /** The name operators reach the console by, to check the certificate covers it. */
   CONSOLE_HOSTNAME: z.string().optional(),
+  /**
+   * Shared with the cert-helper service, which verifies installation grants
+   * signed with it (ADR-0017).
+   *
+   * Optional: a deployment that terminates TLS elsewhere runs no helper and
+   * needs no key. Absent means the console cannot offer certificate
+   * installation, which is reported rather than assumed.
+   *
+   * This authorises an upload. It is NOT key material and never touches one —
+   * the certificate and its private key go from the browser to the helper
+   * without passing through this process.
+   */
+  CERT_HELPER_SECRET: z.string().min(32).optional(),
   ENC_DEFAULT_ENVIRONMENT: z.string().default('production'),
   ENC_MATERIALIZER_INTERVAL_MS: durationMs(2_000),
   ENC_RECONCILE_INTERVAL_MS: durationMs(900_000),

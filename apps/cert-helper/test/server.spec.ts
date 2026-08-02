@@ -4,7 +4,7 @@ import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CERT_FILE, LIVE_LINK, type ProxyPorts } from '../src/install';
-import { mintGrant } from '../src/grant';
+import { mintGrant } from '@nexuspuppet/tls-grant';
 import { createHelperServer } from '../src/server';
 import { makePair } from './fixtures';
 

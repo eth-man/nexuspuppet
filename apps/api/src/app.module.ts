@@ -38,6 +38,7 @@ import { ConflictReportService } from './classification/conflict-report.service'
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
 import { ConsoleTlsService } from './system/console-tls.service';
+import { ConsoleTlsGrantService } from './system/console-tls-grant.service';
 import {
   AuditDeliveryWorker,
   DEFAULT_AUDIT_PACING,
@@ -272,6 +273,14 @@ export class AppModule {
           provide: ConsoleTlsService,
           useFactory: (): ConsoleTlsService =>
             new ConsoleTlsService(env.CONSOLE_TLS_CERT_PATH ?? null, env.CONSOLE_HOSTNAME ?? null),
+        },
+        {
+          provide: ConsoleTlsGrantService,
+          inject: [AUDIT_SINK],
+          // The secret is read here rather than inside the service, so the
+          // service can be constructed in a test without an environment.
+          useFactory: (audit: IAuditSink): ConsoleTlsGrantService =>
+            new ConsoleTlsGrantService(audit, env.CERT_HELPER_SECRET),
         },
         // RbacPolicy, LocalUserDirectory, PrismaAuditSink and CoreLicenseService
         // are NOT registered here. They reach the container only through their

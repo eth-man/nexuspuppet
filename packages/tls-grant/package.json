@@ -1,0 +1,17 @@
+{
+  "name": "@nexuspuppet/tls-grant",
+  "version": "0.1.0",
+  "description": "Signed authorisation for a console certificate installation, shared by the api and the cert-helper (ADR-0017)",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "rm -rf dist *.tsbuildinfo && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  }
+}
