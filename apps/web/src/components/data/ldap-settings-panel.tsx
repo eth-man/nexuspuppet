@@ -423,8 +423,9 @@ function RoleMappings({
     <div className="space-y-1.5">
       <Label>Role mappings</Label>
       <p className="text-[11px] text-ink-faint">
-        {'Recomputed at every sign-in from group membership. With none set, anybody who '}
-        {'authenticates is refused for having no mapped group.'}
+        {'Recomputed at every sign-in from group membership. Where someone matches several, '}
+        {'the highest role wins. With none set, anybody who authenticates is refused for '}
+        {'having no mapped group.'}
       </p>
 
       {mappings.map((mapping, index) => (

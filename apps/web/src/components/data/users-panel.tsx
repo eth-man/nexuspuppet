@@ -149,27 +149,44 @@ export function UsersPanel() {
                   </TD>
                   <TD className="text-xs text-ink-muted">{user.displayName}</TD>
                   <TD>
-                    <Select
-                      value={user.role}
-                      // Changing your own role is refused server-side; disabling
-                      // it here saves a pointless round trip.
-                      disabled={self || update.isPending}
-                      onChange={(event) => {
-                        setError(null);
-                        update.mutate(
-                          { id: user.id, patch: { role: event.target.value as UserRole } },
-                          { onError: fail },
-                        );
-                      }}
-                      className="h-6 text-xs"
-                      aria-label={`Role for ${user.email}`}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </Select>
+                    {user.authSource === 'local' ? (
+                      <Select
+                        value={user.role}
+                        // Changing your own role is refused server-side; disabling
+                        // it here saves a pointless round trip.
+                        disabled={self || update.isPending}
+                        onChange={(event) => {
+                          setError(null);
+                          update.mutate(
+                            { id: user.id, patch: { role: event.target.value as UserRole } },
+                            { onError: fail },
+                          );
+                        }}
+                        className="h-6 text-xs"
+                        aria-label={`Role for ${user.email}`}
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      /*
+                        Plain text, not a disabled control. This role is derived
+                        from directory group membership and recomputed at every
+                        sign-in (ADR-0015) — there is no local override to offer,
+                        so a dropdown here advertises a choice that does not
+                        exist. The API refuses the change too; this is the
+                        honest rendering of that, not a shortcut for it.
+                      */
+                      <span
+                        className="text-xs text-ink"
+                        title={`Set by the ${user.authSource} provider from directory group membership, and recomputed at each sign-in.`}
+                      >
+                        {user.role}
+                      </span>
+                    )}
                   </TD>
                   <TD>
                     <Badge>{user.authSource}</Badge>

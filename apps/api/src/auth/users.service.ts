@@ -149,6 +149,23 @@ export class UsersService {
         throw new ForbiddenException('You cannot change your own role.');
       }
 
+      // An externally-sourced role is derived, not stored: the provider
+      // recomputes it from group membership at every sign-in (ADR-0015). A
+      // change made here is not rejected by anything downstream — it is
+      // written, shown as applied, and then silently overwritten the next time
+      // that person logs in. Accepting the edit is the worst of the available
+      // options, because the administrator has no way to tell it did not stick.
+      //
+      // The same reasoning already refuses a password reset on these accounts.
+      if (input.role !== undefined && input.role !== before.role && before.authSource !== 'local') {
+        throw new ConflictException(
+          `${before.email} is authenticated by "${before.authSource}", which recomputes their ` +
+            'role from directory group membership at every sign-in. Change their groups in the ' +
+            'directory, or the role mapping in settings — a role set here would be overwritten ' +
+            'at their next sign-in.',
+        );
+      }
+
       const updated = await tx.user.update({
         where: { id },
         data: {
