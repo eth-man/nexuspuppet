@@ -1,0 +1,26 @@
+# Build context exclusions.
+#
+# THE LOAD-BEARING ONE IS *.tsbuildinfo. tsconfig.base.json sets
+# `incremental: true`, so TypeScript records what it has already emitted. Copy a
+# stale buildinfo into the image WITHOUT the dist it describes — which is
+# exactly what happens when dist is excluded and buildinfo is not — and `tsc`
+# exits 0 having emitted nothing at all. The image then builds an application
+# with no compiled output, and the first error is a wall of "Cannot find module
+# '@nexuspuppet/contracts'" that points nowhere near the cause.
+#
+# This only ever bit a build from a checkout where someone had run
+# `npm run build` locally; CI and the VM clone fresh, which is why it went
+# unnoticed. Found by building the images from a working tree.
+**/*.tsbuildinfo
+**/dist
+**/node_modules
+**/.next
+**/coverage
+
+.git
+.github
+e2e/.results
+qa-report*
+
+# NOT excluded: packages/enterprise. A private build needs it in the context —
+# see the four edits documented at the top of apps/api/Dockerfile.

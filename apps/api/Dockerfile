@@ -4,6 +4,7 @@ FROM node:22-alpine AS deps
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/contracts/package.json packages/contracts/
+COPY packages/tls-grant/package.json packages/tls-grant/
 COPY apps/api/package.json apps/api/
 # The enterprise layer is absent here by design (ADR-0002).
 #
@@ -52,7 +53,7 @@ COPY apps/api/package.json apps/api/
 # The failure is at least loud and self-explaining — the provider says "The
 # `ldapts` package is not installed" and names the fix — but it happens after
 # deploy rather than during build, which is the expensive place to find it.
-RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/api --include-workspace-root
+RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/api --include-workspace-root
 
 FROM deps AS build
 # Prisma 7 resolves DATABASE_URL through prisma.config.ts even for `generate`,
@@ -61,8 +62,10 @@ FROM deps AS build
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/unused
 COPY tsconfig.base.json ./
 COPY packages/contracts packages/contracts
+COPY packages/tls-grant packages/tls-grant
 COPY apps/api apps/api
 RUN npm run build --workspace @nexuspuppet/contracts \
+ && npm run build --workspace @nexuspuppet/tls-grant \
  && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
@@ -85,6 +88,8 @@ RUN addgroup -S -g 101 app && adduser -S -u 100 -G app app
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/packages/contracts/dist ./packages/contracts/dist
 COPY --from=build /repo/packages/contracts/package.json ./packages/contracts/
+COPY --from=build /repo/packages/tls-grant/dist ./packages/tls-grant/dist
+COPY --from=build /repo/packages/tls-grant/package.json ./packages/tls-grant/
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/apps/api/prisma ./prisma
 # prisma.config.ts, not just prisma/. Prisma 7 keeps the connection string out

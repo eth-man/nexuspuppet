@@ -153,6 +153,41 @@ services:
   # Off by default, so an operator who already runs a reverse proxy is
   # unaffected and nothing about the web tier changes. §7 of DEPLOYMENT.md
   # covers both paths.
+  # The ONLY service that writes private key material (ADR-0017).
+  #
+  # It exists so certificate installation from the console does not require the
+  # api to hold a key. The api mints a signed grant and never sees the upload;
+  # the browser posts straight here through the proxy.
+  cert-helper:
+    profiles: ['tls']
+    build:
+      context: .
+      dockerfile: apps/cert-helper/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Shared with the api, which signs installation grants with it. Verified
+      # here with no call back to the api — this component does its work while
+      # TLS is being replaced, which is exactly when the api may be unreachable.
+      CERT_HELPER_SECRET: ${CERT_HELPER_SECRET:-}
+      CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
+      TLS_CONFIRM_TIMEOUT_SEC: ${TLS_CONFIRM_TIMEOUT_SEC:-120}
+      CONSOLE_TLS_ROOT: /etc/nexuspuppet/tls
+      CADDY_ADMIN_ORIGIN: http://proxy:2019
+      CADDYFILE_PATH: /etc/caddy/Caddyfile
+      CONSOLE_PROBE_HOST: proxy
+      CONSOLE_PROBE_PORT: '443'
+    volumes:
+      # READ-WRITE, and the only mount in the stack that is. The proxy reads the
+      # same path read-only; the api and web services do not mount it at all.
+      - ${CONSOLE_TLS_DIR:-/etc/nexuspuppet/tls}:/etc/nexuspuppet/tls
+      # The same Caddyfile the proxy runs. Reloading means POSTing this config
+      # back with Cache-Control: must-revalidate — without which Caddy accepts
+      # it, answers 200, and changes nothing, because it is byte-identical.
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    # NO PORTS. Reachable only over the Compose network, through the proxy route
+    # that fronts it. Publishing this would expose certificate installation to
+    # anything that can route to the host.
+
   proxy:
     profiles: ['tls']
     image: caddy:2-alpine

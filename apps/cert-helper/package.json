@@ -1,7 +1,7 @@
 {
   "name": "@nexuspuppet/cert-helper",
   "version": "0.1.0",
-  "description": "NexusPuppet console TLS installer — the only component that writes key material (ADR-0017)",
+  "description": "NexusPuppet console TLS installer \u2014 the only component that writes key material (ADR-0017)",
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
@@ -11,6 +11,10 @@
     "test": "jest",
     "clean": "rm -rf dist coverage *.tsbuildinfo"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "@nexuspuppet/tls-grant": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  }
 }

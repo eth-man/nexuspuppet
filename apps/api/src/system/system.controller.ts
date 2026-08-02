@@ -1,8 +1,9 @@
-import { Controller, Get, Req } from '@nestjs/common';
+import { Controller, Get, Post, Req } from '@nestjs/common';
 import type { ConsoleTlsStatus, SystemStatus } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SystemStatusService } from './system-status.service';
 import { ConsoleTlsService } from './console-tls.service';
+import { ConsoleTlsGrantService } from './console-tls-grant.service';
 
 /**
  * Operational status for the console.
@@ -18,6 +19,7 @@ export class SystemController {
   constructor(
     private readonly status: SystemStatusService,
     private readonly tls: ConsoleTlsService,
+    private readonly grants: ConsoleTlsGrantService,
   ) {}
 
   /**
@@ -48,7 +50,28 @@ export class SystemController {
    */
   @RequirePermission('settings:manage')
   @Get('tls')
-  consoleTls(): Promise<ConsoleTlsStatus> {
-    return this.tls.status();
+  async consoleTls(): Promise<ConsoleTlsStatus & { installable: boolean }> {
+    // `installable` so the console can offer the upload form only where it can
+    // work. A button that always 503s is worse than no button.
+    return { ...(await this.tls.status()), installable: this.grants.available };
+  }
+
+  /**
+   * Authorise a certificate installation. Returns a grant, never a certificate.
+   *
+   * POST because it mints a credential and writes an audit row; a GET that did
+   * either would be replayed by every well-behaved cache and prefetcher on the
+   * path.
+   *
+   * What happens NEXT does not involve this process: the browser posts the
+   * certificate and key to /console-tls/install, which the proxy routes to the
+   * cert-helper service. No key material reaches the API (ADR-0017).
+   */
+  @RequirePermission('settings:manage')
+  @Post('tls/authorize')
+  authorizeInstall(
+    @Req() request: AuthenticatedRequest,
+  ): Promise<{ grant: string; expiresInSeconds: number }> {
+    return this.grants.authorize(request);
   }
 }

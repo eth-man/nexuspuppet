@@ -13,8 +13,8 @@
   ],
   "scripts": {
     "enterprise:fetch": "node scripts/enterprise.mjs",
-    "build": "npm run build --workspace @nexuspuppet/contracts && npm run build --workspaces --if-present",
-    "typecheck": "npm run build --workspace @nexuspuppet/contracts && npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run build --workspaces --if-present",
+    "typecheck": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

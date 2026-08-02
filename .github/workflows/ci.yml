@@ -65,7 +65,9 @@ jobs:
       # script is safe in the public pipeline.
       - run: npm run enterprise:fetch
 
-      - run: npm run build --workspace @nexuspuppet/contracts
+      # Both shared packages, before anything typechecks against them: consumers
+      # resolve them through dist/index.d.ts, absent in a fresh clone.
+      - run: npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant
 
       # Prisma 7 resolves DATABASE_URL via prisma.config.ts even for `generate`,
       # which never contacts a database. A dummy value is correct here.
