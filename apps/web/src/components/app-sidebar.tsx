@@ -30,8 +30,13 @@ interface NavItem {
   href: string;
   label: string;
   icon: typeof Server;
-  /** Hidden when the user lacks it. A UI affordance; the API still enforces. */
-  permission: Permission;
+  /**
+   * Hidden when the user lacks it. A UI affordance; the API still enforces.
+   *
+   * Optional: a destination whose landing page needs no permission is shown to
+   * everyone, and gates its own sections from there.
+   */
+  permission?: Permission;
 }
 
 const NAV: NavItem[] = [
@@ -44,7 +49,13 @@ const NAV: NavItem[] = [
     icon: Layers,
     permission: 'classification:read',
   },
-  { href: '/settings', label: 'Settings', icon: Settings, permission: 'settings:manage' },
+  /**
+   * No permission. Settings opens on General, which holds "Change your
+   * password" — and gating the whole destination on settings:manage meant a
+   * viewer or operator could not change their own password from the console at
+   * all. Each section inside gates itself; see settings/tabs.ts.
+   */
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 const STORAGE_KEY = 'nexuspuppet.sidebar.collapsed';
@@ -83,7 +94,7 @@ export function AppSidebar() {
       </div>
 
       <nav className="flex-1 space-y-0.5 p-1.5" aria-label="Main">
-        {NAV.filter((item) => can(item.permission)).map((item) => {
+        {NAV.filter((item) => item.permission === undefined || can(item.permission)).map((item) => {
           const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           const Icon = item.icon;
 
