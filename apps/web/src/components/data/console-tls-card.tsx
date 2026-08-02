@@ -3,6 +3,7 @@
 import type { ConsoleTlsStatus } from '@nexuspuppet/contracts';
 import { AlertTriangle, Lock, ShieldOff } from 'lucide-react';
 import { useConsoleTls } from '@/lib/queries';
+import { ConsoleTlsInstall } from './console-tls-install';
 import { cn } from '@/lib/utils';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -36,6 +37,10 @@ export function ConsoleTlsCard() {
       </CardHeader>
       <div className="space-y-2 p-3 text-xs">
         <Body status={tls.data} />
+        {/* Only where it can work. `installable` is false when the deployment
+            has no CERT_HELPER_SECRET — TLS terminates elsewhere, or the tls
+            profile is off — and a button that always 503s is worse than none. */}
+        {tls.data.installable && <ConsoleTlsInstall />}
       </div>
     </Card>
   );
