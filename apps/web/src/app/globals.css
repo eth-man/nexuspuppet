@@ -70,6 +70,51 @@
   color-scheme: dark;
 }
 
+/**
+ * Light theme (issue #72 slice 1).
+ *
+ * The @theme block above holds the DARK values and is left untouched, so a dark
+ * console renders byte-for-byte what it rendered before this existed. Light is
+ * expressed only as overrides of the same custom properties — utilities compile
+ * to `var(--color-panel)`, so swapping the property swaps every component at
+ * once and no component learns that themes exist.
+ *
+ * Resolution is by ATTRIBUTE ONLY, never by `prefers-color-scheme` here. A media
+ * query in this file would need the whole palette written twice — once for the
+ * query, once for an explicit choice — and two copies of a palette drift. The
+ * inline script in layout.tsx reads the stored preference, falls back to the
+ * system one, and stamps `data-theme` before first paint, so the media query
+ * would have nothing left to decide.
+ *
+ * The states are NOT the same hues as dark. A 500-level colour that reads
+ * clearly on slate-950 is too light on white; each moves one step darker so the
+ * status vocabulary keeps its meaning rather than keeping its exact pigment.
+ * `scripts/qa/contrast.mjs` measures the result instead of trusting this note.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-surface: oklch(0.984 0.003 247.858); /* slate-50 */
+  --color-panel: oklch(1 0 0); /* white */
+  --color-panel-raised: oklch(0.968 0.007 247.896); /* slate-100 */
+  --color-line: oklch(0.869 0.022 252.894); /* slate-300 */
+  --color-line-soft: oklch(0.929 0.013 255.508); /* slate-200 */
+
+  --color-ink: oklch(0.208 0.042 265.755); /* slate-900 */
+  --color-ink-muted: oklch(0.446 0.043 257.281); /* slate-600 */
+  --color-ink-faint: oklch(0.52 0.045 257.417); /* between slate-500 and 600 */
+
+  --color-state-failed: oklch(0.514 0.222 16.935); /* rose-700 */
+  --color-state-changed: oklch(0.546 0.245 262.881); /* blue-600 */
+  --color-state-unchanged: oklch(0.508 0.118 165.612); /* emerald-700 */
+  --color-state-pending: oklch(0.555 0.163 48.998); /* amber-700 */
+  --color-state-unknown: oklch(0.52 0.045 257.417); /* matches ink-faint */
+
+  /* Still separated from state-changed by HUE (277 vs 263), not lightness —
+     the same rule the dark palette follows, and for the same reason. */
+  --color-accent-interactive: oklch(0.511 0.262 276.966); /* indigo-600 */
+}
+
 html,
 body {
   background-color: var(--color-surface);
