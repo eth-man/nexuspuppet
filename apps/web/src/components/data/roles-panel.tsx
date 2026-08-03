@@ -296,25 +296,36 @@ function RoleEditor({
           : 'Changes take effect for everybody holding this role as soon as you save.'
       }
       className="w-[min(46rem,calc(100vw-2rem))]"
+      /*
+       * The pending-changes summary lives in the FOOTER, not the body.
+       *
+       * The body scrolls, and a permission list is taller than the dialog — so
+       * a summary rendered after it sat off-screen at exactly the moment
+       * somebody was looking at Save. A statement of what a button is about to
+       * do has to be visible from that button.
+       */
       footer={
         readOnly ? (
           <Button variant="ghost" size="sm" onClick={onClose}>
             Close
           </Button>
         ) : (
-          <>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={busy || !dirty || (creating && (name === '' || !shaped || clash))}
-              onClick={save}
-            >
-              {creating ? 'Create role' : 'Save changes'}
-            </Button>
-          </>
+          <div className="w-full space-y-2">
+            <PendingChanges added={added} removed={removed} creating={creating} />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busy || !dirty || (creating && (name === '' || !shaped || clash))}
+                onClick={save}
+              >
+                {creating ? 'Create role' : 'Save changes'}
+              </Button>
+            </div>
+          </div>
         )
       }
     >
@@ -419,8 +430,6 @@ function RoleEditor({
             })}
           </div>
         </div>
-
-        {!readOnly && <PendingChanges added={added} removed={removed} creating={creating} />}
 
         {draft.length === 0 && !readOnly && (
           <p className="flex items-start gap-1 text-[11px] text-state-pending">

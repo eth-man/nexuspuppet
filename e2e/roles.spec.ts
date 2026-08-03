@@ -106,6 +106,33 @@ test.describe('roles', () => {
     await expect(dialog.getByText(/administrative/i).first()).toBeVisible();
   });
 
+  /**
+   * A closed <dialog> must stay closed.
+   *
+   * The browser hides one with `dialog:not([open]) { display: none }`, which any
+   * unconditional display utility on the element outranks. Adding a bare `flex`
+   * to the shared Dialog once did exactly that, and every closed dialog on this
+   * screen — new user, reset password, delete user — rendered inline down the
+   * page at once. It typechecks, it lints, and no assertion about the open
+   * dialog notices, because the open one is still perfectly correct.
+   */
+  test('no closed dialog renders', async ({ page }) => {
+    await login(page);
+
+    for (const path of ['/settings/users', '/classification', '/']) {
+      await page.goto(path);
+      await expect(page.locator('main')).not.toBeEmpty();
+
+      const leaked = await page.evaluate(() =>
+        [...document.querySelectorAll('dialog')]
+          .filter((node) => !node.open && getComputedStyle(node).display !== 'none')
+          .map((node) => node.querySelector('h2')?.textContent ?? '(untitled)'),
+      );
+
+      expect(leaked, `closed dialogs rendered on ${path}`).toEqual([]);
+    }
+  });
+
   test('a built-in role cannot be renamed', async ({ page }) => {
     await login(page);
     await page.goto('/settings/users');
