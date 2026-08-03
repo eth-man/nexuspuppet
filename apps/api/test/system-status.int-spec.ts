@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditDeliveryOutbox } from '../src/auth/audit-delivery.outbox';
 import { NoopAuditTransport } from '../src/auth/audit-delivery.worker';
 import { SystemStatusService } from '../src/system/system-status.service';
+import { roleIdFor } from './support/roles';
 
 /**
  * The operational status surface, against a REAL PostgreSQL.
@@ -204,6 +205,7 @@ describe('system status (integration)', () => {
           email: 'ops@example.com',
           displayName: 'Ops',
           role: 'ADMIN',
+          roleId: await roleIdFor(prisma, 'ADMIN'),
           passwordHash: 'x',
           isActive: true,
         },
@@ -234,6 +236,7 @@ describe('system status (integration)', () => {
           email: 'ops@example.com',
           displayName: 'Ops',
           role: 'ADMIN',
+          roleId: await roleIdFor(prisma, 'ADMIN'),
           passwordHash: 'x',
           isActive: true,
         },

@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { MaterializationService } from '../src/materialization/materialization.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { ClassificationService } from '../src/classification/classification.service';
+import { roleIdFor } from './support/roles';
 
 /**
  * Classification write path, against a REAL PostgreSQL.
@@ -83,6 +84,7 @@ describe('classification writes (integration)', () => {
         email: ACTOR.email,
         displayName: ACTOR.displayName,
         role: 'OPERATOR',
+        roleId: await roleIdFor(prisma, 'OPERATOR'),
       },
     });
   });

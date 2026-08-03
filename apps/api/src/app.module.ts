@@ -56,6 +56,7 @@ import { SettingsService } from './settings/settings.service';
 import { SettingsStore } from './settings/settings.store';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
 import { RbacPolicy } from './auth/rbac.policy';
+import { RoleRegistry } from './auth/role-registry';
 import { TokenService } from './auth/token.service';
 import {
   BootstrapService,
@@ -224,6 +225,10 @@ export class AppModule {
         SettingsController,
       ],
       providers: [
+        // RbacPolicy reads the roles table through this. A dependency of the
+        // policy, not a seam: the enterprise layer replaces the POLICY, not
+        // where roles live (ADR-0018 §2).
+        RoleRegistry,
         ...coreServices,
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },

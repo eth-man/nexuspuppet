@@ -6,6 +6,7 @@ import type {
   Permission,
   UserRole,
 } from '@nexuspuppet/contracts';
+import { RoleRegistry } from './role-registry';
 
 /**
  * Core's flat role-based authorization (ADR-0006).
@@ -20,7 +21,7 @@ import type {
  * I/O, so it can be called on every request and reasoned about in isolation.
  */
 
-const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<Permission>> = {
+export const SEEDED_BUILT_IN_PERMISSIONS: Record<UserRole, ReadonlySet<Permission>> = {
   VIEWER: new Set<Permission>(['inventory:read', 'reports:read', 'classification:read']),
 
   OPERATOR: new Set<Permission>([
@@ -47,12 +48,17 @@ const ROLE_PERMISSIONS: Record<UserRole, ReadonlySet<Permission>> = {
 
 @Injectable()
 export class RbacPolicy implements IAuthorizationPolicy {
+  constructor(private readonly roles: RoleRegistry) {}
+
   can(
     principal: AuthenticatedPrincipal,
     permission: Permission,
     target?: AuthorizationTarget,
   ): boolean {
-    const granted = ROLE_PERMISSIONS[principal.role];
+    // From the roles table, not from a constant and not from the session
+    // (ADR-0018 §3). Revoking a permission has to stop the NEXT request, not
+    // the one after the operator's session happens to expire.
+    const granted = this.roles.permissionsFor(principal.role);
 
     // An unrecognised role grants nothing. If an enterprise provider returns a
     // role core does not know, the safe reading is "no permissions", not
@@ -101,7 +107,13 @@ function withinScope(
   return true;
 }
 
-/** Exposed for the UI, so it can hide what a user cannot use. */
-export function permissionsFor(role: UserRole): Permission[] {
-  return [...(ROLE_PERMISSIONS[role] ?? new Set<Permission>())].sort();
+/**
+ * Exposed for the UI, so it can hide what a user cannot use.
+ *
+ * Reads the same registry the policy does. Two sources for "what does this role
+ * grant" would eventually disagree, and the way that surfaces is a console
+ * offering a control the API then refuses.
+ */
+export function permissionsFor(roles: RoleRegistry, role: string): Permission[] {
+  return [...(roles.permissionsFor(role) ?? new Set<Permission>())].sort();
 }

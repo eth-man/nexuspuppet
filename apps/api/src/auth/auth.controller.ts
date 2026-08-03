@@ -24,6 +24,7 @@ import type { AuthProviderDescription } from '@nexuspuppet/contracts';
 import type { Response } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { permissionsFor } from './rbac.policy';
+import { RoleRegistry } from './role-registry';
 import {
   ACCESS_COOKIE,
   Public,
@@ -62,6 +63,7 @@ export class AuthController {
     @Inject(AUTH_PROVIDER) private readonly provider: IAuthProvider,
     private readonly tokens: TokenService,
     private readonly rateLimiter: LoginRateLimiter,
+    private readonly roles: RoleRegistry,
   ) {}
 
   /** Advertises how to log in, so the UI renders a form or an SSO button. */
@@ -147,7 +149,7 @@ export class AuthController {
 
     return {
       principal: result.principal,
-      permissions: permissionsFor(result.principal.role),
+      permissions: permissionsFor(this.roles, result.principal.role),
       expiresAt: session.accessExpiresAt.toISOString(),
     };
   }
@@ -326,7 +328,7 @@ export class AuthController {
     const principal = request.principal;
     if (principal === undefined) throw new UnauthorizedException();
 
-    return { principal, permissions: permissionsFor(principal.role) };
+    return { principal, permissions: permissionsFor(this.roles, principal.role) };
   }
 }
 

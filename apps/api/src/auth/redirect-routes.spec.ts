@@ -1,3 +1,5 @@
+import type { Permission } from '@nexuspuppet/contracts';
+import { RoleRegistry } from './role-registry';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import type {
   AuthResult,
@@ -126,6 +128,11 @@ const fakeRequest = (cookies: Record<string, string> = {}) => {
 
 const STATE_COOKIE = 'nexuspuppet_redirect_state';
 
+const stubRoles = {
+  permissionsFor: () => new Set<Permission>(['inventory:read']),
+  knownRoles: () => ['VIEWER'],
+} as unknown as RoleRegistry;
+
 describe('external login routes', () => {
   let provider: StubRedirectProvider;
   let controller: AuthController;
@@ -163,6 +170,7 @@ describe('external login routes', () => {
       provider,
       tokens as never,
       { consume: () => true, reset: () => undefined } as never,
+      stubRoles,
     );
   });
 
@@ -227,6 +235,7 @@ describe('external login routes', () => {
         credentialsOnly,
         {} as never,
         {} as never,
+        stubRoles,
       );
 
       await expect(

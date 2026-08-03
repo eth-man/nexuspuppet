@@ -6,6 +6,7 @@ import { SettingsService } from '../src/settings/settings.service';
 import { SettingsStore } from '../src/settings/settings.store';
 import type { AuthProviderResolver } from '../src/auth/auth-provider.resolver';
 import type { AuthenticatedRequest } from '../src/auth/auth.guard';
+import { roleIdFor } from './support/roles';
 
 /**
  * The LDAP settings API against a REAL PostgreSQL (ADR-0016).
@@ -95,6 +96,7 @@ describe('LDAP settings API (integration)', () => {
         email: 'admin@example.com',
         displayName: 'Admin',
         role: 'ADMIN',
+        roleId: await roleIdFor(prisma, 'ADMIN'),
         authSource: 'local',
       },
     });
@@ -175,6 +177,7 @@ describe('LDAP settings API (integration)', () => {
           email: 'operator@example.com',
           displayName: 'Operator',
           role: 'ADMIN',
+          roleId: await roleIdFor(prisma, 'ADMIN'),
           authSource: 'local',
         },
       });

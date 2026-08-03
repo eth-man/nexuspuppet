@@ -5,7 +5,8 @@ import { TokenService } from '../src/auth/token.service';
 import { UsersService } from '../src/auth/users.service';
 import { AuthProviderResolver } from '../src/auth/auth-provider.resolver';
 import { LocalAuthProvider } from '../src/auth/local-auth.provider';
-import { permissionsFor } from '../src/auth/rbac.policy';
+import { SEEDED_BUILT_IN_PERMISSIONS } from '../src/auth/rbac.policy';
+import { roleIdFor } from './support/roles';
 
 const DATABASE_URL =
   process.env['TEST_DATABASE_URL'] ??
@@ -50,6 +51,7 @@ describe('seeded built-in roles (integration)', () => {
         email: 'seedspec-actor@example.test',
         displayName: 'Seed Actor',
         role: 'ADMIN',
+        roleId: await roleIdFor(prisma, 'ADMIN'),
         authSource: 'local',
       },
     });
@@ -72,7 +74,7 @@ describe('seeded built-in roles (integration)', () => {
     const row = await prisma.role.findUnique({ where: { name } });
 
     expect(row).not.toBeNull();
-    expect([...row!.permissions].sort()).toEqual(permissionsFor(name));
+    expect([...row!.permissions].sort()).toEqual([...SEEDED_BUILT_IN_PERMISSIONS[name]].sort());
   });
 
   it('marks them built-in, so they cannot later be deleted or renamed', async () => {

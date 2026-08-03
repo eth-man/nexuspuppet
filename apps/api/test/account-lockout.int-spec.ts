@@ -1,6 +1,7 @@
 import { PrismaService } from '../src/prisma/prisma.service';
 import { LocalAuthProvider } from '../src/auth/local-auth.provider';
 import { hashPassword } from '../src/auth/password';
+import { roleIdFor } from './support/roles';
 
 /**
  * Account lockout for local accounts (ADR-0006).
@@ -47,6 +48,7 @@ describe('account lockout (integration)', () => {
         email,
         displayName: 'Alice',
         role: 'VIEWER',
+        roleId: await roleIdFor(prisma, 'VIEWER'),
         passwordHash: await hashPassword(PASSWORD),
         authSource: 'local',
       },
@@ -269,6 +271,7 @@ describe('account lockout (integration)', () => {
           email: 'ldap@example.com',
           displayName: 'Directory User',
           role: 'VIEWER',
+          roleId: await roleIdFor(prisma, 'VIEWER'),
           passwordHash: null,
           authSource: 'ldap',
         },
