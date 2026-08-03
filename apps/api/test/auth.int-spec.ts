@@ -416,11 +416,18 @@ describe('auth (integration)', () => {
     // tests is that the decision is identical whichever provider produced the
     // principal, and a stub would be testing the stub.
     let policy: RbacPolicy;
+    let registry: RoleRegistry;
 
     beforeAll(async () => {
-      const registry = new RoleRegistry(prisma);
+      registry = new RoleRegistry(prisma);
       await registry.onModuleInit();
       policy = new RbacPolicy(registry);
+    });
+
+    // The refresh interval outlives the suite otherwise, and fires into a torn
+    // down Jest environment as "require after teardown".
+    afterAll(() => {
+      registry.onModuleDestroy();
     });
 
     it('enforces role permissions on a principal from any source', async () => {
