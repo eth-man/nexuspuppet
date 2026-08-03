@@ -1,6 +1,7 @@
 import { PrismaService } from '../src/prisma/prisma.service';
 import { LocalUserDirectory } from '../src/auth/local-auth.provider';
 import { hashPassword } from '../src/auth/password';
+import { roleIdFor } from './support/roles';
 
 /**
  * IUserDirectory lookup and login-state caching, against a REAL PostgreSQL.
@@ -57,6 +58,7 @@ describe('LocalUserDirectory (integration)', () => {
         email: overrides.email ?? 'alice@example.com',
         displayName: overrides.displayName ?? 'Alice Ng',
         role: overrides.role ?? 'VIEWER',
+        roleId: await roleIdFor(prisma, (overrides.role ?? 'VIEWER') as string),
         isActive: overrides.isActive ?? true,
         authSource: overrides.authSource ?? 'ldap',
         // An externally-authenticated account owns no local password.

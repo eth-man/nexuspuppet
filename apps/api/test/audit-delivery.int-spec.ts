@@ -2,6 +2,7 @@ import type { AuthenticatedPrincipal } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { AuditDeliveryOutbox } from '../src/auth/audit-delivery.outbox';
+import { roleIdFor } from './support/roles';
 
 /**
  * The audit delivery outbox, against a REAL PostgreSQL.
@@ -60,6 +61,7 @@ describe('audit delivery outbox (integration)', () => {
         email: ACTOR.email,
         displayName: ACTOR.displayName,
         role: 'ADMIN',
+        roleId: await roleIdFor(prisma, 'ADMIN'),
         passwordHash: 'x',
         isActive: true,
       },

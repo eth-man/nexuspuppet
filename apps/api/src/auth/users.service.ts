@@ -119,22 +119,41 @@ export class UsersService {
       const before = await tx.user.findUnique({ where: { id } });
       if (before === null) throw new NotFoundException('No such user.');
 
-      const losesAdmin =
-        (input.role !== undefined && input.role !== 'ADMIN' && before.role === 'ADMIN') ||
-        (input.isActive === false && before.role === 'ADMIN');
+      /*
+       * Keyed on the PERMISSION, not on the name "ADMIN" (ADR-0018 §4).
+       *
+       * With roles editable, the name stops being the thing that matters twice
+       * over: an ADMIN role could have users:manage removed from it, and a
+       * custom role could have been granted it. A guard that counts users
+       * called ADMIN would then both miss the real administrators and refuse a
+       * demotion that was safe.
+       *
+       * ADMINISTERING NEEDS BOTH. users:manage alone leaves nobody able to
+       * configure the deployment; settings:manage alone leaves nobody able to
+       * grant it back. Losing either is a lockout.
+       */
+      const couldLoseAdministration =
+        (input.role !== undefined && input.role !== before.role) || input.isActive === false;
 
-      if (losesAdmin) {
-        // Counted inside the transaction so a concurrent demotion cannot slip
-        // past the check and leave the deployment with none.
-        const remaining = await tx.user.count({
-          where: { role: 'ADMIN', isActive: true, id: { not: id } },
-        });
+      if (couldLoseAdministration) {
+        for (const permission of ['users:manage', 'settings:manage'] as const) {
+          // Counted inside the transaction so a concurrent demotion cannot slip
+          // past the check and leave the deployment with none.
+          const remaining = await tx.user.count({
+            where: {
+              isActive: true,
+              id: { not: id },
+              roleRef: { permissions: { has: permission } },
+            },
+          });
 
-        if (remaining === 0) {
-          throw new ConflictException(
-            'This is the last active administrator. Promote another user first, ' +
-              'or nobody will be able to administer this deployment.',
-          );
+          if (remaining === 0) {
+            throw new ConflictException(
+              `This is the last active user whose role grants "${permission}". Give another ` +
+                'account a role that grants it first, or nobody will be able to administer ' +
+                'this deployment.',
+            );
+          }
         }
       }
 
@@ -259,15 +278,20 @@ export class UsersService {
         throw new ForbiddenException('You cannot delete your own account.');
       }
 
-      if (user.role === 'ADMIN') {
+      // Same rule as update(), for the same reason (ADR-0018 §4). Deleting the
+      // last holder of either permission is a lockout, and keying this one on
+      // the name while update() keys on the permission is precisely the drift
+      // that lets one path enforce a rule the other does not.
+      for (const permission of ['users:manage', 'settings:manage'] as const) {
         const remaining = await tx.user.count({
-          where: { role: 'ADMIN', isActive: true, id: { not: id } },
+          where: { isActive: true, id: { not: id }, roleRef: { permissions: { has: permission } } },
         });
 
         if (remaining === 0) {
           throw new ConflictException(
-            'This is the last active administrator. Promote another user first, ' +
-              'or nobody will be able to administer this deployment.',
+            `This is the last active user whose role grants "${permission}". Give another ` +
+              'account a role that grants it first, or nobody will be able to administer ' +
+              'this deployment.',
           );
         }
       }

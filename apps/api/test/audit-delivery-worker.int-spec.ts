@@ -12,6 +12,7 @@ import {
   NoopAuditTransport,
   type AuditDeliveryPacing,
 } from '../src/auth/audit-delivery.worker';
+import { roleIdFor } from './support/roles';
 
 /**
  * The delivery worker, against a REAL PostgreSQL.
@@ -91,6 +92,7 @@ describe('audit delivery worker (integration)', () => {
         email: ACTOR.email,
         displayName: ACTOR.displayName,
         role: 'ADMIN',
+        roleId: await roleIdFor(prisma, 'ADMIN'),
         passwordHash: 'x',
         isActive: true,
       },

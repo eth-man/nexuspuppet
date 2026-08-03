@@ -4,11 +4,13 @@ import { AuthProviderResolver } from '../src/auth/auth-provider.resolver';
 import { LocalAuthProvider, normalizeEmail } from '../src/auth/local-auth.provider';
 import { TokenService } from '../src/auth/token.service';
 import { RbacPolicy } from '../src/auth/rbac.policy';
+import { RoleRegistry } from '../src/auth/role-registry';
 import { BootstrapService } from '../src/auth/core-capabilities';
 import type { IAuthProvider } from '@nexuspuppet/contracts';
 import { hashPassword } from '../src/auth/password';
 import { AuthController } from '../src/auth/auth.controller';
 import { LoginRateLimiter } from '../src/auth/core-capabilities';
+import { roleIdFor } from './support/roles';
 
 /**
  * Auth integration tests against a REAL PostgreSQL.
@@ -91,6 +93,7 @@ describe('auth (integration)', () => {
         displayName: 'Ops User',
         passwordHash: await hashPassword(over.password ?? 'correct horse battery staple'),
         role: (over.role ?? 'OPERATOR') as 'VIEWER' | 'OPERATOR' | 'ADMIN',
+        roleId: await roleIdFor(prisma, (over.role ?? 'OPERATOR') as string),
         isActive: over.isActive ?? true,
       },
     });
@@ -409,7 +412,16 @@ describe('auth (integration)', () => {
   });
 
   describe('RBAC applies to whichever provider is registered', () => {
-    const policy = new RbacPolicy();
+    // A REAL registry against the seeded roles, not a stub: the point of these
+    // tests is that the decision is identical whichever provider produced the
+    // principal, and a stub would be testing the stub.
+    let policy: RbacPolicy;
+
+    beforeAll(async () => {
+      const registry = new RoleRegistry(prisma);
+      await registry.onModuleInit();
+      policy = new RbacPolicy(registry);
+    });
 
     it('enforces role permissions on a principal from any source', async () => {
       const user = await createUser({ role: 'VIEWER' });
@@ -450,6 +462,8 @@ describe('auth (integration)', () => {
         provider,
         tokens,
         new LoginRateLimiter(),
+        // Unused by describeProvider(), but the controller requires one.
+        new RoleRegistry(prisma),
       );
 
       expect(controller.describeProvider()).toEqual({
@@ -478,6 +492,8 @@ describe('auth (integration)', () => {
         describing,
         tokens,
         new LoginRateLimiter(),
+        // Unused by describeProvider(), but the controller requires one.
+        new RoleRegistry(prisma),
       );
 
       expect(controller.describeProvider().roleMappings).toEqual([

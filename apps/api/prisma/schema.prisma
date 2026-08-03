@@ -70,12 +70,13 @@ model User {
   /// authentication (enterprise LDAP/SAML).
   passwordHash        String?
   role                UserRole  @default(VIEWER)
-  /// Nullable for one release only (ADR-0018). The backfill in this migration
-  /// sets it for every existing row; new rows get it from the same place the
-  /// enum comes from. It becomes required when resolution moves off the enum,
-  /// which is a separate change with its own migration.
-  roleId              String?   @db.Uuid
-  roleRef             Role?     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  /// Required now that authorization resolves through it (ADR-0018).
+  ///
+  /// onDelete: Restrict is what stops a role being deleted while somebody holds
+  /// it. The alternative — cascade — would delete the users, and SetNull would
+  /// leave accounts that authenticate and are denied everything.
+  roleId              String    @db.Uuid
+  roleRef             Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
   isActive            Boolean   @default(true)
   /// Identifier of the auth provider that owns this account.
   authSource          String    @default("local")

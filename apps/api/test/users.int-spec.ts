@@ -7,6 +7,7 @@ import { UsersService } from '../src/auth/users.service';
 import { AuthProviderResolver } from '../src/auth/auth-provider.resolver';
 import { LocalAuthProvider } from '../src/auth/local-auth.provider';
 import { hashPassword, verifyPassword } from '../src/auth/password';
+import { roleIdFor } from './support/roles';
 
 /**
  * User administration against a REAL PostgreSQL.
@@ -65,6 +66,7 @@ describe('user administration (integration)', () => {
         email,
         displayName: email,
         role,
+        roleId: await roleIdFor(prisma, role),
         isActive,
         passwordHash: await hashPassword('correct horse battery staple'),
       },
@@ -159,7 +161,7 @@ describe('user administration (integration)', () => {
 
       await expect(
         users.update(admin.id, { role: 'VIEWER' }, principalFor(other), CTX),
-      ).rejects.toThrow(/last active administrator/);
+      ).rejects.toThrow(/last active user whose role grants/);
 
       expect((await prisma.user.findUnique({ where: { id: admin.id } }))?.role).toBe('ADMIN');
     });
@@ -170,7 +172,7 @@ describe('user administration (integration)', () => {
 
       await expect(
         users.update(admin.id, { isActive: false }, principalFor(other), CTX),
-      ).rejects.toThrow(/last active administrator/);
+      ).rejects.toThrow(/last active user whose role grants/);
     });
 
     it('allows demotion once a second administrator exists', async () => {
@@ -190,7 +192,7 @@ describe('user administration (integration)', () => {
 
       await expect(
         users.update(active.id, { role: 'VIEWER' }, principalFor(other), CTX),
-      ).rejects.toThrow(/last active administrator/);
+      ).rejects.toThrow(/last active user whose role grants/);
     });
 
     // Almost always a misclick, and the last-admin rule misses it when other
@@ -227,7 +229,14 @@ describe('user administration (integration)', () => {
     // next login, with nothing to tell the administrator it did not stick.
     const makeLdapUser = async (email: string, role: 'VIEWER' | 'OPERATOR' | 'ADMIN') =>
       prisma.user.create({
-        data: { email, displayName: email, role, isActive: true, authSource: 'ldap' },
+        data: {
+          email,
+          displayName: email,
+          role,
+          roleId: await roleIdFor(prisma, role),
+          isActive: true,
+          authSource: 'ldap',
+        },
       });
 
     it('refuses a role change on an externally-authenticated account', async () => {
@@ -576,7 +585,7 @@ describe('user administration (integration)', () => {
       const operator = await makeUser('op@example.com', 'OPERATOR');
 
       await expect(users.remove(admin.id, principalFor(operator), CTX)).rejects.toThrow(
-        /last active administrator/i,
+        /last active user whose role grants/i,
       );
       expect(await prisma.user.findUnique({ where: { id: admin.id } })).not.toBeNull();
     });
@@ -614,6 +623,7 @@ describe('user administration (integration)', () => {
           email: 'ldap-user@example.com',
           displayName: 'Directory User',
           role: 'VIEWER',
+          roleId: await roleIdFor(prisma, 'VIEWER'),
           authSource: 'ldap',
           passwordHash: null,
         },
@@ -656,6 +666,7 @@ describe('user administration (integration)', () => {
           email: 'ldap@example.com',
           displayName: 'Directory User',
           role: 'VIEWER',
+          roleId: await roleIdFor(prisma, 'VIEWER'),
           authSource: 'ldap',
           passwordHash: null,
         },
@@ -676,6 +687,7 @@ describe('user administration (integration)', () => {
           email: 'ldap@example.com',
           displayName: 'LDAP User',
           role: 'OPERATOR',
+          roleId: await roleIdFor(prisma, 'OPERATOR'),
           authSource: 'ldap',
           passwordHash: null,
         },
@@ -816,6 +828,87 @@ describe('user administration (integration)', () => {
         orderBy: { createdAt: 'desc' },
       });
       expect(JSON.stringify(entry?.after)).toContain('ldap');
+    });
+  });
+
+  /**
+   * With roles editable, "ADMIN" stops being the thing that matters twice over:
+   * that role could have users:manage removed, and a custom role could have been
+   * granted it. A guard counting users called ADMIN would both miss the real
+   * administrators and refuse a demotion that was safe (ADR-0018 §4).
+   */
+  describe('lockout is keyed on the permission, not the role name', () => {
+    const roleNamed = async (name: string, permissions: string[]) =>
+      prisma.role.upsert({
+        where: { name },
+        update: { permissions },
+        create: { name, permissions },
+      });
+
+    const userWithRole = async (email: string, roleName: string) => {
+      const role = await prisma.role.findUniqueOrThrow({ where: { name: roleName } });
+      return prisma.user.create({
+        data: {
+          email,
+          displayName: email,
+          role: 'VIEWER',
+          roleId: role.id,
+          isActive: true,
+          passwordHash: await hashPassword('correct horse battery staple'),
+        },
+      });
+    };
+
+    afterEach(async () => {
+      await prisma.user.deleteMany({ where: { email: { contains: 'lockperm' } } });
+      await prisma.role.deleteMany({ where: { name: { startsWith: 'lock-' } } });
+    });
+
+    it('counts a CUSTOM role granting the permission as administration', async () => {
+      // The demotion is safe. A name-based guard would have refused it.
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const actor = await makeUser('actor@example.com', 'ADMIN');
+      await roleNamed('lock-superuser', ['users:manage', 'settings:manage']);
+      await userWithRole('lockperm-super@example.com', 'lock-superuser');
+
+      await expect(
+        users.update(admin.id, { role: 'VIEWER' }, principalFor(actor), CTX),
+      ).resolves.toMatchObject({ role: 'VIEWER' });
+    });
+
+    it('refuses to remove the last holder of users:manage', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const actor = await makeUser('actor@example.com', 'ADMIN');
+      await users.update(actor.id, { role: 'VIEWER' }, principalFor(admin), CTX);
+
+      await expect(
+        users.update(admin.id, { role: 'VIEWER' }, principalFor(actor), CTX),
+      ).rejects.toThrow(/users:manage|settings:manage/);
+    });
+
+    it('guards deactivation the same way', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const actor = await makeUser('actor@example.com', 'ADMIN');
+      await users.update(actor.id, { role: 'VIEWER' }, principalFor(admin), CTX);
+
+      await expect(
+        users.update(admin.id, { isActive: false }, principalFor(actor), CTX),
+      ).rejects.toThrow(/users:manage|settings:manage/);
+    });
+
+    it('requires settings:manage as well, not only users:manage', async () => {
+      // Holding one without the other is still a lockout: users:manage alone
+      // leaves nobody able to configure the deployment, settings:manage alone
+      // leaves nobody able to grant it back.
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const actor = await makeUser('actor@example.com', 'ADMIN');
+      await roleNamed('lock-usersonly', ['users:manage']);
+      await userWithRole('lockperm-usersonly@example.com', 'lock-usersonly');
+      await users.update(actor.id, { role: 'VIEWER' }, principalFor(admin), CTX);
+
+      await expect(
+        users.update(admin.id, { role: 'VIEWER' }, principalFor(actor), CTX),
+      ).rejects.toThrow(/settings:manage/);
     });
   });
 });

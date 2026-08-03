@@ -9,6 +9,7 @@ import { MaterializationService } from '../src/materialization/materialization.s
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { ClassificationService } from '../src/classification/classification.service';
 import { ClassificationPlanner } from '../src/classification/plan/classification-planner.service';
+import { roleIdFor } from './support/roles';
 
 /**
  * "Plan before apply", against a REAL PostgreSQL.
@@ -85,6 +86,7 @@ describe('classification plan (integration)', () => {
         email: ACTOR.email,
         displayName: ACTOR.displayName,
         role: 'ADMIN',
+        roleId: await roleIdFor(prisma, 'ADMIN'),
         passwordHash: 'x',
         isActive: true,
       },
