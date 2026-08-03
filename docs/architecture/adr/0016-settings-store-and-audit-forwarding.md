@@ -107,6 +107,44 @@ This is the interaction that matters. A record still queued for a collector must
 
 A pending queue growing past its ceiling is an operational alarm, not a silent condition.
 
+### The console for these settings is locked until somebody asks to change it
+
+**Binding on the unbuilt Integrations screen**, and on any settings card that
+follows it. Syslog and webhook forwarding hold a collector address, a token and
+a CA path — credentials and a delivery destination — which puts them in the same
+class as the directory settings, not the same class as a display preference.
+
+Three rules, in the order they were learned:
+
+1. **Read-only is the resting state.** The card renders the stored configuration
+   as text or as disabled inputs, with an explicit *Edit* action. Reading a
+   setting is the common case and must not require care; changing one is rare
+   and consequential and should.
+
+2. **Nothing commits without stating what it changes.** Before saving, the card
+   names the difference against what is stored — field by field, and
+   membership-wise for anything list-shaped. A form shows the *result*; the
+   operator is accountable for the *delta*, and those are different things.
+
+3. **Cancel restores what is stored, not what was typed.** A cancel that keeps
+   the edits is a slower save.
+
+Testing a configuration stays available while locked, because a test binds and
+writes nothing — needing to unlock a configuration before checking whether the
+collector is reachable inverts the point of the check.
+
+**Why this is in the ADR rather than left to whoever builds the screen.** The
+same defect was written three times in this product: the roles table mutated on
+click, a user's role changed straight from a dropdown, and the directory
+settings opened with every field live and a delete button beside every group
+mapping. Each was fixed only where it was pointed out. The pattern is cheap to
+apply while a screen is being built and expensive to retrofit, and an unbuilt
+screen is the only moment where writing it down costs nothing.
+
+Secrets keep their existing rule on top of this: a stored token is never
+returned to the browser, so its field is empty even when one is held, and an
+empty field on save means *keep it*.
+
 ## Consequences
 
 ### What this buys
