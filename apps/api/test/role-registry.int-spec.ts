@@ -133,11 +133,24 @@ describe('RbacPolicy reads the roles table (integration)', () => {
   let registry: RoleRegistry;
   let policy: RbacPolicy;
 
+  /*
+   * The cast is the honest state of the migration, not a shortcut.
+   *
+   * AuthenticatedPrincipal.role is still the three-value UserRole in the
+   * contracts package. Widening it to a string belongs with the slice that
+   * lets a user actually HOLD a custom role — there is no role CRUD yet and
+   * users.role is still an enum column, so today a principal can only carry a
+   * built-in name in production.
+   *
+   * The policy itself takes the role as a lookup key and never depended on the
+   * narrow type, which is why this test can exercise the case ahead of the
+   * contract catching up.
+   */
   const principal = (role: string): AuthenticatedPrincipal => ({
     userId: '00000000-0000-4000-8000-00000000000a',
     email: 'someone@example.test',
     displayName: 'Someone',
-    role,
+    role: role as AuthenticatedPrincipal['role'],
     authSource: 'local',
   });
 
