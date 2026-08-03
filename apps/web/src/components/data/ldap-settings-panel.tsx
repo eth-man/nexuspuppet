@@ -7,6 +7,7 @@ import { useCapabilities, useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
+import { cn } from '@/lib/utils';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,6 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { LoadingRows, QueryError } from '@/components/states';
-import { DirectoryUnavailable } from '@/components/data/directory-unavailable';
 
 /** An empty form, for a deployment that has never configured a directory. */
 const BLANK: LdapSettings = {
@@ -73,9 +73,16 @@ export function LdapSettingsPanel() {
   const capabilities = useCapabilities();
   const licensed = capabilities.data?.capabilities.includes('directory.ldap') === true;
 
-  // Not fetched when the feature cannot run: a request whose answer is only
-  // used to populate a form nobody will see.
-  const stored = useLdapSettings(manages && licensed);
+  /*
+   * Fetched in every edition, including core.
+   *
+   * Gating this on the capability disabled the query, and a disabled query
+   * reports `isPending` forever — so the panel rendered a loading skeleton
+   * that never resolved, on the one edition that is supposed to be showing
+   * the form. Core owns this endpoint (ADR-0016); there is nothing to save by
+   * not calling it.
+   */
+  const stored = useLdapSettings(manages);
   // So a mapping naming a role nobody defined is visible here rather than at
   // somebody's next sign-in.
   const roles = useRoles(manages);
@@ -100,12 +107,6 @@ export function LdapSettingsPanel() {
   }, [view?.config]);
 
   if (!manages) return null;
-
-  /*
-   * Before the loading states, so core never flashes a skeleton of a form it
-   * is not going to render.
-   */
-  if (capabilities.isSuccess && !licensed) return <DirectoryUnavailable />;
 
   if (stored.isError) return <QueryError error={stored.error} />;
   if (stored.isPending) return <LoadingRows rows={5} columns={2} />;
@@ -149,12 +150,33 @@ export function LdapSettingsPanel() {
   const configured =
     view?.source === 'database' || view?.source === 'environment' || view?.liveReload === true;
 
-  if (!configured && !revealed) return <NotConfigured onConfigure={() => setRevealed(true)} />;
+  /*
+   * The empty state is for a deployment that COULD configure a directory and
+   * has not. Core cannot, so sending it there would hide the very thing it is
+   * meant to be able to look at.
+   */
+  if (licensed && !configured && !revealed) {
+    return <NotConfigured onConfigure={() => setRevealed(true)} />;
+  }
 
   const blocked = form.url === '' || form.searchBase === '' || needsPasswordToAdopt;
 
   return (
-    <div className="space-y-4">
+    /*
+     * A DISABLED form, not a hidden one and not a sales pitch (open-core).
+     *
+     * Core renders exactly what enterprise renders, inert. Somebody evaluating
+     * the product sees the real thing rather than a description of it, and
+     * nobody can fill in six fields, press Save, and discover later that none
+     * of it ran — which is what the previous version allowed and what makes a
+     * product look broken rather than unlicensed.
+     *
+     * `<fieldset disabled>` rather than a `disabled` prop threaded through
+     * thirty controls: the browser disables every form control inside it,
+     * including ones added later, so this cannot drift out of step with the
+     * form the way a hand-maintained list would.
+     */
+    <fieldset disabled={!licensed} className={cn('min-w-0 space-y-4', !licensed && 'opacity-60')}>
       <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
 
       {error !== null && (
@@ -399,7 +421,19 @@ export function LdapSettingsPanel() {
         updatedAt={view?.updatedAt ?? null}
         updatedByEmail={view?.updatedByEmail ?? null}
       />
-    </div>
+
+      {/*
+        Humble, and at the bottom. Somebody who has just read the form knows
+        what it does; this says why it will not respond. Stated once, in the
+        body text style, with no button — an upsell in the middle of a feature
+        somebody cannot use reads as a toll booth.
+      */}
+      {!licensed && (
+        <p className="text-center text-[11px] text-ink-faint">
+          This feature requires NexusPuppet Enterprise.
+        </p>
+      )}
+    </fieldset>
   );
 }
 

@@ -41,21 +41,51 @@ test.describe('primitives', () => {
    * open-source user fills in six fields, gets a success, finds nobody can
    * sign in, and concludes the product is broken.
    */
-  test('core is offered the feature, not a form that will not work', async ({ page }) => {
+  test('core sees the real form, and can operate none of it', async ({ page }) => {
     test.skip(directory, 'this deployment can run a directory');
 
     await login(page);
     await page.goto('/settings/auth');
 
-    await expect(page.getByRole('heading', { name: 'Directory integration' })).toBeVisible();
-    await expect(page.getByText(/available in NexusPuppet Enterprise/i)).toBeVisible();
+    /*
+     * VISIBLE and INERT, which is the whole pattern. Hiding the form means
+     * nobody can see what the feature is; leaving it usable means somebody
+     * fills it in, saves, and finds later that nothing ran.
+     */
+    const url = page.getByRole('textbox', { name: /^Server URL/ });
+    await expect(url).toBeVisible();
+    await expect(url).toBeDisabled();
 
-    // The tab still exists — hiding it would mean never learning the feature
-    // does. What must not exist is anything that pretends to configure it.
-    await expect(page.getByRole('textbox', { name: /^Server URL/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Test connection/i })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Configure directory' })).toHaveCount(0);
+    for (const name of ['Save', 'Test connection']) {
+      const button = page.getByRole('button', { name: new RegExp(`^${name}`) }).first();
+      await expect(button).toBeVisible();
+      await expect(button).toBeDisabled();
+    }
+
+    await expect(page.getByRole('switch', { name: /Verify the directory/i })).toBeDisabled();
+
+    // Said once, quietly, at the bottom.
+    await expect(page.getByText('This feature requires NexusPuppet Enterprise.')).toBeVisible();
+  });
+
+  /**
+   * Disabled has to mean disabled, not merely look it.
+   *
+   * A `pointer-events-none` class or a lowered opacity would pass a visual
+   * review and still let a keyboard user tab into the field and type. The
+   * fieldset is what actually prevents that, and this is the assertion that
+   * notices if somebody replaces it with styling.
+   */
+  test('core cannot type into the disabled form', async ({ page }) => {
+    test.skip(directory, 'this deployment can run a directory');
+
+    await login(page);
+    await page.goto('/settings/auth');
+
+    const url = page.getByRole('textbox', { name: /^Server URL/ });
+    await expect(url).toBeVisible();
+    await expect(url).not.toBeEditable();
+    await expect(url).toHaveValue('');
   });
 
   /**
