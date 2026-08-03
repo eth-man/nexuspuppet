@@ -36,7 +36,20 @@ test.describe('primitives', () => {
    */
   async function openDirectoryForm(page: import('@playwright/test').Page) {
     await page.goto('/settings/auth');
+
     const cta = page.getByRole('button', { name: 'Configure directory' });
+    const url = page.getByRole('textbox', { name: /^Server URL/ });
+
+    /*
+     * WAIT for the card to resolve before asking which state it is in.
+     *
+     * `count()` does not auto-wait. Calling it straight after `goto` returned
+     * 0 — the panel had not finished loading — so the branch never ran, the
+     * form was never revealed, and the failure looked like a missing field
+     * rather than a race. It passed against a deployment only because the
+     * driver I checked it with happened to sleep first.
+     */
+    await expect(cta.or(url).first()).toBeVisible();
     if ((await cta.count()) > 0) await cta.click();
   }
 
@@ -48,6 +61,8 @@ test.describe('primitives', () => {
     // and shows the form. Both are correct; a blank form with no explanation is
     // what must not happen.
     const cta = page.getByRole('button', { name: 'Configure directory' });
+    await expect(cta.or(page.getByRole('textbox', { name: /^Server URL/ })).first()).toBeVisible();
+
     if ((await cta.count()) > 0) {
       await expect(page.getByRole('heading', { name: 'No directory connected' })).toBeVisible();
       // No form until asked for.
@@ -151,7 +166,7 @@ test.describe('primitives', () => {
     await login(page);
     await page.goto('/settings/auth');
 
-    await expect(page.getByRole('heading', { name: 'Directory (LDAP)' })).toBeVisible();
-    await expect(page.getByText(/which groups map to which role/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Connection & authentication' })).toBeVisible();
+    await expect(page.getByText(/the account used to read it/i)).toBeVisible();
   });
 });
