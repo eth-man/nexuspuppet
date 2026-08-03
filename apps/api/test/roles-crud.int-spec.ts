@@ -83,6 +83,15 @@ describe('RolesService (integration)', () => {
 
   afterEach(async () => {
     registry.onModuleDestroy();
+    // Before the deletes: rows this file created are removed anyway, and rows
+    // it merely borrowed from other suites must go back exactly as they were.
+    if (deactivated.length > 0) {
+      await prisma.user.updateMany({
+        where: { id: { in: deactivated } },
+        data: { isActive: true },
+      });
+      deactivated = [];
+    }
     await prisma.user.deleteMany({ where: { email: { startsWith: 'crud-' } } });
     await prisma.role.deleteMany({ where: { name: { startsWith: 'crud-' } } });
   });
@@ -193,18 +202,25 @@ describe('RolesService (integration)', () => {
   /**
    * Establishes a custom role as the only source of administration.
    *
-   * The keeper holds ADMIN, which grants the same permissions; while it is
-   * active the guard correctly finds cover elsewhere and never fires. The keeper
-   * row itself has to survive, because it is the audit actor and
-   * `audit_logs.actorUserId` is a foreign key — so it is deactivated, not
-   * deleted. `afterEach` removes it and `beforeEach` builds a fresh one.
+   * The guard asks a question about the WHOLE database — is there any other
+   * active user whose role still grants this permission — so the fixture has to
+   * answer for the whole database, not just for the rows this file created.
+   *
+   * Deactivating only the keeper was enough when this spec ran alone and wrong
+   * as soon as it ran with the others: the shared integration database also
+   * holds active administrators left by the auth suites, the guard correctly
+   * found cover in one of them, and the test failed in CI having passed
+   * locally. Rows are deactivated rather than deleted — several are foreign-key
+   * targets of audit rows — and `afterEach` puts every one of them back.
    */
+  let deactivated: string[] = [];
+
   async function makeSoleAdministrator(name: string) {
     const role = await roles.create(
       { name, permissions: ['users:manage', 'settings:manage'] },
       request,
     );
-    await prisma.user.create({
+    const holder = await prisma.user.create({
       data: {
         email: `${name}-holder@example.test`,
         displayName: 'Sole administrator',
@@ -213,10 +229,21 @@ describe('RolesService (integration)', () => {
         isActive: true,
       },
     });
-    await prisma.user.update({
-      where: { email: 'crud-keeper@example.test' },
+
+    const others = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        id: { not: holder.id },
+        roleRef: { permissions: { hasSome: ['users:manage', 'settings:manage'] } },
+      },
+      select: { id: true },
+    });
+    deactivated = others.map((user) => user.id);
+    await prisma.user.updateMany({
+      where: { id: { in: deactivated } },
       data: { isActive: false },
     });
+
     return role;
   }
 
