@@ -20,6 +20,50 @@ import { RoleRegistry } from './role-registry';
  */
 const ADMINISTRATIVE: readonly Permission[] = ['users:manage', 'settings:manage'];
 
+/**
+ * A built-in role is fixed: not deletable, not renamable, and not redefinable
+ * (ADR-0018 §1).
+ *
+ * The lockout guard below only stops the deployment losing administration
+ * altogether. It does nothing about a role still NAMED "VIEWER" that grants
+ * `settings:manage`, or one stripped of `inventory:read` so its holders can
+ * sign in but cannot load their own session. Both were reachable, and both make
+ * every runbook, directory mapping and support answer that says "VIEWER" wrong
+ * — silently, because the name still looks right.
+ *
+ * Deployments that need a different set build one: a custom role says what it is
+ * by its own name, and carries no inherited expectation of what it grants.
+ *
+ * A no-op is not a refusal. Echoing the current values back — which any client
+ * doing read-modify-write will do — must not fail, or the role becomes
+ * impossible to touch rather than merely fixed.
+ */
+function assertBuiltInUnchanged(
+  before: { name: string; builtIn: boolean; description: string | null; permissions: string[] },
+  input: UpdateRole,
+): void {
+  if (!before.builtIn) return;
+
+  const permissionsChanged =
+    input.permissions !== undefined &&
+    (input.permissions.length !== before.permissions.length ||
+      [...input.permissions].sort().join(' ') !== [...before.permissions].sort().join(' '));
+
+  const descriptionChanged =
+    input.description !== undefined && (input.description ?? null) !== before.description;
+
+  if (!permissionsChanged && !descriptionChanged) return;
+
+  throw new ConflictException({
+    error: 'ROLE_IS_BUILT_IN',
+    message:
+      `"${before.name}" is a built-in role and cannot be redefined. Its name is written into ` +
+      'directory mappings, audit history and runbooks, which all assume it still means what the ' +
+      'product documents. Duplicate it as a custom role and change that instead.',
+    role: before.name,
+  });
+}
+
 /** Where the deployment's directory mappings can be read from. */
 export interface MappingSource {
   /** Every configured mapping, with where it came from. */
@@ -87,6 +131,8 @@ export class RolesService {
   async update(id: string, input: UpdateRole, request: AuthenticatedRequest): Promise<Role> {
     const before = await this.prisma.role.findUnique({ where: { id } });
     if (before === null) throw new NotFoundException('No such role.');
+
+    assertBuiltInUnchanged(before, input);
 
     if (input.permissions !== undefined) {
       await this.assertAdministrationSurvives(before.name, input.permissions);

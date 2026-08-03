@@ -133,16 +133,40 @@ test.describe('roles', () => {
     }
   });
 
-  test('a built-in role cannot be renamed', async ({ page }) => {
+  /**
+   * Built-in roles are fixed (ADR-0018 §1).
+   *
+   * The API refuses to redefine one, so a console that offered the controls
+   * would be offering an action that always fails. More to the point, the
+   * reason has to be legible: an operator who wants "ADMIN without pql:raw"
+   * needs to be told to build their own role, not left clicking a Save button
+   * that 409s.
+   */
+  test('a built-in role cannot be edited', async ({ page }) => {
     await login(page);
     await page.goto('/settings/users');
 
-    await page.getByRole('button', { name: /^(Edit|View) ADMIN$/ }).click();
+    // The action itself says View, before anything is opened.
+    await expect(page.getByRole('button', { name: 'View ADMIN' })).toBeVisible();
+    await page.getByRole('button', { name: 'View ADMIN' }).click();
     const dialog = page.getByRole('dialog');
 
     // No name input at all — not a disabled one that a later change re-enables.
     await expect(dialog.getByLabel('Name')).toHaveCount(0);
-    await expect(dialog.getByText(/the name cannot/i)).toBeVisible();
+    await expect(dialog.getByText(/fixed by the product/i)).toBeVisible();
+
+    // Nothing that could commit a change.
+    await expect(dialog.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /^Delete/ })).toHaveCount(0);
+
+    // Every permission control is present but inert, so the role is still
+    // legible — the point is to show what ADMIN grants, not to hide it.
+    const boxes = dialog.getByRole('checkbox');
+    const count = await boxes.count();
+    expect(count).toBeGreaterThan(0);
+    for (let index = 0; index < count; index += 1) {
+      await expect(boxes.nth(index)).toBeDisabled();
+    }
   });
 
   /**

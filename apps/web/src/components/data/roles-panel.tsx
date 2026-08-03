@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Lock, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { AlertTriangle, Copy, Eye, Lock, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import type { BlockingRoleMapping, Permission, Role } from '@nexuspuppet/contracts';
 import { useCapabilities, useRoles } from '@/lib/queries';
 import { useCreateRole, useDeleteRole, useUpdateRole } from '@/lib/mutations';
@@ -41,8 +41,18 @@ export function RolesPanel() {
 
   const editable = capabilities.data?.capabilities.includes('rbac.custom') === true;
 
-  /** `null` closed · `'new'` creating · a Role being edited. */
-  const [editing, setEditing] = useState<Role | 'new' | null>(null);
+  /**
+   * `null` closed, otherwise what the dialog is doing.
+   *
+   * `seed` carries a starting point for a new role — used when duplicating a
+   * built-in, which is the supported way to get a role that is *like* ADMIN
+   * without redefining what ADMIN means.
+   */
+  const [editing, setEditing] = useState<
+    | { mode: 'edit'; role: Role }
+    | { mode: 'new'; seed?: { name: string; permissions: Permission[] } }
+    | null
+  >(null);
 
   if (!manages) return null;
   if (roles.isError) return <QueryError error={roles.error} />;
@@ -79,7 +89,7 @@ export function RolesPanel() {
                   key={role.id}
                   role={role}
                   editable={editable}
-                  onOpen={() => setEditing(role)}
+                  onOpen={() => setEditing({ mode: 'edit', role })}
                 />
               ))}
             </tbody>
@@ -87,7 +97,7 @@ export function RolesPanel() {
         </div>
 
         {editable && (
-          <Button variant="ghost" size="sm" onClick={() => setEditing('new')}>
+          <Button variant="ghost" size="sm" onClick={() => setEditing({ mode: 'new' })}>
             <Plus className="mr-1 size-3.5" aria-hidden />
             New role
           </Button>
@@ -95,10 +105,23 @@ export function RolesPanel() {
 
         {editing !== null && (
           <RoleEditor
-            role={editing === 'new' ? null : editing}
+            /* Remounts when the target changes, so the draft is re-seeded
+               rather than carried over from the role just closed. */
+            key={editing.mode === 'edit' ? editing.role.id : (editing.seed?.name ?? 'new')}
+            role={editing.mode === 'edit' ? editing.role : null}
+            seed={editing.mode === 'new' ? editing.seed : undefined}
             editable={editable}
             existing={roles.data.map((r) => r.name)}
             onClose={() => setEditing(null)}
+            onDuplicate={(from) =>
+              setEditing({
+                mode: 'new',
+                seed: {
+                  name: `${from.name.toLowerCase()}-copy`,
+                  permissions: [...from.permissions],
+                },
+              })
+            }
           />
         )}
       </CardContent>
@@ -123,6 +146,11 @@ function RoleRow({
   onOpen: () => void;
 }) {
   const held = PERMISSIONS.filter((p) => role.permissions.includes(p));
+  /*
+   * A built-in role is never editable, capability or not (ADR-0018 §1). The
+   * action says so up front rather than opening an editor that then refuses.
+   */
+  const verb = editable && !role.builtIn ? 'Edit' : 'View';
 
   return (
     <tr
@@ -168,14 +196,18 @@ function RoleRow({
         <Button
           variant="ghost"
           size="sm"
-          aria-label={`${editable ? 'Edit' : 'View'} ${role.name}`}
+          aria-label={`${verb} ${role.name}`}
           onClick={(event) => {
             event.stopPropagation();
             onOpen();
           }}
         >
-          <Pencil className="mr-1 size-3.5" aria-hidden />
-          {editable ? 'Edit' : 'View'}
+          {verb === 'Edit' ? (
+            <Pencil className="mr-1 size-3.5" aria-hidden />
+          ) : (
+            <Eye className="mr-1 size-3.5" aria-hidden />
+          )}
+          {verb}
         </Button>
       </td>
     </tr>
@@ -196,25 +228,36 @@ const IMPACT_STYLE: Record<PermissionImpact, string> = {
  */
 function RoleEditor({
   role,
+  seed,
   editable,
   existing,
   onClose,
+  onDuplicate,
 }: {
   role: Role | null;
+  seed?: { name: string; permissions: Permission[] } | undefined;
   editable: boolean;
   existing: string[];
   onClose: () => void;
+  onDuplicate: (from: Role) => void;
 }) {
   const create = useCreateRole();
   const update = useUpdateRole();
   const remove = useDeleteRole();
 
   const creating = role === null;
-  const readOnly = !editable;
+  /*
+   * Read-only for two different reasons, deliberately collapsed into one flag
+   * for rendering but explained separately to the operator below: the
+   * deployment cannot define roles at all, or this particular role is built in
+   * and is fixed by the product (ADR-0018 §1).
+   */
+  const builtIn = role?.builtIn === true;
+  const readOnly = !editable || builtIn;
 
-  const [name, setName] = useState(role?.name ?? '');
+  const [name, setName] = useState(role?.name ?? seed?.name ?? '');
   const [description, setDescription] = useState(role?.description ?? '');
-  const [draft, setDraft] = useState<Permission[]>(role?.permissions ?? []);
+  const [draft, setDraft] = useState<Permission[]>(role?.permissions ?? seed?.permissions ?? []);
   const [error, setError] = useState<string | null>(null);
   const [blocking, setBlocking] = useState<BlockingRoleMapping[] | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -291,9 +334,11 @@ function RoleEditor({
       onClose={onClose}
       title={title}
       description={
-        readOnly
-          ? 'Editing roles is not available in this deployment.'
-          : 'Changes take effect for everybody holding this role as soon as you save.'
+        builtIn
+          ? `${role.name} is built in. Its permissions are fixed so that runbooks, directory mappings and support answers naming it stay true.`
+          : readOnly
+            ? 'Editing roles is not available in this deployment.'
+            : 'Changes take effect for everybody holding this role as soon as you save.'
       }
       className="w-[min(46rem,calc(100vw-2rem))]"
       /*
@@ -306,9 +351,25 @@ function RoleEditor({
        */
       footer={
         readOnly ? (
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
+          <div className="flex w-full items-center justify-between gap-2">
+            {/*
+             * The way OUT of a fixed role, offered at the moment somebody
+             * discovers they cannot change it. A deployment that wants
+             * "ADMIN but without pql:raw" gets a role of its own name that
+             * says so, instead of an ADMIN that no longer means ADMIN.
+             */}
+            {builtIn && editable ? (
+              <Button variant="ghost" size="sm" onClick={() => onDuplicate(role)}>
+                <Copy className="mr-1 size-3.5" aria-hidden />
+                Duplicate as custom role
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          </div>
         ) : (
           <div className="w-full space-y-2">
             <PendingChanges added={added} removed={removed} creating={creating} />
@@ -363,7 +424,7 @@ function RoleEditor({
               {role.name}
               <span className="ml-2 font-sans text-[11px] text-ink-faint">
                 {role.builtIn
-                  ? 'built-in — permissions can change, the name cannot'
+                  ? 'built-in — fixed by the product'
                   : 'names are fixed once created; they appear in directory mappings and audit history'}
               </span>
             </p>
