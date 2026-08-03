@@ -89,7 +89,7 @@ export class UsersService {
           // resolves permissions (ADR-0018 §1). Nothing reads this yet; the
           // point is that when resolution moves over, every row already has
           // one and the NOT NULL migration has nothing to backfill.
-          roleId: await builtInRoleId(tx, input.role),
+          roleId: await assignableRoleId(tx, input.role),
           passwordHash,
           authSource,
         },
@@ -193,7 +193,7 @@ export class UsersService {
           // until the release that starts reading roleId (ADR-0018 §1).
           ...(input.role === undefined
             ? {}
-            : { role: input.role, roleId: await builtInRoleId(tx, input.role) }),
+            : { role: input.role, roleId: await assignableRoleId(tx, input.role) }),
           ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
         },
       });
@@ -484,4 +484,32 @@ export async function builtInRoleId(
   }
 
   return row.id;
+}
+
+/**
+ * Resolves a role name supplied by a CLIENT.
+ *
+ * Separate from `builtInRoleId`, which resolves names this codebase chose and
+ * treats absence as a broken deployment — a 500 is right there. A name that
+ * arrived in a request body is different: absence means the caller asked for
+ * something that does not exist, which is a 400, and the answer has to say
+ * which names would have worked. Since ADR-0018 the valid set is a table, so
+ * "one of VIEWER, OPERATOR, ADMIN" is no longer a safe thing to assume.
+ */
+export async function assignableRoleId(
+  tx: {
+    role: {
+      findUnique(args: { where: { name: string } }): Promise<{ id: string } | null>;
+      findMany(args: { select: { name: true } }): Promise<Array<{ name: string }>>;
+    };
+  },
+  name: string,
+): Promise<string> {
+  const row = await tx.role.findUnique({ where: { name } });
+  if (row !== null) return row.id;
+
+  const known = (await tx.role.findMany({ select: { name: true } })).map((r) => r.name);
+  throw new BadRequestException(
+    `No role named "${name}" exists. This deployment has: ${known.sort().join(', ')}.`,
+  );
 }

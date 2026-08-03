@@ -170,6 +170,57 @@ test.describe('roles', () => {
   });
 
   /**
+   * Assigning a role to a user is a privilege change on a PERSON.
+   *
+   * Choosing from the dropdown used to write immediately. One stray click
+   * demoted this deployment's local administrator during review — no
+   * confirmation, no statement of what changed, no undo. The <Select> must
+   * stage the intent and keep showing the saved role until somebody commits.
+   */
+  test('changing a user role asks before it writes', async ({ page }) => {
+    const calls: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() !== 'PATCH') return;
+      if (!/\/api\/users\//.test(request.url())) return;
+      calls.push(`PATCH ${new URL(request.url()).pathname}`);
+    });
+
+    await login(page);
+    await page.goto('/settings/users');
+
+    // Somebody other than the signed-in admin: changing your own role is
+    // refused server-side, so that row's control is disabled.
+    const select = page
+      .getByRole('combobox', { name: /^Role for / })
+      .and(page.locator(':not([disabled])'))
+      .first();
+    if ((await select.count()) === 0) {
+      test.skip(true, 'no other local user on this deployment to re-role');
+      return;
+    }
+
+    const before = await select.inputValue();
+    const other = (await select.locator('option').allTextContents()).find((o) => o !== before);
+    expect(other, 'need a second role to switch to').toBeDefined();
+
+    await select.selectOption(other as string);
+
+    // A confirmation, and nothing written yet.
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Change role' })).toBeVisible();
+    expect(calls, 'selecting a role must not write').toEqual([]);
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    expect(calls, 'cancelling must not write').toEqual([]);
+
+    // And the control went back to what is actually in force, rather than
+    // showing a change that never happened.
+    await expect(select).toHaveValue(before);
+  });
+
+  /**
    * Editing needs the `rbac.custom` capability, which core-only deployments —
    * including CI — do not have. These tests skip there rather than fail, but the
    * read-only assertions above still run everywhere, so the anti-pattern guard
