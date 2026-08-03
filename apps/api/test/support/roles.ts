@@ -11,3 +11,71 @@ import type { PrismaService } from '../../src/prisma/prisma.service';
 export async function roleIdFor(prisma: PrismaService, name: string): Promise<string> {
   return (await prisma.role.findUniqueOrThrow({ where: { name } })).id;
 }
+
+/**
+ * The built-in roles exactly as the seeding migration writes them.
+ *
+ * Duplicated from `20260802074701_roles_table` on purpose. These three sets are
+ * what the product documents ADMIN, OPERATOR and VIEWER to mean, so a test
+ * suite asserting on them should state them outright rather than read back
+ * whatever the database happens to hold — otherwise a suite run against a
+ * damaged database asserts against the damage.
+ */
+const BUILT_IN_DEFAULTS: ReadonlyArray<{
+  name: string;
+  description: string;
+  permissions: string[];
+}> = [
+  {
+    name: 'VIEWER',
+    description: 'Read-only access to inventory, reports and classification.',
+    permissions: ['inventory:read', 'reports:read', 'classification:read'],
+  },
+  {
+    name: 'OPERATOR',
+    description: 'Reads everything a viewer can, and changes classification.',
+    permissions: [
+      'inventory:read',
+      'reports:read',
+      'classification:read',
+      'classification:write',
+      'materialization:trigger',
+    ],
+  },
+  {
+    name: 'ADMIN',
+    description: 'Full administration, including users, settings and raw PQL.',
+    permissions: [
+      'inventory:read',
+      'reports:read',
+      'classification:read',
+      'classification:write',
+      'materialization:trigger',
+      'users:manage',
+      'settings:manage',
+      'pql:raw',
+    ],
+  },
+];
+
+/**
+ * Puts the built-in roles back the way the product seeds them.
+ *
+ * Nothing reachable through the API can damage them — that is the guard this
+ * suite exists to prove. But a suite run against a BROKEN guard can, and did:
+ * one deliberately disabled guard left `settings:manage` welded onto VIEWER,
+ * and every later run then failed for that reason rather than the real one.
+ * A test fixture that cannot be trusted after a failure is worse than none,
+ * because the second run lies about the first.
+ *
+ * Written straight through Prisma rather than through RolesService, which is
+ * the thing under test and is supposed to refuse exactly this.
+ */
+export async function restoreBuiltInRoles(prisma: PrismaService): Promise<void> {
+  for (const role of BUILT_IN_DEFAULTS) {
+    await prisma.role.updateMany({
+      where: { name: role.name, builtIn: true },
+      data: { permissions: role.permissions, description: role.description },
+    });
+  }
+}

@@ -20,7 +20,7 @@ import {
   updateRoleSchema,
 } from '@nexuspuppet/contracts';
 import { CapabilityRegistry } from '../enterprise/capability.registry';
-import { RequirePermission, type AuthenticatedRequest } from './auth.guard';
+import { RequireAnyPermission, RequirePermission, type AuthenticatedRequest } from './auth.guard';
 import { RolesService } from './roles.service';
 
 /**
@@ -41,7 +41,13 @@ export class RolesController {
     private readonly capabilities: CapabilityRegistry,
   ) {}
 
-  @RequirePermission('settings:manage')
+  /*
+   * Readable by anybody who can act on it. Assigning a role to a user needs
+   * `users:manage`; without this, such a principal could administer users and
+   * see no role to give them. Only the LIST is widened — creating, editing and
+   * deleting remain `settings:manage`.
+   */
+  @RequireAnyPermission('settings:manage', 'users:manage')
   @Get()
   list(): Promise<Role[]> {
     return this.roles.list();

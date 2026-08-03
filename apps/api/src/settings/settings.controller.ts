@@ -1,3 +1,4 @@
+import { UseFilters } from '@nestjs/common';
 import {
   Body,
   Controller,
@@ -19,6 +20,7 @@ import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard
 import { AuthProviderResolver } from '../auth/auth-provider.resolver';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { SettingsService } from './settings.service';
+import { SettingsErrorFilter } from './settings-error.filter';
 
 /**
  * Configuration an operator changes from the console (ADR-0016).
@@ -29,6 +31,7 @@ import { SettingsService } from './settings.service';
  * learn the deployment's directory topology and service account DN.
  */
 @RequirePermission('settings:manage')
+@UseFilters(SettingsErrorFilter)
 @Controller('settings')
 export class SettingsController {
   constructor(

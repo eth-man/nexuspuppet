@@ -4,7 +4,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { RoleRegistry } from '../src/auth/role-registry';
 import { RolesService, type MappingSource } from '../src/auth/roles.service';
-import { roleIdFor } from './support/roles';
+import { restoreBuiltInRoles, roleIdFor } from './support/roles';
 import { hashPassword } from '../src/auth/password';
 
 const DATABASE_URL =
@@ -44,6 +44,9 @@ describe('RolesService (integration)', () => {
 
   beforeEach(async () => {
     mappings = [];
+    // Built-ins are meant to be unchangeable; if a regression made them
+    // changeable, an earlier test in this file may have changed them.
+    await restoreBuiltInRoles(prisma);
     await prisma.user.deleteMany({ where: { email: { startsWith: 'crud-' } } });
     await prisma.role.deleteMany({ where: { name: { startsWith: 'crud-' } } });
     registry = new RoleRegistry(prisma);
@@ -80,6 +83,15 @@ describe('RolesService (integration)', () => {
 
   afterEach(async () => {
     registry.onModuleDestroy();
+    // Before the deletes: rows this file created are removed anyway, and rows
+    // it merely borrowed from other suites must go back exactly as they were.
+    if (deactivated.length > 0) {
+      await prisma.user.updateMany({
+        where: { id: { in: deactivated } },
+        data: { isActive: true },
+      });
+      deactivated = [];
+    }
     await prisma.user.deleteMany({ where: { email: { startsWith: 'crud-' } } });
     await prisma.role.deleteMany({ where: { name: { startsWith: 'crud-' } } });
   });
@@ -187,16 +199,75 @@ describe('RolesService (integration)', () => {
     await expect(roles.remove(role.id, request)).rejects.toThrow(/still hold/);
   });
 
+  /**
+   * Establishes a custom role as the only source of administration.
+   *
+   * The guard asks a question about the WHOLE database — is there any other
+   * active user whose role still grants this permission — so the fixture has to
+   * answer for the whole database, not just for the rows this file created.
+   *
+   * Deactivating only the keeper was enough when this spec ran alone and wrong
+   * as soon as it ran with the others: the shared integration database also
+   * holds active administrators left by the auth suites, the guard correctly
+   * found cover in one of them, and the test failed in CI having passed
+   * locally. Rows are deactivated rather than deleted — several are foreign-key
+   * targets of audit rows — and `afterEach` puts every one of them back.
+   */
+  let deactivated: string[] = [];
+
+  async function makeSoleAdministrator(name: string) {
+    const role = await roles.create(
+      { name, permissions: ['users:manage', 'settings:manage'] },
+      request,
+    );
+    const holder = await prisma.user.create({
+      data: {
+        email: `${name}-holder@example.test`,
+        displayName: 'Sole administrator',
+        role: name,
+        roleId: role.id,
+        isActive: true,
+      },
+    });
+
+    const others = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        id: { not: holder.id },
+        roleRef: { permissions: { hasSome: ['users:manage', 'settings:manage'] } },
+      },
+      select: { id: true },
+    });
+    deactivated = others.map((user) => user.id);
+    await prisma.user.updateMany({
+      where: { id: { in: deactivated } },
+      data: { isActive: false },
+    });
+
+    return role;
+  }
+
+  /*
+   * The lockout guard is exercised through a CUSTOM role.
+   *
+   * It used to be exercised through ADMIN, which is no longer editable at all —
+   * the built-in guard now fires first, so the lockout branch would never be
+   * reached and these tests would have kept passing for the wrong reason. The
+   * property under test is unchanged: the last role granting an administrative
+   * permission cannot have it taken away.
+   */
   it('refuses an edit that would leave nobody able to administer', async () => {
     // Everything rests on somebody being able to grant permissions back.
-    const admin = await prisma.role.findUniqueOrThrow({ where: { name: 'ADMIN' } });
+    const sole = await makeSoleAdministrator('crud-sole');
 
     await expect(
-      roles.update(admin.id, { permissions: ['inventory:read'] }, request),
+      roles.update(sole.id, { permissions: ['inventory:read'] }, request),
     ).rejects.toThrow(/administer this deployment/);
   });
 
   it('permits the same edit once another role can administer', async () => {
+    const sole = await makeSoleAdministrator('crud-sole-rescued');
+
     const rescue = await roles.create(
       { name: 'crud-rescue', permissions: ['users:manage', 'settings:manage'] },
       request,
@@ -210,14 +281,65 @@ describe('RolesService (integration)', () => {
         isActive: true,
       },
     });
-    const admin = await prisma.role.findUniqueOrThrow({ where: { name: 'ADMIN' } });
 
     await expect(
-      roles.update(admin.id, { permissions: ['inventory:read'] }, request),
+      roles.update(sole.id, { permissions: ['inventory:read'] }, request),
     ).resolves.toMatchObject({ permissions: ['inventory:read'] });
+  });
 
-    // Put it back, so the rest of the suite is not run against a crippled ADMIN.
-    await roles.update(admin.id, { permissions: [...(admin.permissions as never[])] }, request);
+  /*
+   * Built-in roles are fixed (ADR-0018 §1).
+   *
+   * The lockout guard alone still allowed a role NAMED "VIEWER" to be given
+   * `settings:manage`. Every runbook, directory mapping and support answer
+   * saying "VIEWER" then means something the product never documented, and
+   * nothing about the name reveals it.
+   */
+  it('refuses to redefine a built-in role', async () => {
+    const viewer = await prisma.role.findUniqueOrThrow({ where: { name: 'VIEWER' } });
+
+    await expect(
+      roles.update(
+        viewer.id,
+        { permissions: [...(viewer.permissions as never[]), 'settings:manage'] },
+        request,
+      ),
+    ).rejects.toThrow(/built-in role and cannot be redefined/);
+
+    const after = await prisma.role.findUniqueOrThrow({ where: { id: viewer.id } });
+    expect(after.permissions).toEqual(viewer.permissions);
+  });
+
+  it('refuses to redescribe a built-in role', async () => {
+    const viewer = await prisma.role.findUniqueOrThrow({ where: { name: 'VIEWER' } });
+
+    await expect(
+      roles.update(viewer.id, { description: 'Actually an administrator' }, request),
+    ).rejects.toThrow(/built-in role and cannot be redefined/);
+  });
+
+  /**
+   * A no-op is not a refusal.
+   *
+   * Any client doing read-modify-write echoes the current values back. If that
+   * threw, a built-in role would not be fixed, it would be untouchable — and a
+   * console editor that sends the full permission set could never open one
+   * without erroring.
+   */
+  it('accepts a request that changes nothing about a built-in role', async () => {
+    const viewer = await prisma.role.findUniqueOrThrow({ where: { name: 'VIEWER' } });
+
+    await expect(
+      roles.update(
+        viewer.id,
+        {
+          // Deliberately reordered: the guard compares sets, not sequences.
+          permissions: [...(viewer.permissions as never[])].reverse(),
+          description: viewer.description,
+        },
+        request,
+      ),
+    ).resolves.toMatchObject({ name: 'VIEWER', builtIn: true });
   });
 
   it('reports how many active users hold each role', async () => {

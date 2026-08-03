@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Plus, Trash2, XCircle } from 'lucide-react';
-import type { LdapSettings, ProviderVerification, UserRole } from '@nexuspuppet/contracts';
-import { useLdapSettings } from '@/lib/queries';
+import type { LdapSettings, ProviderVerification } from '@nexuspuppet/contracts';
+import { useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
@@ -15,8 +15,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { LoadingRows, QueryError } from '@/components/states';
-
-const ROLES: UserRole[] = ['VIEWER', 'OPERATOR', 'ADMIN'];
 
 /** An empty form, for a deployment that has never configured a directory. */
 const BLANK: LdapSettings = {
@@ -50,6 +48,10 @@ export function LdapSettingsPanel() {
   const manages = can('settings:manage');
 
   const stored = useLdapSettings(manages);
+  // So a mapping naming a role nobody defined is visible here rather than at
+  // somebody's next sign-in.
+  const roles = useRoles(manages);
+  const knownRoles = (roles.data ?? []).map((role) => role.name);
   const save = useSaveLdapSettings();
   const clear = useClearLdapSettings();
   const test = useTestLdapSettings();
@@ -228,6 +230,7 @@ export function LdapSettingsPanel() {
         <RoleMappings
           mappings={form.roleMappings}
           onChange={(roleMappings) => field('roleMappings', roleMappings)}
+          knownRoles={knownRoles}
         />
 
         {form.tlsRejectUnauthorized === false && (
@@ -415,17 +418,55 @@ function TestResult({ result }: { result: ProviderVerification }) {
 function RoleMappings({
   mappings,
   onChange,
+  knownRoles,
 }: {
   mappings: LdapSettings['roleMappings'];
   onChange: (next: LdapSettings['roleMappings']) => void;
+  knownRoles: string[];
 }) {
+  /*
+   * A mapping naming a role this deployment does not define.
+   *
+   * It does not fail at save time and it does not fail at start-up. It fails at
+   * somebody's next sign-in, by resolving to no permissions — and the only clue
+   * is a person reporting they can suddenly do nothing. Here is the cheapest
+   * possible moment to notice (ADR-0018 §5).
+   *
+   * knownRoles empty means the roles could not be read, not that none exist;
+   * flagging everything then would be noise, so nothing is flagged.
+   */
+  const dangling = (role: string) =>
+    knownRoles.length > 0 && role !== '' && !knownRoles.includes(role);
+  const broken = mappings.filter((mapping) => dangling(mapping.role));
+
   return (
     <div className="space-y-1.5">
       <Label>Role mappings</Label>
+
+      {broken.length > 0 && (
+        <div
+          role="alert"
+          className="rounded border border-state-pending/40 bg-state-pending/10 p-2"
+        >
+          <p className="text-[11px] font-semibold text-ink">
+            {broken.length === 1
+              ? '1 mapping names a role that does not exist'
+              : `${broken.length} mappings name roles that do not exist`}
+          </p>
+          <p className="mt-1 max-w-prose text-[11px] text-ink-muted">
+            {'Anybody in '}
+            {broken.map((m) => m.groupDn).join(', ')}
+            {' signs in successfully and is then denied everything, because the role named here '}
+            {'is not one this deployment defines. Point them at a role that exists, or create it '}
+            {'under Users & Roles.'}
+          </p>
+        </div>
+      )}
       <p className="text-[11px] text-ink-faint">
-        {'Recomputed at every sign-in from group membership. Where someone matches several, '}
-        {'the highest role wins. With none set, anybody who authenticates is refused for '}
-        {'having no mapped group.'}
+        {'Recomputed at every sign-in from group membership. Where someone matches several '}
+        {'built-in roles the highest wins; where any custom role is matched, their permissions '}
+        {'are combined. With none set, anybody who authenticates is refused for having no '}
+        {'mapped group.'}
       </p>
 
       {mappings.map((mapping, index) => (
@@ -443,15 +484,21 @@ function RoleMappings({
           <Select
             value={mapping.role}
             onChange={(e) =>
-              onChange(
-                mappings.map((m, i) =>
-                  i === index ? { ...m, role: e.target.value as UserRole } : m,
-                ),
-              )
+              onChange(mappings.map((m, i) => (i === index ? { ...m, role: e.target.value } : m)))
             }
-            className="h-7 w-28 text-xs"
+            className="h-7 w-40 text-xs"
+            aria-invalid={dangling(mapping.role)}
           >
-            {ROLES.map((role) => (
+            {/*
+              A mapping may name a role that no longer exists. Keeping the value
+              as an option means opening the form does not silently rewrite it
+              to whatever happened to be first — which would repair the symptom
+              and lose the fact.
+            */}
+            {dangling(mapping.role) && (
+              <option value={mapping.role}>{mapping.role} — no such role</option>
+            )}
+            {knownRoles.map((role) => (
               <option key={role} value={role}>
                 {role}
               </option>

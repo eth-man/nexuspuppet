@@ -21,6 +21,7 @@ import { JwtError } from './jwt';
 
 export const IS_PUBLIC = 'nexuspuppet:isPublic';
 export const REQUIRED_PERMISSION = 'nexuspuppet:permission';
+export const REQUIRED_ANY_PERMISSION = 'nexuspuppet:any-permission';
 
 /** Opt a route out of authentication. Everything else is protected by default. */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC, true);
@@ -34,6 +35,24 @@ export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUB
  */
 export const RequirePermission = (permission: Permission): MethodDecorator & ClassDecorator =>
   SetMetadata(REQUIRED_PERMISSION, permission);
+
+/**
+ * Grants a route to a principal holding ANY of these permissions.
+ *
+ * A separate decorator and a separate metadata key, deliberately: the
+ * single-permission path above is unchanged, and a reader can tell which rule
+ * applies from the decorator name alone. Folding OR semantics into
+ * `RequirePermission` would have made every existing route's meaning depend on
+ * whether somebody had passed one argument or two.
+ *
+ * The case that needs it: assigning a role to a user requires `users:manage`,
+ * but the list of role names to assign FROM was readable only with
+ * `settings:manage`. A role granting just `users:manage` could therefore
+ * administer users while being unable to see a single role to give them.
+ */
+export const RequireAnyPermission = (
+  ...permissions: Permission[]
+): MethodDecorator & ClassDecorator => SetMetadata(REQUIRED_ANY_PERMISSION, permissions);
 
 /** The authenticated principal, attached by AuthGuard. */
 export interface AuthenticatedRequest extends Request {
@@ -101,12 +120,30 @@ export class AuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
+    const anyOf = this.reflector.getAllAndOverride<Permission[]>(REQUIRED_ANY_PERMISSION, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     // Authenticated but with no declared permission: deny. Access is granted by
-    // an explicit @RequirePermission, never by forgetting one.
-    if (permission === undefined) {
+    // an explicit @RequirePermission or @RequireAnyPermission, never by
+    // forgetting one.
+    if (permission === undefined && anyOf === undefined) {
       throw new ForbiddenException(
         'This route declares no required permission and is therefore denied.',
       );
+    }
+
+    if (permission === undefined) {
+      const target = targetFrom(request);
+      if (!anyOf.some((candidate) => this.policy.can(principal, candidate, target))) {
+        throw new ForbiddenException({
+          error: 'INSUFFICIENT_PERMISSION',
+          message: `Your role (${principal.role}) grants none of: ${anyOf.join(', ')}.`,
+          required: anyOf,
+        });
+      }
+      return true;
     }
 
     if (!this.policy.can(principal, permission, targetFrom(request))) {

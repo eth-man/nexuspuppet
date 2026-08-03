@@ -39,9 +39,25 @@ model Role {
 seeded as `builtIn` rows with exactly today's permission sets, so an existing
 deployment is unchanged on the first boot after upgrade.
 
-**Built-in roles are not deletable and not renamable**, because their names are
-written into LDAP role mappings, into audit history, and into other people's
-runbooks. Their permission sets *are* editable, with one exception below.
+**Built-in roles are fixed: not deletable, not renamable, and not
+redefinable.** Their names are written into LDAP role mappings, into audit
+history, and into other people's runbooks, and every one of those readers
+assumes the name still means what the product documents.
+
+An earlier revision of this ADR allowed their permission sets to be edited,
+guarded only against total administrative lockout. That guard is real but it
+answers a different question: it stops a deployment losing administration
+altogether, and does nothing about a role still *named* `VIEWER` that grants
+`settings:manage`, or one stripped of `inventory:read` so its holders can sign
+in but cannot load their own session or change their own password. Both were
+reachable, and neither is visible from the name — which is the whole problem,
+because the name is what every runbook and directory mapping refers to.
+
+A deployment that wants a different set builds one. A custom role says what it
+is by its own name and carries no inherited expectation of what it grants; the
+console offers **Duplicate as custom role** from a built-in, so the starting
+point is one click away. Core-only deployments keep exactly the three roles
+they had before this ADR, which is what they had anyway.
 
 ### 2. `IAuthorizationPolicy` is already the seam
 
@@ -147,6 +163,10 @@ inspection, and that goes away.
    no longer edit? Per ADR-0014 the product degrades to core and must never
    break — so custom roles must keep *resolving* without a licence, with only
    the editor withdrawn. Anything else logs people out at renewal time.
-3. Is `builtIn` the right immutability boundary, or should the seeded rows be
-   editable-but-restorable? Leaning to the former: a runbook that says "ADMIN"
-   should not depend on nobody having redefined it.
+3. ~~Is `builtIn` the right immutability boundary, or should the seeded rows be
+   editable-but-restorable?~~ **Resolved: `builtIn` is the boundary.** Seeded
+   rows are fixed outright rather than editable-but-restorable — a restore
+   action only helps somebody who already knows a role was changed, and the
+   failure mode here is precisely that nobody knows. A runbook that says
+   "ADMIN" does not depend on nobody having redefined it. See §1; the escape
+   hatch is duplication, not mutation.

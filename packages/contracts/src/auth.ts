@@ -10,8 +10,35 @@ import type { CapabilityName } from './tokens';
  * reimplement both in order to change one.
  */
 
+/**
+ * The three roles the product seeds and documents.
+ *
+ * NOT the set a user may hold — that is `roleNameSchema` below. This one names
+ * the built-ins specifically, for the places that genuinely mean those three:
+ * the seeded permission table, and a provider recomputing a built-in from
+ * directory groups.
+ */
 export const userRoleSchema = z.enum(['VIEWER', 'OPERATOR', 'ADMIN']);
 export type UserRole = z.infer<typeof userRoleSchema>;
+
+/**
+ * The name of any role in the `roles` table, built-in or custom (ADR-0018).
+ *
+ * Since roles became rows, a deployment can define its own — and a user has to
+ * be able to hold one. Validating assignment against the three-value enum meant
+ * a custom role could be created, and mapped from a directory group, but never
+ * given to a local user: the console offered no way to pick it and the API
+ * would have refused if it had.
+ *
+ * Shape only. Whether a role by this name EXISTS is a question for the database,
+ * and the API answers it at the point of the write rather than trusting the
+ * string.
+ */
+export const roleNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9._-]+$/, 'Letters, digits, dot, underscore and hyphen only');
 
 /**
  * Everything downstream of authentication depends on this shape and never on
@@ -484,7 +511,7 @@ export const createUserSchema = z
   .object({
     email: z.string().email().max(255),
     displayName: z.string().min(1).max(128),
-    role: userRoleSchema,
+    role: roleNameSchema,
     /**
      * Which authority owns this account's credentials. `local` means a password
      * held here; anything else names an external provider (LDAP, SAML, OIDC).
@@ -536,7 +563,7 @@ export type CreateUserInput = z.input<typeof createUserSchema>;
 
 export const updateUserSchema = z.object({
   displayName: z.string().min(1).max(128).optional(),
-  role: userRoleSchema.optional(),
+  role: roleNameSchema.optional(),
   isActive: z.boolean().optional(),
 });
 export type UpdateUser = z.infer<typeof updateUserSchema>;
@@ -581,7 +608,8 @@ export interface ManagedUser {
   id: string;
   email: string;
   displayName: string;
-  role: UserRole;
+  /** A role NAME, which since ADR-0018 may be a custom one. */
+  role: string;
   isActive: boolean;
   authSource: string;
   lastLoginAt: string | null;
@@ -616,7 +644,21 @@ export const ldapSettingsSchema = z.object({
   searchFilter: z.string().min(1).optional(),
   nestedGroups: z.boolean().default(false),
   roleMappings: z
-    .array(z.object({ groupDn: z.string().min(1), role: z.enum(['VIEWER', 'OPERATOR', 'ADMIN']) }))
+    .array(
+      z.object({
+        groupDn: z.string().min(1),
+        /*
+         * A role NAME (ADR-0018 §5), not the built-in enum.
+         *
+         * Left as an enum, the settings screen could not configure a mapping to
+         * a custom role at all — the feature would exist in the resolver and be
+         * unreachable from the console. A name with no matching role is
+         * accepted here and shown as a broken mapping, because the schema has
+         * no way to know which roles a deployment defines.
+         */
+        role: z.string().min(1).max(64),
+      }),
+    )
     .default([]),
   timeoutMs: z.number().int().positive().max(60_000).default(10_000),
   /**

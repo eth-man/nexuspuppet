@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { BadRequestException } from '@nestjs/common';
 import type { AuthenticatedPrincipal } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
@@ -46,6 +47,10 @@ describe('user administration (integration)', () => {
     await prisma.refreshToken.deleteMany();
     await prisma.auditLog.deleteMany();
     await prisma.user.deleteMany();
+    // Custom roles this file defines. Users go first — `users.roleId` is a
+    // foreign key — and without this a second run hits the unique name and
+    // fails on setup rather than on anything it meant to assert.
+    await prisma.role.deleteMany({ where: { name: { startsWith: 'users-int-' } } });
 
     provider = new LocalAuthProvider(prisma);
     // A REAL resolver, not a stub. TokenService dispatches through it now
@@ -110,6 +115,89 @@ describe('user administration (integration)', () => {
         password: 'a-sufficiently-long-password',
       });
       expect(result.ok).toBe(true);
+    });
+
+    /*
+     * Custom roles are assignable (ADR-0018).
+     *
+     * They became creatable and mappable from a directory long before they
+     * became assignable here: `createUserSchema.role` was still the three-value
+     * built-in enum, so a deployment could define a role and then find no way
+     * to give it to anybody. The console offered no way to pick one and the
+     * contract would have refused it if it had.
+     */
+    it('assigns a custom role to a new user', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const custom = await prisma.role.create({
+        data: { name: 'users-int-auditor', permissions: ['inventory:read', 'reports:read'] },
+      });
+
+      const created = await users.create(
+        {
+          email: 'auditor@example.com',
+          displayName: 'Auditor',
+          role: 'users-int-auditor',
+          authSource: 'local',
+          password: 'a-sufficiently-long-password',
+        },
+        principalFor(admin),
+        CTX,
+      );
+
+      expect(created.role).toBe('users-int-auditor');
+      // The foreign key is what actually resolves permissions, so a role name
+      // written without it is a user nothing can authorize.
+      const row = await prisma.user.findUniqueOrThrow({ where: { id: created.id } });
+      expect(row.roleId).toBe(custom.id);
+    });
+
+    it('moves an existing user onto a custom role', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+      const other = await makeUser('mover@example.com', 'VIEWER');
+      const custom = await prisma.role.create({
+        data: { name: 'users-int-mover', permissions: ['inventory:read'] },
+      });
+
+      const updated = await users.update(
+        other.id,
+        { role: 'users-int-mover' },
+        principalFor(admin),
+        CTX,
+      );
+
+      expect(updated.role).toBe('users-int-mover');
+      const row = await prisma.user.findUniqueOrThrow({ where: { id: other.id } });
+      expect(row.roleId).toBe(custom.id);
+    });
+
+    /**
+     * An unknown role is the CALLER's mistake, not a broken deployment.
+     *
+     * Resolving it through the internal helper would have thrown a bare Error
+     * and answered 500, blaming the server for a bad request and telling
+     * nobody which names would have worked — and since roles are a table now,
+     * "one of VIEWER, OPERATOR, ADMIN" is no longer a safe thing to guess.
+     */
+    it('refuses a role that does not exist, and says what does', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      const error = await users
+        .create(
+          {
+            email: 'nope@example.com',
+            displayName: 'Nope',
+            role: 'no-such-role',
+            authSource: 'local',
+            password: 'a-sufficiently-long-password',
+          },
+          principalFor(admin),
+          CTX,
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(String((error as Error).message)).toContain('no-such-role');
+      expect(String((error as Error).message)).toContain('ADMIN');
     });
 
     it('rejects a duplicate email regardless of case', async () => {

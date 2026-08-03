@@ -2,8 +2,8 @@
 
 import { useState, type ReactNode } from 'react';
 import { KeyRound, Plus, RefreshCw, Trash2, UserX } from 'lucide-react';
-import type { ManagedUser, UserRole } from '@nexuspuppet/contracts';
-import { useAuthMode, useUser, useUsers } from '@/lib/queries';
+import type { ManagedUser, Permission, Role } from '@nexuspuppet/contracts';
+import { useAuthMode, useRoles, useUser, useUsers } from '@/lib/queries';
 import {
   useCreateUser,
   useDeactivateUser,
@@ -22,9 +22,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
+import { PERMISSION_CATALOG } from '@/lib/permission-catalog';
 import { LoadingRows, QueryError } from '@/components/states';
 
-const ROLES: UserRole[] = ['VIEWER', 'OPERATOR', 'ADMIN'];
+/**
+ * Fallback role names, used only until the roles query resolves.
+ *
+ * Never the source of truth. Hardcoding this list was the bug: a deployment
+ * that had defined its own role could not assign it, because the dropdown only
+ * ever offered the built-in three and the contract only ever accepted them.
+ */
+const FALLBACK_ROLES = ['VIEWER', 'OPERATOR', 'ADMIN'];
 
 /**
  * User administration.
@@ -39,6 +47,12 @@ export function UsersPanel() {
   const manages = can('users:manage');
 
   const users = useUsers(manages);
+  /*
+   * Readable with `users:manage` since roles became assignable, so this does
+   * not need `settings:manage` — a principal who can administer users can see
+   * the roles they may hand out.
+   */
+  const roles = useRoles(manages);
   const create = useCreateUser();
   const update = useUpdateUser();
   const deactivate = useDeactivateUser();
@@ -56,10 +70,33 @@ export function UsersPanel() {
   const [resetFor, setResetFor] = useState<ManagedUser | null>(null);
   const [deleteFor, setDeleteFor] = useState<ManagedUser | null>(null);
 
+  /**
+   * A role change staged for confirmation, never applied on selection.
+   *
+   * Choosing from a dropdown used to write immediately: one stray click
+   * demoted an administrator, with no confirmation, no statement of what
+   * changed, and no undo. Holding the intent here means the <Select> shows the
+   * CURRENT role until somebody commits the new one.
+   */
+  const [pendingRole, setPendingRole] = useState<{ user: ManagedUser; to: string } | null>(null);
+
+  /*
+   * Built-ins first, then custom alphabetically — the same order the Roles card
+   * uses, so the two screens do not disagree about what the list looks like.
+   */
+  const roleNames =
+    roles.data === undefined
+      ? FALLBACK_ROLES
+      : [...roles.data]
+          .sort((a, b) =>
+            a.builtIn === b.builtIn ? a.name.localeCompare(b.name) : a.builtIn ? -1 : 1,
+          )
+          .map((r) => r.name);
+
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [role, setRole] = useState<UserRole>('VIEWER');
+  const [role, setRole] = useState<string>('VIEWER');
   const [password, setPassword] = useState('');
   /**
    * Which authority owns this account's credentials.
@@ -151,21 +188,24 @@ export function UsersPanel() {
                   <TD>
                     {user.authSource === 'local' ? (
                       <Select
+                        /*
+                         * Bound to the SAVED role, not to a draft. Selecting
+                         * only opens the confirmation; if that is cancelled the
+                         * control must still read what is actually in force.
+                         */
                         value={user.role}
                         // Changing your own role is refused server-side; disabling
                         // it here saves a pointless round trip.
                         disabled={self || update.isPending}
                         onChange={(event) => {
                           setError(null);
-                          update.mutate(
-                            { id: user.id, patch: { role: event.target.value as UserRole } },
-                            { onError: fail },
-                          );
+                          const to = event.target.value;
+                          if (to !== user.role) setPendingRole({ user, to });
                         }}
                         className="h-6 text-xs"
                         aria-label={`Role for ${user.email}`}
                       >
-                        {ROLES.map((r) => (
+                        {roleNames.map((r) => (
                           <option key={r} value={r}>
                             {r}
                           </option>
@@ -274,6 +314,23 @@ export function UsersPanel() {
         </Table>
       )}
 
+      {pendingRole !== null && (
+        <ConfirmRoleChange
+          user={pendingRole.user}
+          to={pendingRole.to}
+          roles={roles.data ?? []}
+          busy={update.isPending}
+          onCancel={() => setPendingRole(null)}
+          onConfirm={() => {
+            setError(null);
+            update.mutate(
+              { id: pendingRole.user.id, patch: { role: pendingRole.to } },
+              { onSuccess: () => setPendingRole(null), onError: fail },
+            );
+          }}
+        />
+      )}
+
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
@@ -348,10 +405,10 @@ export function UsersPanel() {
               <Select
                 id="newRole"
                 value={role}
-                onChange={(e) => setRole(e.target.value as UserRole)}
+                onChange={(e) => setRole(e.target.value)}
                 className="w-full"
               >
-                {ROLES.map((r) => (
+                {roleNames.map((r) => (
                   <option key={r} value={r}>
                     {r}
                   </option>
@@ -716,5 +773,123 @@ function DeleteUserDialog({
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Confirms a role change before it happens.
+ *
+ * Selecting from the dropdown used to commit immediately. That is a privilege
+ * change on a person, made by a stray click, with nothing said about what it
+ * altered — and it demoted this deployment's local administrator exactly that
+ * way during review.
+ *
+ * The permission diff is the point. "ADMIN → VIEWER" is only meaningful to
+ * somebody who already knows both by heart; what an operator needs to see is
+ * that this particular person is about to lose the ability to manage users and
+ * change settings.
+ */
+function ConfirmRoleChange({
+  user,
+  to,
+  roles,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  user: ManagedUser;
+  to: string;
+  roles: Role[];
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const before = roles.find((r) => r.name === user.role)?.permissions ?? [];
+  const after = roles.find((r) => r.name === to)?.permissions ?? [];
+
+  const gained = after.filter((p) => !before.includes(p));
+  const lost = before.filter((p) => !after.includes(p));
+  const losesAdministration = lost.some((p) => PERMISSION_CATALOG[p]?.impact === 'admin');
+
+  return (
+    <Dialog
+      open
+      onClose={onCancel}
+      title={`Change role for ${user.email}?`}
+      description={`${user.role} → ${to}. This takes effect immediately, on their next request.`}
+      footer={
+        <>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" disabled={busy} onClick={onConfirm}>
+            Change role
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-2 text-[11px]">
+        {gained.length === 0 && lost.length === 0 ? (
+          <p className="text-ink-muted">
+            These two roles grant exactly the same permissions, so nothing about what{' '}
+            {user.displayName} can do will change.
+          </p>
+        ) : (
+          <>
+            {lost.length > 0 && (
+              <PermissionDelta
+                heading={`${user.displayName} will lose`}
+                permissions={lost}
+                sign="−"
+              />
+            )}
+            {gained.length > 0 && (
+              <PermissionDelta
+                heading={`${user.displayName} will gain`}
+                permissions={gained}
+                sign="+"
+              />
+            )}
+          </>
+        )}
+
+        {losesAdministration && (
+          <p role="alert" className="text-[11px] text-state-failed">
+            {'This removes administrative access. If they are the last person who can administer '}
+            {'this deployment, the change will be refused rather than applied.'}
+          </p>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+/** One side of a role change, named permission by permission. */
+function PermissionDelta({
+  heading,
+  permissions,
+  sign,
+}: {
+  heading: string;
+  permissions: Permission[];
+  sign: '+' | '−';
+}) {
+  return (
+    <div>
+      <p className="font-semibold text-ink">{heading}</p>
+      <ul className="mt-0.5 space-y-0.5">
+        {permissions.map((permission) => (
+          <li key={permission} className="text-ink-muted">
+            <span aria-hidden className="font-mono text-ink">
+              {sign}
+            </span>{' '}
+            <span className="text-ink">
+              {PERMISSION_CATALOG[permission]?.summary ?? permission}
+            </span>{' '}
+            <span className="font-mono text-[10px] text-ink-faint">{permission}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
