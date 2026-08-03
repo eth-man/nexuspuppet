@@ -147,10 +147,21 @@ test.describe('primitives', () => {
       await expect(control, `"${label}" is not associated with a control`).toBeVisible();
     }
 
-    // Clicking a label focuses its control — the association working in the
-    // direction a mouse user experiences it.
-    await page.getByText('Search base', { exact: true }).first().click();
-    await expect(page.getByRole('textbox', { name: /^Search base/ }).first()).toBeFocused();
+    /*
+     * Clicking a label focuses its control — the association working in the
+     * direction a mouse user experiences it.
+     *
+     * Located through the control's own id rather than by label TEXT: a
+     * required field renders a `*` inside its <label>, so an exact text match
+     * finds nothing and a loose one also matches "Group search base". Going via
+     * `for` asks the same question the browser does.
+     */
+    const searchBase = page.getByRole('textbox', { name: /^Search base/ }).first();
+    const id = await searchBase.getAttribute('id');
+    expect(id, 'the control has no id, so no label can point at it').toBeTruthy();
+
+    await page.locator(`label[for="${id}"]`).click();
+    await expect(searchBase).toBeFocused();
   });
 
   test('the form is grouped into cards rather than one flat list', async ({ page }) => {
