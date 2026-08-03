@@ -115,6 +115,31 @@ describe('summariseCertificate', () => {
     expect(summariseCertificate(pem, now()).selfSigned).toBe(true);
   });
 
+  /*
+   * The distinction the console leads with. Both of these are self-signed; only
+   * one of them is ours to apologise for (ADR-0013, self-signed fallback).
+   */
+  it('marks a certificate this product generated as temporary', () => {
+    const pem = openssl(dir, 'fallback', [
+      '-days',
+      '30',
+      '-subj',
+      '/CN=console.test/O=NexusPuppet temporary self-signed',
+    ]);
+
+    const summary = summariseCertificate(pem, now());
+    expect(summary.selfSigned).toBe(true);
+    expect(summary.temporary).toBe(true);
+  });
+
+  it('does not call an operator own self-signed certificate temporary', () => {
+    const pem = openssl(dir, 'theirs', ['-days', '30', '-subj', '/CN=console.test/O=Example Ltd']);
+
+    const summary = summariseCertificate(pem, now());
+    expect(summary.selfSigned).toBe(true);
+    expect(summary.temporary).toBe(false);
+  });
+
   it('rejects a private key with a message that says what it got', () => {
     const pem = openssl(dir, 'forkey', ['-days', '30', '-subj', '/CN=a.test']);
     const key = readFileSync(join(dir, 'forkey.key'), 'utf8');
@@ -153,6 +178,7 @@ describe('coversHostname', () => {
       expired: false,
       notYetValid: false,
       selfSigned: false,
+      temporary: false,
     }) as const;
 
   it('matches an exact name, case-insensitively', () => {

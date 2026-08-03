@@ -50,7 +50,7 @@ export class ConsoleTlsService {
     // own proxy, which is most of them. It is not an error and must not be
     // rendered as one.
     if (this.certificatePath === null || this.certificatePath === '') {
-      return { ...base, configured: false, error: null };
+      return { ...base, configured: false, error: null, errorCode: null };
     }
 
     let pem: string;
@@ -58,15 +58,33 @@ export class ConsoleTlsService {
       pem = await readFile(this.certificatePath, 'utf8');
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      const reason =
+      /*
+       * TWO audiences, two messages.
+       *
+       * The log gets the path and the uid — that is what somebody with shell
+       * access needs, and the only place they can act on it. The response gets
+       * a code and a sentence with no server layout in it, because a filesystem
+       * path in a browser tells an end user nothing they can use.
+       */
+      const forTheLog =
         code === 'ENOENT'
           ? `No certificate at ${this.certificatePath}.`
           : code === 'EACCES'
             ? `The certificate at ${this.certificatePath} is not readable by this process (uid ${process.getuid?.() ?? 'unknown'}).`
             : `Could not read ${this.certificatePath}: ${error instanceof Error ? error.message : String(error)}`;
 
-      this.logger.warn(`Console TLS certificate unavailable. ${reason}`);
-      return { ...base, configured: true, error: reason };
+      const errorCode = code === 'ENOENT' ? ('missing' as const) : ('unreadable' as const);
+
+      this.logger.warn(`Console TLS certificate unavailable. ${forTheLog}`);
+      return {
+        ...base,
+        configured: true,
+        errorCode,
+        error:
+          errorCode === 'missing'
+            ? 'No certificate is installed.'
+            : 'The installed certificate could not be read.',
+      };
     }
 
     try {
@@ -74,6 +92,7 @@ export class ConsoleTlsService {
 
       return {
         configured: true,
+        errorCode: null,
         certificate,
         expectedHostname: this.expectedHostname,
         // Null, not false, when there is nothing to compare against: "we did not
@@ -86,13 +105,18 @@ export class ConsoleTlsService {
         error: null,
       };
     } catch (error) {
-      const reason =
+      const forTheLog =
         error instanceof CertificateParseError
           ? error.message
           : `Could not parse ${this.certificatePath}: ${error instanceof Error ? error.message : String(error)}`;
 
-      this.logger.warn(`Console TLS certificate unreadable. ${reason}`);
-      return { ...base, configured: true, error: reason };
+      this.logger.warn(`Console TLS certificate unreadable. ${forTheLog}`);
+      return {
+        ...base,
+        configured: true,
+        errorCode: 'unparsable',
+        error: 'The installed file is not a readable certificate.',
+      };
     }
   }
 }

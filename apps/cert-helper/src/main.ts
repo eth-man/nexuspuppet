@@ -2,6 +2,7 @@ import { mkdir, rm } from 'node:fs/promises';
 import { caddyReload } from './adapters/caddy-reload';
 import { tlsProbe } from './adapters/tls-probe';
 import { adoptExisting } from './adopt';
+import { generateSelfSigned } from './self-signed';
 import { assertWritable, readEnv } from './config';
 import type { ProxyPorts } from './install';
 import { expireIfDue, recoverOnStart } from './pending';
@@ -35,6 +36,27 @@ async function main(): Promise<void> {
   const adopted = await adoptExisting(env.root, new Date());
   if (adopted === 'adopted') {
     console.log('[cert-helper] adopted the certificate already installed in', env.root);
+  }
+
+  /*
+   * Only ever reached from EMPTY (ADR-0013, self-signed fallback).
+   *
+   * Adoption runs first and claims anything an operator put here, so generating
+   * cannot overwrite a real certificate. What it prevents is the state where
+   * there is nothing to serve: the proxy will not start, and the path of least
+   * resistance from a failed start is to bring the console up on plain HTTP.
+   */
+  const generated = await generateSelfSigned(env.root, env.probeServername, new Date());
+  if (generated === 'generated') {
+    console.log(
+      `[cert-helper] no certificate found in ${env.root} — generated a temporary self-signed ` +
+        `one for ${env.probeServername}. Browsers will warn until you install your own.`,
+    );
+  } else if (generated === 'no-hostname') {
+    console.warn(
+      '[cert-helper] no certificate to serve and CONSOLE_HOSTNAME is not a usable hostname, ' +
+        'so none was generated. The proxy will not start until a certificate is installed.',
+    );
   }
 
   /*

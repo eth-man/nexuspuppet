@@ -128,6 +128,16 @@ export const certificateSummarySchema = z.object({
   expired: z.boolean(),
   notYetValid: z.boolean(),
   selfSigned: z.boolean(),
+  /**
+   * A placeholder this deployment generated for itself, rather than one an
+   * operator chose.
+   *
+   * Both are self-signed and otherwise identical, so the console cannot tell
+   * them apart from `selfSigned` alone — and it needs to, because it should say
+   * "replace this" about the first and nothing about the second (ADR-0013,
+   * self-signed fallback).
+   */
+  temporary: z.boolean(),
 });
 
 export const consoleTlsStatusSchema = z.object({
@@ -137,6 +147,16 @@ export const consoleTlsStatusSchema = z.object({
    */
   configured: z.boolean(),
   certificate: certificateSummarySchema.nullable(),
+  /**
+   * Why there is no certificate summary, as something the console can phrase.
+   *
+   * `error` used to carry the filesystem path, which then appeared in the
+   * browser: an end user cannot act on `/etc/nexuspuppet/tls/console.pem` and
+   * should not be shown the server's layout to reach that conclusion. The path
+   * stays in the API log, where somebody with shell access reads it.
+   */
+  errorCode: z.enum(['missing', 'unreadable', 'unparsable']).nullable(),
+
   /** The name operators are expected to reach the console by, if declared. */
   expectedHostname: z.string().nullable(),
   /**
