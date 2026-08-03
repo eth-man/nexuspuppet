@@ -1,7 +1,7 @@
 import type { AuthenticatedPrincipal, Permission } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RoleRegistry } from '../src/auth/role-registry';
-import { RbacPolicy } from '../src/auth/rbac.policy';
+import { RbacPolicy, permissionsFor } from '../src/auth/rbac.policy';
 
 const DATABASE_URL =
   process.env['TEST_DATABASE_URL'] ??
@@ -185,6 +185,36 @@ describe('RbacPolicy reads the roles table (integration)', () => {
 
     expect(policy.can(principal('pol-auditor'), 'pql:raw')).toBe(true);
     expect(policy.can(principal('pol-auditor'), 'classification:write')).toBe(false);
+  });
+
+  it('unions the permissions of every role a principal holds', async () => {
+    // ADR-0018 §5. A directory can map somebody into several groups at once,
+    // and a single role name cannot express the result.
+    await prisma.role.create({ data: { name: 'pol-auditor', permissions: ['pql:raw'] } });
+    await prisma.role.create({
+      data: { name: 'pol-deployer', permissions: ['classification:write'] },
+    });
+    await registry.invalidate();
+
+    const both = { ...principal('pol-auditor'), roles: ['pol-auditor', 'pol-deployer'] };
+
+    expect(policy.can(both, 'pql:raw')).toBe(true);
+    expect(policy.can(both, 'classification:write')).toBe(true);
+    // Neither role grants this, so the union must not either.
+    expect(policy.can(both, 'users:manage')).toBe(false);
+  });
+
+  it('reports the same union to the console as it enforces', async () => {
+    // A console showing a subset hides controls that would have worked; a
+    // superset offers controls that will be refused. Both come from computing
+    // this in two places.
+    await prisma.role.create({ data: { name: 'pol-a', permissions: ['pql:raw'] } });
+    await prisma.role.create({ data: { name: 'pol-b', permissions: ['reports:read'] } });
+    await registry.invalidate();
+
+    const held = { ...principal('pol-a'), roles: ['pol-a', 'pol-b'] };
+
+    expect(permissionsFor(registry, held)).toEqual(['pql:raw', 'reports:read']);
   });
 
   it('denies what has been REVOKED from a built-in role in the table', async () => {

@@ -25,12 +25,6 @@ datasource db {
 // Identity & access (ADR-0006)
 // ---------------------------------------------------------------------------
 
-enum UserRole {
-  VIEWER
-  OPERATOR
-  ADMIN
-}
-
 /// A named set of permissions (ADR-0018).
 ///
 /// Added ahead of the resolution change on purpose. This migration is purely
@@ -69,7 +63,13 @@ model User {
   /// later and verified per-record. Null when an external directory owns
   /// authentication (enterprise LDAP/SAML).
   passwordHash        String?
-  role                UserRole  @default(VIEWER)
+  /// The role's NAME, denormalised (ADR-0018).
+  ///
+  /// No longer an enum: a deployment may define its own roles, and this has to
+  /// be able to hold one. It stays in lockstep with roleId, which is the
+  /// authoritative link — this column exists so a user list can be rendered
+  /// without a join, and dropping it is a separate change.
+  role                String    @default("VIEWER")
   /// Required now that authorization resolves through it (ADR-0018).
   ///
   /// onDelete: Restrict is what stops a role being deleted while somebody holds

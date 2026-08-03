@@ -149,7 +149,7 @@ export class AuthController {
 
     return {
       principal: result.principal,
-      permissions: permissionsFor(this.roles, result.principal.role),
+      permissions: permissionsFor(this.roles, result.principal),
       expiresAt: session.accessExpiresAt.toISOString(),
     };
   }
@@ -328,7 +328,7 @@ export class AuthController {
     const principal = request.principal;
     if (principal === undefined) throw new UnauthorizedException();
 
-    return { principal, permissions: permissionsFor(this.roles, principal.role) };
+    return { principal, permissions: permissionsFor(this.roles, principal) };
   }
 }
 

@@ -21,7 +21,27 @@ export interface AuthenticatedPrincipal {
   userId: string;
   email: string;
   displayName: string;
-  role: UserRole;
+  /**
+   * The role this principal holds, by NAME (ADR-0018).
+   *
+   * Widened from the three-value enum because roles are rows now and a
+   * deployment may define its own. Core resolves the name against the roles
+   * table; a name with no row grants nothing, which is the safe reading of "a
+   * provider returned something core does not know".
+   */
+  role: string;
+  /**
+   * Every role that applies, when more than one does.
+   *
+   * A directory can map somebody into several groups at once, and ADR-0018 §5
+   * unions the permissions of the CUSTOM roles that result — which a single
+   * name cannot express. `role` stays the primary one, for display and for the
+   * stored assignment; this is what authorization actually reads.
+   *
+   * Undefined means "just `role`", which is every local account and every
+   * directory user whose mappings resolved to a single built-in.
+   */
+  roles?: string[];
   /** Identifier of the provider that authenticated this principal, for audit. */
   authSource: string;
   /**
@@ -184,7 +204,8 @@ export interface IAuthProvider {
 export interface RoleMapping {
   /** The group as the directory names it — a DN for LDAP, a claim value for OIDC. */
   group: string;
-  role: UserRole;
+  /** A role NAME. May be one a deployment defined itself (ADR-0018 §5). */
+  role: string;
 }
 
 /**
@@ -315,7 +336,7 @@ export interface IUserDirectory {
    * person supplied valid credentials; a failure to cache that is not their
    * problem and must not deny them a session.
    */
-  recordLogin(userId: string, update: { role: UserRole; displayName: string }): Promise<void>;
+  recordLogin(userId: string, update: { role: string; displayName: string }): Promise<void>;
 
   list(options: { limit: number; offset: number }): Promise<{
     users: DirectoryUser[];

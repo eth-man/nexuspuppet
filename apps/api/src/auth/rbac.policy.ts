@@ -55,16 +55,24 @@ export class RbacPolicy implements IAuthorizationPolicy {
     permission: Permission,
     target?: AuthorizationTarget,
   ): boolean {
-    // From the roles table, not from a constant and not from the session
-    // (ADR-0018 §3). Revoking a permission has to stop the NEXT request, not
-    // the one after the operator's session happens to expire.
-    const granted = this.roles.permissionsFor(principal.role);
+    /*
+     * From the roles table, not from a constant and not from the session
+     * (ADR-0018 §3). Revoking a permission has to stop the NEXT request, not
+     * the one after the operator's session happens to expire.
+     *
+     * `roles` when a directory mapped somebody into several at once, otherwise
+     * the single `role`. The UNION is taken here rather than at login because
+     * the same argument applies: a role edited after the session was issued has
+     * to take effect on the next request.
+     */
+    const held = principal.roles ?? [principal.role];
 
-    // An unrecognised role grants nothing. If an enterprise provider returns a
-    // role core does not know, the safe reading is "no permissions", not
-    // "unrestricted".
-    if (granted === undefined) return false;
-    if (!granted.has(permission)) return false;
+    // An unrecognised role grants nothing. If a provider returns a role core
+    // does not know — a mapping naming a role somebody deleted — the safe
+    // reading is "no permissions", not "unrestricted".
+    const granted = held.some((name) => this.roles.permissionsFor(name)?.has(permission) === true);
+
+    if (!granted) return false;
 
     return withinScope(principal, target);
   }
@@ -114,6 +122,17 @@ function withinScope(
  * grant" would eventually disagree, and the way that surfaces is a console
  * offering a control the API then refuses.
  */
-export function permissionsFor(roles: RoleRegistry, role: string): Permission[] {
-  return [...(roles.permissionsFor(role) ?? new Set<Permission>())].sort();
+export function permissionsFor(
+  roles: RoleRegistry,
+  principal: Pick<AuthenticatedPrincipal, 'role' | 'roles'>,
+): Permission[] {
+  // The same union the policy takes. A console showing a subset of what the API
+  // allows hides controls that would have worked; showing a superset offers
+  // controls that will be refused. Both come from computing this differently.
+  const held = principal.roles ?? [principal.role];
+  const union = new Set<Permission>();
+  for (const name of held) {
+    for (const permission of roles.permissionsFor(name) ?? []) union.add(permission);
+  }
+  return [...union].sort();
 }
