@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Logger } from '@nestjs/common';
 import { ConsoleTlsService } from '../src/system/console-tls.service';
 
 /**
@@ -111,8 +112,11 @@ describe('console TLS status (integration)', () => {
     const status = await new ConsoleTlsService(join(dir, 'absent.pem'), null).status();
 
     expect(status.configured).toBe(true);
-    expect(status.error).toContain('No certificate at');
+    expect(status.errorCode).toBe('missing');
     expect(status.certificate).toBeNull();
+    // The KIND of failure, in words an operator can act on, and no server path.
+    expect(status.error).toMatch(/no certificate is visible/i);
+    expect(status.error).not.toMatch(/\//);
   });
 
   it('says a private key is not a certificate', async () => {
@@ -122,8 +126,9 @@ describe('console TLS status (integration)', () => {
 
     const status = await new ConsoleTlsService(join(dir, 'forkey.key'), null).status();
 
-    expect(status.error).toContain('Not a readable X.509 certificate');
+    expect(status.errorCode).toBe('unparsable');
     expect(status.certificate).toBeNull();
+    expect(status.error).toMatch(/not a readable certificate/i);
   });
 
   (isRoot ? it.skip : it)('names a permissions problem as one', async () => {
@@ -131,10 +136,33 @@ describe('console TLS status (integration)', () => {
     chmodSync(cert, 0o000);
 
     try {
-      const status = await new ConsoleTlsService(cert, null).status();
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
-      expect(status.error).toContain('not readable');
-      expect(status.error).toMatch(/uid \d+/);
+      try {
+        const status = await new ConsoleTlsService(cert, null).status();
+
+        expect(status.errorCode).toBe('unreadable');
+
+        /*
+         * The diagnosis moved to the LOG, and has to still be there.
+         *
+         * The path and the uid are what somebody with shell access needs, and
+         * they were removed from the API response because a browser is not
+         * where a filesystem path helps anybody. Removing them from the
+         * response without keeping them in the log would have destroyed the
+         * only means of diagnosing this, so that is asserted rather than
+         * assumed.
+         */
+        const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+        expect(logged).toContain(cert);
+        expect(logged).toMatch(/uid \d+/);
+
+        // ...and none of it reaches the caller.
+        expect(status.error).not.toContain(cert);
+        expect(status.error).not.toMatch(/uid \d+/);
+      } finally {
+        warn.mockRestore();
+      }
     } finally {
       chmodSync(cert, 0o644);
     }

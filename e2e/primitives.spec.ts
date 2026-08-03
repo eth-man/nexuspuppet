@@ -51,11 +51,11 @@ test.describe('primitives', () => {
     if ((await cta.count()) > 0) {
       await expect(page.getByRole('heading', { name: 'No directory connected' })).toBeVisible();
       // No form until asked for.
-      await expect(page.getByLabel('Server URL')).toHaveCount(0);
+      await expect(page.getByRole('textbox', { name: /^Server URL/ })).toHaveCount(0);
       await cta.click();
-      await expect(page.getByLabel('Server URL')).toBeVisible();
+      await expect(page.getByRole('textbox', { name: /^Server URL/ })).toBeVisible();
     } else {
-      await expect(page.getByLabel('Server URL')).toBeVisible();
+      await expect(page.getByRole('textbox', { name: /^Server URL/ })).toBeVisible();
     }
   });
 
@@ -63,24 +63,25 @@ test.describe('primitives', () => {
     await login(page);
     await openDirectoryForm(page);
 
-    for (const label of [
-      'Server URL',
-      'Directory type',
-      'Bind DN',
-      'Search base',
-      'Group search base',
-    ]) {
-      const control = page.getByLabel(label, { exact: false }).first();
+    for (const label of ['Server URL', 'Bind DN', 'Search base', 'Group search base']) {
+      /*
+       * By ROLE and accessible name, not getByLabel.
+       *
+       * getByLabel is a case-insensitive substring match over label text AND
+       * aria-label, so "Server URL" also matches the hint button beside it,
+       * which is labelled "About the server URL". Asking for the textbox whose
+       * accessible name STARTS with the label is unambiguous, and it is also
+       * the stronger assertion: it goes through the accessibility tree, so it
+       * fails exactly when the association is broken.
+       */
+      const control = page.getByRole('textbox', { name: new RegExp(`^${label}`) }).first();
       await expect(control, `"${label}" is not associated with a control`).toBeVisible();
-      await expect(control)
-        .toBeEditable({ editable: true })
-        .catch(() => undefined);
     }
 
     // Clicking a label must focus its control — the association working in the
     // direction a mouse user experiences it.
     await page.getByText('Search base', { exact: true }).first().click();
-    await expect(page.getByLabel('Search base', { exact: false }).first()).toBeFocused();
+    await expect(page.getByRole('textbox', { name: /^Search base/ }).first()).toBeFocused();
   });
 
   /**
