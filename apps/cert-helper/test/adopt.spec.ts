@@ -1,9 +1,18 @@
-import { lstat, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { adoptExisting } from '../src/adopt';
 import { CERT_FILE, KEY_FILE, LIVE_LINK } from '../src/install';
-import { readEnv } from '../src/config';
+import { assertWritable, readEnv } from '../src/config';
 import { makePair } from './fixtures';
 
 jest.setTimeout(120_000);
@@ -114,6 +123,29 @@ describe('readEnv', () => {
     // Zero would roll back before the browser could possibly answer.
     expect(() => readEnv({ ...base, TLS_CONFIRM_TIMEOUT_SEC: value })).toThrow(
       /positive whole number/,
+    );
+  });
+});
+
+describe('assertWritable', () => {
+  it('passes when the directory can be written', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'nexuspuppet-writable-'));
+    await expect(assertWritable(root, { mkdir, rm }, 100)).resolves.toBeUndefined();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('names the chown command when it cannot', async () => {
+    // The failure an operator would otherwise meet halfway through installing a
+    // certificate, as a bare EACCES from mkdir.
+    const failing = {
+      mkdir: async () => {
+        throw new Error("EACCES: permission denied, mkdir '/etc/nexuspuppet/tls/.writable-probe'");
+      },
+      rm: async () => undefined,
+    };
+
+    await expect(assertWritable('/etc/nexuspuppet/tls', failing, 100)).rejects.toThrow(
+      /chown -R 100:101 \/etc\/nexuspuppet\/tls/,
     );
   });
 });

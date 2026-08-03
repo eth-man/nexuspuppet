@@ -146,6 +146,18 @@ export const consoleTlsStatusSchema = z.object({
   coversExpectedHostname: z.boolean().nullable(),
   /** Why the certificate could not be read. Null when it could. */
   error: z.string().nullable(),
+  /**
+   * Whether this deployment can install a certificate from the console
+   * (ADR-0017).
+   *
+   * False when no cert-helper is configured — TLS terminates elsewhere, or the
+   * tls profile is off. A property of the DEPLOYMENT rather than of the person
+   * looking: the console uses it to decide whether to offer the form at all,
+   * because a button that can only ever return 503 is worse than no button.
+   *
+   * Optional, so an older API answering a newer console simply omits it.
+   */
+  installable: z.boolean().optional(),
 });
 
 export type CertificateSummary = z.infer<typeof certificateSummarySchema>;

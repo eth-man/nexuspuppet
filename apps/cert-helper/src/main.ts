@@ -1,13 +1,24 @@
+import { mkdir, rm } from 'node:fs/promises';
 import { caddyReload } from './adapters/caddy-reload';
 import { tlsProbe } from './adapters/tls-probe';
 import { adoptExisting } from './adopt';
-import { readEnv } from './config';
+import { assertWritable, readEnv } from './config';
 import type { ProxyPorts } from './install';
 import { expireIfDue, recoverOnStart } from './pending';
 import { createHelperServer } from './server';
 
 /** How often the rollback deadline is checked when nothing is arriving. */
 const SWEEP_INTERVAL_MS = 5000;
+
+/*
+ * console, not a logging framework.
+ *
+ * This process has no framework by design — it is the one component that writes
+ * the console's private key, and every dependency added to it widens that
+ * surface. Two informational lines at boot do not justify one, and Compose
+ * captures stdout the same way it does for every other service.
+ */
+/* eslint-disable no-console */
 
 async function main(): Promise<void> {
   const env = readEnv(process.env);
@@ -17,6 +28,9 @@ async function main(): Promise<void> {
     servedFingerprint: tlsProbe(env.probeHost, env.probePort, env.probeServername),
     now: () => new Date(),
   };
+
+  // Before anything else touches the directory, so the failure names the fix.
+  await assertWritable(env.root, { mkdir, rm }, process.getuid?.() ?? 100);
 
   const adopted = await adoptExisting(env.root, new Date());
   if (adopted === 'adopted') {

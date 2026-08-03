@@ -472,6 +472,55 @@ ignored. Remove both lines after first login.
 
 ---
 
+### Certificate installation from the console (optional)
+
+Setting `CERT_HELPER_SECRET` enables the **Install certificate** form on the
+Settings page. Without it the form is not offered — the console reports the
+capability rather than presenting a button that can only fail.
+
+```bash
+# Shared by the api (which signs installation grants) and the cert-helper
+# (which verifies them). Not key material: it authorises an upload.
+echo "CERT_HELPER_SECRET=$(openssl rand -base64 48)" >> /opt/nexuspuppet/.env
+
+# The cert-helper WRITES to the TLS directory; every other service only reads.
+# It runs as uid 100, so the directory and its contents must be owned by it.
+# The proxy keeps its own read-only mount, so this does not widen who can read
+# the key — it changes which single account owns it.
+sudo chown -R 100:101 /etc/nexuspuppet/tls
+```
+
+The helper refuses to start if it cannot write there, naming this command, rather
+than failing halfway through an operator's first certificate installation.
+
+**Point `CONSOLE_TLS_CERT_PATH` through `live/`.** The Console certificate card
+reads that path directly, so a path naming a fixed file keeps reporting the
+certificate that was there when the deployment was set up — an operator installs
+a new one, the install confirms, and the card above the form still shows the old
+expiry. Mount and name the symlinked copy instead:
+
+```yaml
+# docker-compose.override.yml, api service
+volumes:
+  - /etc/nexuspuppet/tls/live/console.pem:/etc/nexuspuppet/console.pem:ro
+```
+
+The api still receives a single public file and never the directory holding the
+key (ADR-0013 §2); it is simply the file that moves with each install.
+
+**Order matters on upgrade.** Start `cert-helper` BEFORE reloading the proxy. The
+shipped Caddyfile now reads `live/console.pem`, and the helper is what creates
+that link by adopting the files already in place. Starting the proxy first points
+it at a path that does not exist yet.
+
+```bash
+docker compose --profile tls up -d cert-helper   # adopts, creates live/
+docker compose --profile tls up -d proxy
+```
+
+Adoption copies rather than moves, so `console.pem` and `console.key` stay where
+they are and rolling back to the previous release still works.
+
 ## 5. Build, migrate, start
 
 ```bash

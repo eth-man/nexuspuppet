@@ -65,3 +65,44 @@ function positive(raw: string | undefined, fallback: number, name: string): numb
   }
   return value;
 }
+
+/**
+ * Prove the TLS directory is usable before opening the listener.
+ *
+ * This component is the FIRST thing in the stack that needs to WRITE there.
+ * Everything before it only read: Caddy runs as root in its image and the api
+ * was handed a single public file, so a directory owned by root:root worked and
+ * nobody had to think about it.
+ *
+ * Discovering that on the first upload would mean an operator watching a
+ * certificate installation fail with `EACCES ... mkdir`, halfway through a task
+ * they cannot repeat safely. Failing at boot with the command to fix it is the
+ * difference between a five-second correction and a support ticket.
+ */
+export async function assertWritable(
+  root: string,
+  fs: {
+    mkdir(p: string, o: { recursive: boolean }): Promise<unknown>;
+    rm(p: string, o: { force: boolean; recursive: boolean }): Promise<unknown>;
+  },
+  uid: number,
+): Promise<void> {
+  const probe = `${root}/.writable-probe`;
+  try {
+    await fs.mkdir(probe, { recursive: true });
+    await fs.rm(probe, { force: true, recursive: true });
+  } catch (error) {
+    throw new Error(
+      `Cannot write to ${root} (${error instanceof Error ? error.message : String(error)}).\n` +
+        `This service runs as uid ${uid} and installs certificates by writing there. ` +
+        'On the host:\n' +
+        `  sudo chown -R ${uid}:101 ${root}\n` +
+        'The proxy keeps its own read-only mount of the same directory, so this does not widen ' +
+        'who can read the key — it changes which single account owns it.',
+      // The errno matters when the cause is NOT permissions — a read-only
+      // mount, a full disk — because the advice above is then a red herring and
+      // the original message is the only thing that says so.
+      { cause: error },
+    );
+  }
+}
