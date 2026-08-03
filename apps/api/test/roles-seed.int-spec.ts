@@ -42,7 +42,12 @@ describe('seeded built-in roles (integration)', () => {
       accessTtl: '15m',
       refreshTtl: '30d',
     });
-    users = new UsersService(prisma, new PrismaAuditSink(prisma), tokens, provider);
+    users = new UsersService(
+      prisma,
+      new PrismaAuditSink(prisma),
+      tokens,
+      new AuthProviderResolver([provider], prisma, 0),
+    );
 
     const actor = await prisma.user.upsert({
       where: { email: 'seedspec-actor@example.test' },

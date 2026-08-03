@@ -104,12 +104,15 @@ COPY packages/contracts packages/contracts
 COPY packages/tls-grant packages/tls-grant
 COPY apps/api apps/api
 
-# Built before the api, and only when present. A shell test rather than another
-# stage: the directory's existence already encodes the edition.
-RUN if [ -d packages/enterprise ]; then npm run build --workspace @nexuspuppet/enterprise; fi
 
+# The enterprise layer builds AFTER contracts and tls-grant and before the api:
+# it compiles against the contracts' emitted types, so building it first fails
+# with a tsc error about a package that is present and fine. A shell test
+# rather than another stage — the directory's existence already encodes the
+# edition, and a comment inside a line continuation is a parser hazard.
 RUN npm run build --workspace @nexuspuppet/contracts \
  && npm run build --workspace @nexuspuppet/tls-grant \
+ && (if [ -d packages/enterprise ]; then npm run build --workspace @nexuspuppet/enterprise; fi) \
  && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
