@@ -24,6 +24,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      # One flag, in .env, instead of four hand edits to the Dockerfile.
+      #   EDITION=enterprise   docker compose build api
+      args:
+        EDITION: ${EDITION:-core}
     restart: unless-stopped
     depends_on:
       db:
