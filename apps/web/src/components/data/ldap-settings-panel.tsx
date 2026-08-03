@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info, Network, Plus, Trash2, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  Network,
+  Pencil,
+  Plus,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import type { LdapSettings, ProviderVerification } from '@nexuspuppet/contracts';
 import { useCapabilities, useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
@@ -97,6 +106,16 @@ export function LdapSettingsPanel() {
   const [error, setError] = useState<string | null>(null);
   /** Set by the empty state's CTA. */
   const [revealed, setRevealed] = useState(false);
+  /**
+   * Locked until somebody says otherwise.
+   *
+   * This screen decides who can sign in and with what role. Landing on it used
+   * to put every field, every role mapping and every delete button one stray
+   * click from changing that — the same objection already raised against the
+   * roles table and against changing a user's role from a dropdown, and the
+   * same answer: look freely, change deliberately.
+   */
+  const [editing, setEditing] = useState(false);
 
   const view = stored.data;
 
@@ -161,6 +180,18 @@ export function LdapSettingsPanel() {
 
   const blocked = form.url === '' || form.searchBase === '' || needsPasswordToAdopt;
 
+  /*
+   * What Save is about to change, against what is stored.
+   *
+   * The mappings matter most: adding, removing or repointing one changes who
+   * can sign in and as what, and that is not legible from a form which shows
+   * only the result. Same reasoning as the roles editor — "what will this be"
+   * and "what am I changing" are different questions, and the second is the
+   * one somebody is accountable for.
+   */
+  const before = view?.config ?? null;
+  const changes = describeChanges(before, form, password !== '');
+
   return (
     /*
      * A DISABLED form, not a hidden one and not a sales pitch (open-core).
@@ -176,208 +207,224 @@ export function LdapSettingsPanel() {
      * including ones added later, so this cannot drift out of step with the
      * form the way a hand-maintained list would.
      */
-    <fieldset disabled={!licensed} className={cn('min-w-0 space-y-4', !licensed && 'opacity-60')}>
-      <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
+    <div className="space-y-4">
+      <fieldset
+        disabled={!licensed || !editing}
+        /*
+         * Dimmed only when the feature is unavailable. A locked-but-available
+         * form is being READ — greying it would say "you cannot have this", when
+         * what it means is "you have not asked to change it yet".
+         */
+        className={cn('min-w-0 space-y-4', !licensed && 'opacity-60')}
+      >
+        <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
 
-      {error !== null && (
-        <div role="alert" className="rounded border border-state-failed/40 bg-state-failed/10 p-2">
-          <p className="text-xs text-state-failed">{error}</p>
-        </div>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardHeading>
-            <CardTitle>Connection &amp; authentication</CardTitle>
-            <CardDescription>
-              Where the directory is, and the account used to read it.
-            </CardDescription>
-          </CardHeading>
-          {view !== undefined && (
-            <div className="flex shrink-0 items-center gap-2">
-              <Badge>{sourceLabel(view.source, view.liveReload)}</Badge>
-              {view.disabled && <Badge>disabled</Badge>}
-            </div>
-          )}
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          <FieldRow>
-            <Field
-              className="min-w-64 flex-[3]"
-              required
-              label="Server URL"
-              tooltip={
-                <InfoHint
-                  label="About the server URL"
-                  text="ldaps:// is strongly preferred. ldap:// sends the bind password across the network in clear text, where anything on the path can read it."
-                />
-              }
-            >
-              {(id) => (
-                <Input
-                  id={id}
-                  value={form.url}
-                  onChange={(e) => field('url', e.target.value)}
-                  placeholder="ldaps://directory.example.com:636"
-                  aria-invalid={form.url !== '' && !/^ldaps?:\/\//i.test(form.url)}
-                />
-              )}
-            </Field>
-
-            <Field className="w-44" label="Directory type">
-              {(id) => (
-                <Select
-                  id={id}
-                  value={form.dialect}
-                  onChange={(e) => field('dialect', e.target.value as LdapSettings['dialect'])}
-                >
-                  <option value="openldap">OpenLDAP</option>
-                  <option value="ad">Active Directory</option>
-                </Select>
-              )}
-            </Field>
-          </FieldRow>
-
-          <FieldRow>
-            <Field
-              className="min-w-64 flex-1"
-              label="Bind DN"
-              tooltip={
-                <InfoHint
-                  label="About the bind DN"
-                  text="The service account that searches the directory. It needs read access to the user and group subtrees — nothing more."
-                />
-              }
-            >
-              {(id) => (
-                <Input
-                  id={id}
-                  value={form.bindDn ?? ''}
-                  onChange={(e) => field('bindDn', e.target.value)}
-                  placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
-                  className="font-mono text-[11px]"
-                />
-              )}
-            </Field>
-
-            <Field
-              className="min-w-64 flex-1"
-              hint={holdsPassword ? 'A password is stored. Leave blank to keep it.' : undefined}
-              error={
-                needsPasswordToAdopt
-                  ? 'Required: the environment supplied this account but not its password, which cannot be carried forward.'
-                  : null
-              }
-              label="Bind password"
-              tooltip={
-                <InfoHint
-                  label="About the bind password"
-                  text="Never sent back to the browser, so this field is empty even when one is stored. Leaving it blank keeps the existing value; typing replaces it."
-                />
-              }
-            >
-              {(id) => (
-                <Input
-                  id={id}
-                  type="password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setResult(null);
-                  }}
-                  placeholder={holdsPassword ? '•••••••• (unchanged)' : ''}
-                  aria-invalid={needsPasswordToAdopt}
-                />
-              )}
-            </Field>
-          </FieldRow>
-
-          <div className="space-y-2 border-t border-line-soft pt-3">
-            <Switch
-              checked={form.tlsRejectUnauthorized}
-              onCheckedChange={(next) => field('tlsRejectUnauthorized', next)}
-              // A real ’, not &rsquo;. Entities are only decoded in JSX TEXT;
-              // in a string prop this would render the six characters.
-              label={'Verify the directory\u2019s TLS certificate'}
-              description="Turn this off only for a test directory with a self-signed certificate."
-            />
-
-            {form.tlsRejectUnauthorized === false && (
-              <Notice tone="warn">
-                {'Verification is off. Anything on the network path can present itself as your '}
-                {'directory and collect the bind password. Never acceptable for a directory that '}
-                {'authenticates administrators.'}
-              </Notice>
-            )}
+        {error !== null && (
+          <div
+            role="alert"
+            className="rounded border border-state-failed/40 bg-state-failed/10 p-2"
+          >
+            <p className="text-xs text-state-failed">{error}</p>
           </div>
-        </CardContent>
-      </Card>
+        )}
 
-      <Card>
-        <CardHeader>
-          <CardHeading>
-            <CardTitle>Search parameters</CardTitle>
-            <CardDescription>Which parts of the tree hold your people and groups.</CardDescription>
-          </CardHeading>
-        </CardHeader>
+        <Card>
+          <CardHeader>
+            <CardHeading>
+              <CardTitle>Connection &amp; authentication</CardTitle>
+              <CardDescription>
+                Where the directory is, and the account used to read it.
+              </CardDescription>
+            </CardHeading>
+            {view !== undefined && (
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge>{sourceLabel(view.source, view.liveReload)}</Badge>
+                {view.disabled && <Badge>disabled</Badge>}
+              </div>
+            )}
+          </CardHeader>
 
-        <CardContent>
-          <FieldRow>
-            <Field
-              className="min-w-64 flex-1"
-              required
-              label="Search base"
-              tooltip={
-                <InfoHint
-                  label="About the search base"
-                  text="The subtree searched when somebody signs in. Narrower is better: it bounds what the service account can see."
-                />
-              }
-            >
-              {(id) => (
-                <Input
-                  id={id}
-                  value={form.searchBase}
-                  onChange={(e) => field('searchBase', e.target.value)}
-                  placeholder="ou=people,dc=example,dc=com"
-                  className="font-mono text-[11px]"
-                />
+          <CardContent className="space-y-4">
+            <FieldRow>
+              <Field
+                className="min-w-64 flex-[3]"
+                required
+                label="Server URL"
+                tooltip={
+                  <InfoHint
+                    label="About the server URL"
+                    text="ldaps:// is strongly preferred. ldap:// sends the bind password across the network in clear text, where anything on the path can read it."
+                  />
+                }
+              >
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={form.url}
+                    onChange={(e) => field('url', e.target.value)}
+                    placeholder="ldaps://directory.example.com:636"
+                    aria-invalid={form.url !== '' && !/^ldaps?:\/\//i.test(form.url)}
+                  />
+                )}
+              </Field>
+
+              <Field className="w-44" label="Directory type">
+                {(id) => (
+                  <Select
+                    id={id}
+                    value={form.dialect}
+                    onChange={(e) => field('dialect', e.target.value as LdapSettings['dialect'])}
+                  >
+                    <option value="openldap">OpenLDAP</option>
+                    <option value="ad">Active Directory</option>
+                  </Select>
+                )}
+              </Field>
+            </FieldRow>
+
+            <FieldRow>
+              <Field
+                className="min-w-64 flex-1"
+                label="Bind DN"
+                tooltip={
+                  <InfoHint
+                    label="About the bind DN"
+                    text="The service account that searches the directory. It needs read access to the user and group subtrees — nothing more."
+                  />
+                }
+              >
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={form.bindDn ?? ''}
+                    onChange={(e) => field('bindDn', e.target.value)}
+                    placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
+                    className="font-mono text-[11px]"
+                  />
+                )}
+              </Field>
+
+              <Field
+                className="min-w-64 flex-1"
+                hint={holdsPassword ? 'A password is stored. Leave blank to keep it.' : undefined}
+                error={
+                  needsPasswordToAdopt
+                    ? 'Required: the environment supplied this account but not its password, which cannot be carried forward.'
+                    : null
+                }
+                label="Bind password"
+                tooltip={
+                  <InfoHint
+                    label="About the bind password"
+                    text="Never sent back to the browser, so this field is empty even when one is stored. Leaving it blank keeps the existing value; typing replaces it."
+                  />
+                }
+              >
+                {(id) => (
+                  <Input
+                    id={id}
+                    type="password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setResult(null);
+                    }}
+                    placeholder={holdsPassword ? '•••••••• (unchanged)' : ''}
+                    aria-invalid={needsPasswordToAdopt}
+                  />
+                )}
+              </Field>
+            </FieldRow>
+
+            <div className="space-y-2 border-t border-line-soft pt-3">
+              <Switch
+                checked={form.tlsRejectUnauthorized}
+                onCheckedChange={(next) => field('tlsRejectUnauthorized', next)}
+                // A real ’, not &rsquo;. Entities are only decoded in JSX TEXT;
+                // in a string prop this would render the six characters.
+                label={'Verify the directory\u2019s TLS certificate'}
+                description="Turn this off only for a test directory with a self-signed certificate."
+              />
+
+              {form.tlsRejectUnauthorized === false && (
+                <Notice tone="warn">
+                  {'Verification is off. Anything on the network path can present itself as your '}
+                  {
+                    'directory and collect the bind password. Never acceptable for a directory that '
+                  }
+                  {'authenticates administrators.'}
+                </Notice>
               )}
-            </Field>
+            </div>
+          </CardContent>
+        </Card>
 
-            <Field
-              className="min-w-64 flex-1"
-              hint="Defaults to the search base when blank."
-              label="Group search base"
-              tooltip={
-                <InfoHint
-                  label="About the group search base"
-                  text="Where group entries live, when they are not under the same subtree as people."
-                />
-              }
-            >
-              {(id) => (
-                <Input
-                  id={id}
-                  value={form.groupSearchBase ?? ''}
-                  onChange={(e) => field('groupSearchBase', e.target.value)}
-                  placeholder="ou=groups,dc=example,dc=com"
-                  className="font-mono text-[11px]"
-                />
-              )}
-            </Field>
-          </FieldRow>
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardHeading>
+              <CardTitle>Search parameters</CardTitle>
+              <CardDescription>
+                Which parts of the tree hold your people and groups.
+              </CardDescription>
+            </CardHeading>
+          </CardHeader>
 
-      <RoleMappings
-        mappings={form.roleMappings}
-        onChange={(roleMappings) => field('roleMappings', roleMappings)}
-        knownRoles={knownRoles}
-      />
+          <CardContent>
+            <FieldRow>
+              <Field
+                className="min-w-64 flex-1"
+                required
+                label="Search base"
+                tooltip={
+                  <InfoHint
+                    label="About the search base"
+                    text="The subtree searched when somebody signs in. Narrower is better: it bounds what the service account can see."
+                  />
+                }
+              >
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={form.searchBase}
+                    onChange={(e) => field('searchBase', e.target.value)}
+                    placeholder="ou=people,dc=example,dc=com"
+                    className="font-mono text-[11px]"
+                  />
+                )}
+              </Field>
 
-      {/*
+              <Field
+                className="min-w-64 flex-1"
+                hint="Defaults to the search base when blank."
+                label="Group search base"
+                tooltip={
+                  <InfoHint
+                    label="About the group search base"
+                    text="Where group entries live, when they are not under the same subtree as people."
+                  />
+                }
+              >
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={form.groupSearchBase ?? ''}
+                    onChange={(e) => field('groupSearchBase', e.target.value)}
+                    placeholder="ou=groups,dc=example,dc=com"
+                    className="font-mono text-[11px]"
+                  />
+                )}
+              </Field>
+            </FieldRow>
+          </CardContent>
+        </Card>
+
+        <RoleMappings
+          mappings={form.roleMappings}
+          onChange={(roleMappings) => field('roleMappings', roleMappings)}
+          knownRoles={knownRoles}
+        />
+
+        {/*
         Testing keeps its own panel, above the action bar.
 
         The RESULT is the thing that must not be mistaken for a save: a green
@@ -385,42 +432,87 @@ export function LdapSettingsPanel() {
         happened. Keeping the outcome here, and giving Test the quieter of the
         two button weights below, is what says which one wrote something.
       */}
-      <InsetPanel
-        title="Test this configuration"
-        description="Binds with the values above without saving them."
-      >
-        {result !== null && <TestResult result={result} />}
-      </InsetPanel>
+        <InsetPanel
+          title="Test this configuration"
+          description="Binds with the values above without saving them."
+        >
+          {result !== null && <TestResult result={result} />}
+        </InsetPanel>
+      </fieldset>
 
-      <ActionBar
-        busy={save.isPending || test.isPending || clear.isPending}
-        blocked={blocked}
-        testing={test.isPending}
-        saving={save.isPending}
-        onTest={() => {
-          setError(null);
-          test.mutate(submission(), { onSuccess: setResult, onError: fail });
-        }}
-        onSave={() => {
-          setError(null);
-          save.mutate(submission(), {
-            // Clear the field on success: the value is now stored, and leaving
-            // it on screen implies it is still pending.
-            onSuccess: () => setPassword(''),
-            onError: fail,
-          });
-        }}
-        onDiscard={
-          view?.source === 'database'
-            ? () => {
-                setError(null);
-                clear.mutate(undefined, { onError: fail });
-              }
-            : undefined
-        }
-        updatedAt={view?.updatedAt ?? null}
-        updatedByEmail={view?.updatedByEmail ?? null}
-      />
+      {/*
+        OUTSIDE the fieldset. The action bar is chrome, not form content — and
+        a fieldset disables every control inside it, so Edit sat there
+        permanently disabling itself. Caught by the test that tried to click it.
+      */}
+      {editing && changes.length > 0 && (
+        <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
+          <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+          <ul className="mt-1 space-y-0.5">
+            {changes.map((line) => (
+              <li key={line} className="text-[11px] text-ink-muted">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/*
+        Not rendered at all in core. The bar sits outside the fieldset now, so
+        it is no longer disabled by it — and a row of live buttons under a form
+        nobody can use is exactly the "configure a dead form" this screen was
+        rebuilt to avoid.
+      */}
+      {licensed && (
+        <ActionBar
+          editing={editing}
+          onEdit={() => setEditing(true)}
+          onCancel={() => {
+            // Back to what is stored, not to what was typed. Cancel has to mean
+            // "forget this", or it is just a slower Save.
+            setForm(
+              view?.config === null || view?.config === undefined
+                ? BLANK
+                : { ...BLANK, ...view.config },
+            );
+            setPassword('');
+            setResult(null);
+            setError(null);
+            setEditing(false);
+          }}
+          busy={save.isPending || test.isPending || clear.isPending}
+          blocked={blocked}
+          testing={test.isPending}
+          saving={save.isPending}
+          onTest={() => {
+            setError(null);
+            test.mutate(submission(), { onSuccess: setResult, onError: fail });
+          }}
+          onSave={() => {
+            setError(null);
+            save.mutate(submission(), {
+              // Clear the field on success: the value is now stored, and leaving
+              // it on screen implies it is still pending.
+              onSuccess: () => {
+                setPassword('');
+                setEditing(false);
+              },
+              onError: fail,
+            });
+          }}
+          onDiscard={
+            view?.source === 'database'
+              ? () => {
+                  setError(null);
+                  clear.mutate(undefined, { onError: fail });
+                }
+              : undefined
+          }
+          updatedAt={view?.updatedAt ?? null}
+          updatedByEmail={view?.updatedByEmail ?? null}
+        />
+      )}
 
       {/*
         Humble, and at the bottom. Somebody who has just read the form knows
@@ -433,7 +525,7 @@ export function LdapSettingsPanel() {
           This feature requires NexusPuppet Enterprise.
         </p>
       )}
-    </fieldset>
+    </div>
   );
 }
 
@@ -528,6 +620,9 @@ function StatusNotices({
  * its own panel above rather than in this strip.
  */
 function ActionBar({
+  editing,
+  onEdit,
+  onCancel,
   busy,
   blocked,
   testing,
@@ -538,6 +633,9 @@ function ActionBar({
   updatedAt,
   updatedByEmail,
 }: {
+  editing: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
   busy: boolean;
   blocked: boolean;
   testing: boolean;
@@ -558,21 +656,47 @@ function ActionBar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        {onDiscard !== undefined && (
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onDiscard}>
-            Discard stored settings
-          </Button>
-        )}
         {/*
+          Locked is the resting state. Reading this screen is common —
+          "which groups map to ADMIN?" — and changing it is rare and
+          consequential, so the common case should not require care.
+
+          Test stays available while locked: it binds and writes nothing, and
+          being able to check a directory is reachable without first putting
+          the configuration into an editable state is the point of it.
+        */}
+        {!editing ? (
+          <>
+            <Button variant="outline" size="sm" disabled={busy || blocked} onClick={onTest}>
+              {testing ? 'Testing…' : 'Test connection'}
+            </Button>
+            <Button variant="primary" size="sm" disabled={busy} onClick={onEdit}>
+              <Pencil className="mr-1 size-3.5" aria-hidden />
+              Edit settings
+            </Button>
+          </>
+        ) : (
+          <>
+            {onDiscard !== undefined && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onDiscard}>
+                Discard stored settings
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
+            {/*
           Blocked for the same reason as Save: with no password to bind with, a
           test would fail and blame the directory rather than the missing field.
         */}
-        <Button variant="outline" size="sm" disabled={busy || blocked} onClick={onTest}>
-          {testing ? 'Testing…' : 'Test connection'}
-        </Button>
-        <Button variant="primary" size="sm" disabled={busy || blocked} onClick={onSave}>
-          {saving ? 'Saving…' : 'Save'}
-        </Button>
+            <Button variant="outline" size="sm" disabled={busy || blocked} onClick={onTest}>
+              {testing ? 'Testing…' : 'Test connection'}
+            </Button>
+            <Button variant="primary" size="sm" disabled={busy || blocked} onClick={onSave}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -826,4 +950,50 @@ function sourceLabel(
   if (source === 'database') return 'stored here';
   if (source === 'environment') return 'from the environment';
   return providerRunning ? 'from the environment' : 'not configured';
+}
+
+/**
+ * The difference between what is stored and what is on screen, in words.
+ *
+ * Only the fields whose change an operator would want confirmed. A bind DN
+ * typo and a repointed role mapping both lock people out; a changed timeout
+ * does not, and listing it would dilute the ones that matter.
+ */
+function describeChanges(
+  before: LdapSettings | null,
+  after: LdapSettings,
+  passwordTyped: boolean,
+): string[] {
+  const lines: string[] = [];
+  if (before === null) return ['This will store a directory configuration for the first time.'];
+
+  const field = (label: string, a: string | undefined, b: string | undefined) => {
+    if ((a ?? '') !== (b ?? '')) lines.push(`${label}: ${a || '(none)'} → ${b || '(none)'}`);
+  };
+
+  field('Server URL', before.url, after.url);
+  field('Directory type', before.dialect, after.dialect);
+  field('Bind DN', before.bindDn, after.bindDn);
+  field('Search base', before.searchBase, after.searchBase);
+  field('Group search base', before.groupSearchBase, after.groupSearchBase);
+
+  if (before.tlsRejectUnauthorized !== after.tlsRejectUnauthorized) {
+    lines.push(
+      after.tlsRejectUnauthorized
+        ? 'TLS verification: off → on'
+        : 'TLS verification: on → OFF — the bind password becomes interceptable',
+    );
+  }
+
+  if (passwordTyped) lines.push('Bind password: replaced');
+
+  // Mappings compared as a SET of "group=role": reordering is not a change, and
+  // presenting it as one would bury the additions among noise.
+  const key = (m: { groupDn: string; role: string }) => `${m.groupDn}=${m.role}`;
+  const was = new Set((before.roleMappings ?? []).map(key));
+  const now = new Set(after.roleMappings.map(key));
+  for (const m of now) if (!was.has(m)) lines.push(`Mapping added: ${m}`);
+  for (const m of was) if (!now.has(m)) lines.push(`Mapping removed: ${m}`);
+
+  return lines;
 }
