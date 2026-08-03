@@ -10,7 +10,16 @@ import { useAuth } from '@/providers/auth-provider';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardHeading,
+  CardTitle,
+} from '@/components/ui/card';
+import { InsetPanel } from '@/components/ui/inset-panel';
+import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -107,7 +116,12 @@ export function LdapSettingsPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Directory (LDAP)</CardTitle>
+        <CardHeading>
+          <CardTitle>Directory (LDAP)</CardTitle>
+          <CardDescription>
+            Where the console looks people up, and which groups map to which role.
+          </CardDescription>
+        </CardHeading>
         <div className="flex items-center gap-2">
           <Badge>{sourceLabel(view?.source ?? 'unset', view?.liveReload === true)}</Badge>
           {view?.disabled === true && <Badge>disabled</Badge>}
@@ -142,45 +156,45 @@ export function LdapSettingsPanel() {
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
-            id="ldap-url"
             label="Server URL"
             hint="ldaps:// is strongly preferred; ldap:// sends the bind password in clear."
           >
-            <Input
-              value={form.url}
-              onChange={(e) => field('url', e.target.value)}
-              id="ldap-url"
-              placeholder="ldaps://directory.example.com:636"
-              aria-invalid={form.url !== '' && !/^ldaps?:\/\//i.test(form.url)}
-            />
+            {(id) => (
+              <Input
+                value={form.url}
+                onChange={(e) => field('url', e.target.value)}
+                id={id}
+                placeholder="ldaps://directory.example.com:636"
+                aria-invalid={form.url !== '' && !/^ldaps?:\/\//i.test(form.url)}
+              />
+            )}
           </Field>
 
-          <Field id="ldap-dialect" label="Directory type">
-            <Select
-              id="ldap-dialect"
-              value={form.dialect}
-              onChange={(e) => field('dialect', e.target.value as LdapSettings['dialect'])}
-            >
-              <option value="openldap">OpenLDAP</option>
-              <option value="ad">Active Directory</option>
-            </Select>
+          <Field label="Directory type">
+            {(id) => (
+              <Select
+                id={id}
+                value={form.dialect}
+                onChange={(e) => field('dialect', e.target.value as LdapSettings['dialect'])}
+              >
+                <option value="openldap">OpenLDAP</option>
+                <option value="ad">Active Directory</option>
+              </Select>
+            )}
+          </Field>
+
+          <Field label="Bind DN" hint="The service account that searches the directory.">
+            {(id) => (
+              <Input
+                value={form.bindDn ?? ''}
+                onChange={(e) => field('bindDn', e.target.value || undefined)}
+                id={id}
+                placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
+              />
+            )}
           </Field>
 
           <Field
-            id="ldap-bind-dn"
-            label="Bind DN"
-            hint="The service account that searches the directory."
-          >
-            <Input
-              value={form.bindDn ?? ''}
-              onChange={(e) => field('bindDn', e.target.value || undefined)}
-              id="ldap-bind-dn"
-              placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
-            />
-          </Field>
-
-          <Field
-            id="ldap-bind-password"
             label="Bind password"
             hint={
               needsPasswordToAdopt
@@ -191,39 +205,41 @@ export function LdapSettingsPanel() {
                   : 'Stored encrypted. Never shown again once saved.'
             }
           >
-            <Input
-              id="ldap-bind-password"
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setResult(null);
-              }}
-              placeholder={holdsPassword ? '••••••••  (unchanged)' : ''}
-              autoComplete="new-password"
-            />
+            {(id) => (
+              <Input
+                id={id}
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setResult(null);
+                }}
+                placeholder={holdsPassword ? '••••••••  (unchanged)' : ''}
+                autoComplete="new-password"
+              />
+            )}
           </Field>
 
-          <Field id="ldap-search-base" label="Search base" hint="Where users are looked up.">
-            <Input
-              value={form.searchBase}
-              onChange={(e) => field('searchBase', e.target.value)}
-              id="ldap-search-base"
-              placeholder="ou=people,dc=example,dc=com"
-            />
+          <Field label="Search base" hint="Where users are looked up.">
+            {(id) => (
+              <Input
+                value={form.searchBase}
+                onChange={(e) => field('searchBase', e.target.value)}
+                id={id}
+                placeholder="ou=people,dc=example,dc=com"
+              />
+            )}
           </Field>
 
-          <Field
-            id="ldap-group-base"
-            label="Group search base"
-            hint="Defaults to the search base when blank."
-          >
-            <Input
-              value={form.groupSearchBase ?? ''}
-              onChange={(e) => field('groupSearchBase', e.target.value || undefined)}
-              id="ldap-group-base"
-              placeholder="ou=groups,dc=example,dc=com"
-            />
+          <Field label="Group search base" hint="Defaults to the search base when blank.">
+            {(id) => (
+              <Input
+                value={form.groupSearchBase ?? ''}
+                onChange={(e) => field('groupSearchBase', e.target.value || undefined)}
+                id={id}
+                placeholder="ou=groups,dc=example,dc=com"
+              />
+            )}
           </Field>
         </div>
 
@@ -250,26 +266,40 @@ export function LdapSettingsPanel() {
           Verify the directory&rsquo;s TLS certificate
         </label>
 
-        {result !== null && <TestResult result={result} />}
+        {/*
+          Testing lives in its own panel, not in the save row.
+          
+          Next to Save it read as half of one decision, and the two are not
+          alike: this one binds to the directory and writes nothing, and an
+          operator who saw a green result beside a Save button could reasonably
+          believe the settings were stored.
+        */}
+        <InsetPanel
+          title="Test this configuration"
+          description="Binds with the values above without saving them."
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              // Blocked for the same reason as Save: with no password to bind
+              // with, a test of these settings would fail and blame the
+              // directory rather than the missing field.
+              disabled={
+                test.isPending || form.url === '' || form.searchBase === '' || needsPasswordToAdopt
+              }
+              onClick={() => {
+                setError(null);
+                test.mutate(submission(), { onSuccess: setResult, onError: fail });
+              }}
+            >
+              {test.isPending ? 'Testing…' : 'Test connection'}
+            </Button>
+          }
+        >
+          {result !== null && <TestResult result={result} />}
+        </InsetPanel>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            // Blocked for the same reason as Save: with no password to bind
-            // with, a test of these settings would fail and blame the
-            // directory rather than the missing field.
-            disabled={
-              test.isPending || form.url === '' || form.searchBase === '' || needsPasswordToAdopt
-            }
-            onClick={() => {
-              setError(null);
-              test.mutate(submission(), { onSuccess: setResult, onError: fail });
-            }}
-          >
-            {test.isPending ? 'Testing…' : 'Test connection'}
-          </Button>
-
           <Button
             variant="primary"
             size="sm"
@@ -323,25 +353,6 @@ export function LdapSettingsPanel() {
  * noticed — a test reported "Bind password" absent from a screen that plainly
  * showed it, because getByLabel had nothing to match.
  */
-function Field({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      {hint !== undefined && <p className="text-[11px] text-ink-faint">{hint}</p>}
-    </div>
-  );
-}
 
 function Notice({ tone, children }: { tone: 'info' | 'warn'; children: React.ReactNode }) {
   const warn = tone === 'warn';

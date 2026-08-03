@@ -19,6 +19,15 @@ const buttonVariants = cva(
       variant: {
         primary: 'bg-accent text-white hover:bg-accent/85',
         secondary: 'bg-panel-raised text-ink hover:bg-line border border-line',
+        /*
+         * For sitting BESIDE an input — Preview, Browse, Test (issue #72 §3).
+         *
+         * Transparent rather than raised, so the button reads as part of the
+         * field rather than as a second control competing with it. `secondary`
+         * is filled and next to an input it looks like the primary action of
+         * the row, which is exactly backwards when the input is the point.
+         */
+        outline: 'border border-line bg-transparent text-ink hover:bg-panel-raised',
         ghost: 'text-ink-muted hover:bg-panel-raised hover:text-ink',
         danger:
           'bg-state-failed/15 text-state-failed border border-state-failed/40 hover:bg-state-failed/25',
