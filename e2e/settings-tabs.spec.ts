@@ -27,14 +27,26 @@ test.describe('settings tabs', () => {
   test('a tab survives a reload', async ({ page }) => {
     await login(page);
     await page.goto('/settings/auth');
-    await expect(page.getByText('Directory (LDAP)')).toBeVisible();
+
+    /*
+     * The TAB, not the card inside it.
+     *
+     * This asserted a card title — "Directory (LDAP)" — which made a test about
+     * tab routing fail whenever the directory screen was redesigned, and which
+     * cannot be edition-independent: core shows a teaser there, enterprise
+     * shows a form, and the two share no heading. `aria-current` is what the
+     * tab bar actually promises, and it is what the sibling test below already
+     * checks.
+     */
+    const tab = page.getByRole('link', { name: 'Directory / Auth' });
+    await expect(tab).toHaveAttribute('aria-current', 'page');
 
     await page.reload();
 
     // The failure this catches: a tab bar holding its selection in component
     // state comes back on the first tab and the operator loses their place.
     await expect(page).toHaveURL(/\/settings\/auth$/);
-    await expect(page.getByText('Directory (LDAP)')).toBeVisible();
+    await expect(tab).toHaveAttribute('aria-current', 'page');
   });
 
   test('back returns to the previous tab', async ({ page }) => {
