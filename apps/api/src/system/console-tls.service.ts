@@ -80,10 +80,20 @@ export class ConsoleTlsService {
         ...base,
         configured: true,
         errorCode,
+        /*
+         * What this service KNOWS, not a claim about the deployment.
+         *
+         * "No certificate is installed" was wrong in the case that actually
+         * happened: the proxy was serving one perfectly well and this service
+         * simply had not been given a copy to read. The console then told an
+         * operator, over HTTPS, that there was no certificate — a statement
+         * their address bar contradicted. Scope the sentence to this service
+         * and the contradiction disappears.
+         */
         error:
           errorCode === 'missing'
-            ? 'No certificate is installed.'
-            : 'The installed certificate could not be read.',
+            ? 'No certificate is visible to the console.'
+            : 'The certificate could not be read by the console.',
       };
     }
 

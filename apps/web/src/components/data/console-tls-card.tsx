@@ -111,10 +111,10 @@ function Body({ status }: { status: ConsoleTlsStatus }) {
      */
     const detail =
       status.errorCode === 'missing'
-        ? 'Install one below to serve the console over HTTPS.'
+        ? 'If the console is already reachable over HTTPS, the proxy has one and this service has not been given a copy — only the expiry reporting here is affected. Otherwise, install one below.'
         : status.errorCode === 'unparsable'
-          ? 'The installed file is not a certificate this console can read. Replacing it below is the fix.'
-          : 'The certificate is installed but could not be read. This is usually a file permission on the server.';
+          ? 'The file the console was given is not a certificate it can read. Replacing it below is the fix.'
+          : 'The certificate could not be read. This is usually a file permission on the server.';
 
     return (
       <div className="space-y-1">
@@ -123,8 +123,8 @@ function Body({ status }: { status: ConsoleTlsStatus }) {
           <span>
             <span className="font-medium">Status:</span>{' '}
             {status.errorCode === 'missing'
-              ? 'No certificate installed'
-              : 'Installed certificate unusable'}
+              ? 'No certificate visible to the console'
+              : 'Certificate unreadable'}
           </span>
         </p>
         <p className="pl-[18px] text-ink-muted">{detail}</p>
