@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Network, Plus, Trash2, XCircle } from 'lucide-react';
 import type { LdapSettings, ProviderVerification } from '@nexuspuppet/contracts';
-import { useLdapSettings, useRoles } from '@/lib/queries';
+import { useCapabilities, useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { LoadingRows, QueryError } from '@/components/states';
+import { DirectoryUnavailable } from '@/components/data/directory-unavailable';
 
 /** An empty form, for a deployment that has never configured a directory. */
 const BLANK: LdapSettings = {
@@ -60,7 +61,21 @@ export function LdapSettingsPanel() {
   const { can } = useAuth();
   const manages = can('settings:manage');
 
-  const stored = useLdapSettings(manages);
+  /*
+   * Entitlement is the CAPABILITY, not a licence.
+   *
+   * `directory.ldap` is advertised only when the enterprise layer is installed
+   * and a provider can actually run. Core used to render this whole form, store
+   * what was typed, and explain in a warning box that none of it would take
+   * effect — which reads as a broken product rather than an unavailable
+   * feature.
+   */
+  const capabilities = useCapabilities();
+  const licensed = capabilities.data?.capabilities.includes('directory.ldap') === true;
+
+  // Not fetched when the feature cannot run: a request whose answer is only
+  // used to populate a form nobody will see.
+  const stored = useLdapSettings(manages && licensed);
   // So a mapping naming a role nobody defined is visible here rather than at
   // somebody's next sign-in.
   const roles = useRoles(manages);
@@ -85,6 +100,13 @@ export function LdapSettingsPanel() {
   }, [view?.config]);
 
   if (!manages) return null;
+
+  /*
+   * Before the loading states, so core never flashes a skeleton of a form it
+   * is not going to render.
+   */
+  if (capabilities.isSuccess && !licensed) return <DirectoryUnavailable />;
+
   if (stored.isError) return <QueryError error={stored.error} />;
   if (stored.isPending) return <LoadingRows rows={5} columns={2} />;
 

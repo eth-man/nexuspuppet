@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { assertStackReachable, login } from './support';
+import { apiLogin, assertStackReachable, login } from './support';
 
 /**
  * Card and control primitives (issue #72 slice 3), asserted through the screen
@@ -11,123 +11,121 @@ import { assertStackReachable, login } from './support';
  * first is invisible to anyone not using a screen reader.
  */
 test.describe('primitives', () => {
+  /**
+   * Whether this deployment can run a directory at all.
+   *
+   * Core does not, and the screen is a teaser rather than a form there — so
+   * every assertion about inputs has to know which edition it is looking at.
+   * Resolved once, in beforeAll, because `test.skip()` in describe scope cannot
+   * take an async condition.
+   */
+  let directory = false;
+
+  test.beforeAll(async ({ request }) => {
+    await apiLogin(request);
+    const response = await request.get('/api/capabilities');
+    if (!response.ok()) return;
+    const body = (await response.json()) as { capabilities?: string[] };
+    directory = body.capabilities?.includes('directory.ldap') === true;
+  });
+
   test.beforeEach(async ({ request }) => {
     await assertStackReachable(request);
   });
 
   /**
-   * Every labelled field must actually be labelled.
+   * Core must not be able to configure something that cannot run.
    *
-   * The panel used to pass the id in twice — once to the label, once to the
-   * control — and nothing checked they still matched. They did, but the next
-   * field added by copy-paste is where that stops being true, and the symptom
-   * is a label that does nothing when clicked and a control a screen reader
-   * announces as unnamed.
-   *
-   * `getByLabel` resolves through the accessibility tree, so it fails exactly
-   * when the association is broken, whatever the markup looks like.
+   * It used to render the whole form, accept a save, and explain in a warning
+   * box that nothing would take effect. However honestly worded, an
+   * open-source user fills in six fields, gets a success, finds nobody can
+   * sign in, and concludes the product is broken.
    */
+  test('core is offered the feature, not a form that will not work', async ({ page }) => {
+    test.skip(directory, 'this deployment can run a directory');
+
+    await login(page);
+    await page.goto('/settings/auth');
+
+    await expect(page.getByRole('heading', { name: 'Directory integration' })).toBeVisible();
+    await expect(page.getByText(/available in NexusPuppet Enterprise/i)).toBeVisible();
+
+    // The tab still exists — hiding it would mean never learning the feature
+    // does. What must not exist is anything that pretends to configure it.
+    await expect(page.getByRole('textbox', { name: /^Server URL/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Test connection/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Configure directory' })).toHaveCount(0);
+  });
+
   /**
-   * Reveals the form when the deployment has no directory yet.
+   * Everything below needs a directory-capable deployment.
    *
-   * The screen now opens on an empty state, so a test that went straight to
-   * looking for inputs would pass on a configured deployment and fail on a
-   * fresh one — which is exactly backwards, since fresh is what CI is.
+   * Reveals the form when nothing is configured yet. `count()` does NOT
+   * auto-wait: called straight after `goto` it returns 0 because the panel has
+   * not loaded, the branch never runs, and the failure surfaces as a missing
+   * field rather than as a race. Waiting on "the CTA or the form, whichever
+   * arrives" is what makes the branch decision mean anything.
    */
   async function openDirectoryForm(page: import('@playwright/test').Page) {
     await page.goto('/settings/auth');
 
     const cta = page.getByRole('button', { name: 'Configure directory' });
     const url = page.getByRole('textbox', { name: /^Server URL/ });
-
-    /*
-     * WAIT for the card to resolve before asking which state it is in.
-     *
-     * `count()` does not auto-wait. Calling it straight after `goto` returned
-     * 0 — the panel had not finished loading — so the branch never ran, the
-     * form was never revealed, and the failure looked like a missing field
-     * rather than a race. It passed against a deployment only because the
-     * driver I checked it with happened to sleep first.
-     */
     await expect(cta.or(url).first()).toBeVisible();
     if ((await cta.count()) > 0) await cta.click();
+    await expect(url).toBeVisible();
   }
 
   test('an unconfigured deployment offers an empty state, not a blank form', async ({ page }) => {
+    test.skip(!directory, 'requires the directory.ldap capability');
+
     await login(page);
     await page.goto('/settings/auth');
 
-    // Either it is unconfigured and shows the empty state, or it is configured
-    // and shows the form. Both are correct; a blank form with no explanation is
-    // what must not happen.
     const cta = page.getByRole('button', { name: 'Configure directory' });
-    await expect(cta.or(page.getByRole('textbox', { name: /^Server URL/ })).first()).toBeVisible();
+    const url = page.getByRole('textbox', { name: /^Server URL/ });
+    await expect(cta.or(url).first()).toBeVisible();
 
     if ((await cta.count()) > 0) {
       await expect(page.getByRole('heading', { name: 'No directory connected' })).toBeVisible();
-      // No form until asked for.
-      await expect(page.getByRole('textbox', { name: /^Server URL/ })).toHaveCount(0);
+      await expect(url).toHaveCount(0);
       await cta.click();
-      await expect(page.getByRole('textbox', { name: /^Server URL/ })).toBeVisible();
+      await expect(url).toBeVisible();
     } else {
-      await expect(page.getByRole('textbox', { name: /^Server URL/ })).toBeVisible();
+      await expect(url).toBeVisible();
     }
   });
 
+  /**
+   * Every labelled field must actually be labelled.
+   *
+   * By ROLE and accessible name, not getByLabel: that is a case-insensitive
+   * substring match over label text AND aria-label, so "Server URL" also
+   * matches the hint button beside it, labelled "About the server URL".
+   * Resolving through the accessibility tree fails exactly when the
+   * association is broken, whatever the markup looks like.
+   */
   test('every field on the directory form is reachable by its label', async ({ page }) => {
+    test.skip(!directory, 'requires the directory.ldap capability');
+
     await login(page);
     await openDirectoryForm(page);
 
     for (const label of ['Server URL', 'Bind DN', 'Search base', 'Group search base']) {
-      /*
-       * By ROLE and accessible name, not getByLabel.
-       *
-       * getByLabel is a case-insensitive substring match over label text AND
-       * aria-label, so "Server URL" also matches the hint button beside it,
-       * which is labelled "About the server URL". Asking for the textbox whose
-       * accessible name STARTS with the label is unambiguous, and it is also
-       * the stronger assertion: it goes through the accessibility tree, so it
-       * fails exactly when the association is broken.
-       */
       const control = page.getByRole('textbox', { name: new RegExp(`^${label}`) }).first();
       await expect(control, `"${label}" is not associated with a control`).toBeVisible();
     }
 
-    // Clicking a label must focus its control — the association working in the
+    // Clicking a label focuses its control — the association working in the
     // direction a mouse user experiences it.
     await page.getByText('Search base', { exact: true }).first().click();
     await expect(page.getByRole('textbox', { name: /^Search base/ }).first()).toBeFocused();
   });
 
-  /**
-   * Testing is not saving.
-   *
-   * The two controls used to sit side by side in one row, which reads as two
-   * halves of one action. They are not alike — one binds to the directory and
-   * writes nothing — and a green result next to a Save button invites the
-   * belief that the settings are stored.
-   */
-  test('the test result lands in its own panel, not in the action bar', async ({ page }) => {
-    await login(page);
-    await openDirectoryForm(page);
-
-    const panel = page.getByRole('region', { name: /Test this configuration/i });
-    const heading = page.getByRole('heading', { name: 'Test this configuration' });
-    await expect(heading).toBeVisible();
-
-    const scope = (await panel.count()) > 0 ? panel : heading.locator('xpath=ancestor::section[1]');
-
-    /*
-     * Test and Save now share an action bar, at the operator's request. What
-     * still must not merge is the RESULT: a green tick in the same strip as
-     * Save reads as confirmation that saving happened.
-     */
-    await expect(scope.getByRole('button', { name: 'Save' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Test connection/i })).toBeVisible();
-  });
-
   test('the form is grouped into cards rather than one flat list', async ({ page }) => {
+    test.skip(!directory, 'requires the directory.ldap capability');
+
     await login(page);
     await openDirectoryForm(page);
 
@@ -136,24 +134,20 @@ test.describe('primitives', () => {
     }
   });
 
-  /**
-   * Helper text moved into hints, and a hint has to be reachable.
-   *
-   * The `title` attribute would have been cheaper and is invisible to keyboard
-   * users, so the thing worth asserting is that focusing the control reveals
-   * the text — not merely that an icon exists.
-   */
   test('field guidance is available from the keyboard', async ({ page }) => {
+    test.skip(!directory, 'requires the directory.ldap capability');
+
     await login(page);
     await openDirectoryForm(page);
 
     await page.getByRole('button', { name: 'About the server URL' }).focus();
     await expect(page.getByRole('tooltip')).toContainText('ldaps://');
-
     await page.keyboard.press('Escape');
   });
 
   test('TLS verification is a switch, not a bare checkbox', async ({ page }) => {
+    test.skip(!directory, 'requires the directory.ldap capability');
+
     await login(page);
     await openDirectoryForm(page);
 
@@ -162,11 +156,25 @@ test.describe('primitives', () => {
     await expect(toggle).toBeChecked();
   });
 
-  test('the card leads with a title and a one-line description', async ({ page }) => {
-    await login(page);
-    await page.goto('/settings/auth');
+  /**
+   * Testing is not saving.
+   *
+   * The two buttons share an action bar by request. What must stay apart is the
+   * RESULT: a green tick in the same strip as Save reads as confirmation that
+   * saving happened.
+   */
+  test('the test result lands in its own panel, not in the action bar', async ({ page }) => {
+    test.skip(!directory, 'requires the directory.ldap capability');
 
-    await expect(page.getByRole('heading', { name: 'Connection & authentication' })).toBeVisible();
-    await expect(page.getByText(/the account used to read it/i)).toBeVisible();
+    await login(page);
+    await openDirectoryForm(page);
+
+    const heading = page.getByRole('heading', { name: 'Test this configuration' });
+    await expect(heading).toBeVisible();
+
+    const scope = heading.locator('xpath=ancestor::section[1]');
+    await expect(scope.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Test connection/i })).toBeVisible();
   });
 });
