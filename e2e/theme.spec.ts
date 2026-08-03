@@ -15,9 +15,39 @@ test.describe('theme', () => {
     await assertStackReachable(request);
   });
 
-  test('defaults to dark', async ({ page }) => {
+  /**
+   * Dark unless asked otherwise.
+   *
+   * Not the OS preference. The console has been dark-only for its whole life,
+   * so an operator who upgrades into this release having expressed no opinion
+   * must see what they saw yesterday — defaulting to the system would repaint
+   * the console white for everyone on a light desktop, as a side effect of an
+   * upgrade. This test runs in a browser that reports a LIGHT system, which is
+   * what makes it meaningful.
+   */
+  test('defaults to dark, not to the system preference', async ({ page }) => {
     await login(page);
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  });
+
+  test('following the system is opt-in, and is remembered', async ({ page }) => {
+    await login(page);
+
+    await page.getByRole('radio', { name: 'System' }).click();
+    await expect(page.getByRole('radio', { name: 'System' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    await page.reload();
+
+    // Choosing 'system' has to be stored as itself. If it were represented by
+    // the absence of a preference it would be indistinguishable from never
+    // having chosen, and a reload would land back on the dark default.
+    await expect(page.getByRole('radio', { name: 'System' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 
   test('a choice survives a reload', async ({ page }) => {
@@ -75,7 +105,9 @@ test.describe('theme', () => {
         .evaluate((node) => getComputedStyle(node).backgroundColor);
     };
 
-    for (const selector of ['body', 'nav']) {
+    // <aside>, not <nav>: the sidebar's background sits on the outer element
+    // and <nav> is transparent, so comparing it compares nothing.
+    for (const selector of ['body', 'aside']) {
       const light = await backgroundOf('light', selector);
       const dark = await backgroundOf('dark', selector);
       expect(light, `${selector} did not repaint between themes`).not.toBe(dark);

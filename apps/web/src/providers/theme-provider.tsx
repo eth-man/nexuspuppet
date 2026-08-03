@@ -28,8 +28,10 @@ export const THEME_BOOTSTRAP = `
     var theme =
       stored === 'light' || stored === 'dark'
         ? stored
-        : window.matchMedia('(prefers-color-scheme: light)').matches
-          ? 'light'
+        : stored === 'system'
+          ? window.matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light'
+            : 'dark'
           : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
   } catch (e) {
@@ -52,12 +54,21 @@ function systemTheme(): ResolvedTheme {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
+/**
+ * Absence means DARK, not "follow the system".
+ *
+ * The console has been dark-only for its whole life, so an operator who
+ * upgrades into this release and has expressed no opinion should see exactly
+ * what they saw yesterday. Defaulting to the OS would repaint the console white
+ * for everyone on a light desktop — a change nobody asked for, delivered by an
+ * upgrade. `system` is therefore something you opt into, and is stored.
+ */
 function readPreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return stored === 'light' || stored === 'dark' ? stored : 'system';
+    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
   } catch {
-    return 'system';
+    return 'dark';
   }
 }
 
@@ -71,12 +82,12 @@ function readPreference(): ThemePreference {
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   /*
-   * Starts as 'dark' rather than reading storage, because this runs on the
+   * Starts at the default rather than reading storage, because this runs on the
    * server too and there is no storage there. The effect below corrects it on
    * mount; the bootstrap script has already put the right value on <html>, so
    * nothing flashes while that happens.
    */
-  const [preference, setPreferenceState] = useState<ThemePreference>('system');
+  const [preference, setPreferenceState] = useState<ThemePreference>('dark');
   const [resolved, setResolved] = useState<ResolvedTheme>('dark');
 
   useEffect(() => {
@@ -108,11 +119,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setResolved(next === 'system' ? systemTheme() : next);
 
     try {
-      // 'system' is the ABSENCE of a preference, not a third stored value — so
-      // a machine that later changes its OS default is followed rather than
-      // pinned to whatever it happened to be on the day somebody chose this.
-      if (next === 'system') localStorage.removeItem(THEME_STORAGE_KEY);
-      else localStorage.setItem(THEME_STORAGE_KEY, next);
+      // Stored as itself, including 'system'. Absence already means dark — the
+      // pre-upgrade default — so 'system' has to be written down or choosing it
+      // would be indistinguishable from never having chosen anything.
+      localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       // Site data blocked. The choice still applies to this tab; it just will
       // not survive a reload, which is better than refusing to change at all.
