@@ -650,3 +650,52 @@ export interface SettingsView<T> {
    */
   liveReload: boolean;
 }
+
+/** A role as the console sees it (ADR-0018). */
+export const roleSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(64),
+  description: z.string().nullable(),
+  permissions: z.array(permissionSchema),
+  /** Seeded by the product. Not deletable, not renamable. */
+  builtIn: z.boolean(),
+  /** How many active users hold it. For the console, never for a decision. */
+  userCount: z.number().int().nonnegative(),
+});
+export type Role = z.infer<typeof roleSchema>;
+
+export const createRoleSchema = z.object({
+  /**
+   * No spaces, so a name can be written into LDAP_ROLE_MAPPINGS — which is
+   * semicolon and equals delimited — without needing quoting rules nobody
+   * would remember.
+   */
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9._-]+$/, 'Letters, digits, dot, underscore and hyphen only'),
+  description: z.string().max(256).optional(),
+  permissions: z.array(permissionSchema),
+});
+export type CreateRole = z.infer<typeof createRoleSchema>;
+
+export const updateRoleSchema = z.object({
+  description: z.string().max(256).nullable().optional(),
+  permissions: z.array(permissionSchema).optional(),
+});
+export type UpdateRole = z.infer<typeof updateRoleSchema>;
+
+/**
+ * A directory mapping that stands in the way of deleting a role.
+ *
+ * Named individually and in full, because the operator has to go and find this
+ * entry in their directory configuration. "Role is in use" tells them a fact
+ * they already suspected and none of what they need.
+ */
+export interface BlockingRoleMapping {
+  /** The group DN exactly as configured, so it can be searched for verbatim. */
+  groupDn: string;
+  /** Where it is configured: the settings screen, or the environment. */
+  source: 'database' | 'environment';
+}

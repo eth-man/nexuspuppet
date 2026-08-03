@@ -57,6 +57,9 @@ import { SettingsStore } from './settings/settings.store';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
 import { RbacPolicy } from './auth/rbac.policy';
 import { RoleRegistry } from './auth/role-registry';
+import { RolesService } from './auth/roles.service';
+import { RolesController } from './auth/roles.controller';
+import { LdapMappingSource } from './auth/ldap-mapping-source';
 import { TokenService } from './auth/token.service';
 import {
   BootstrapService,
@@ -215,6 +218,7 @@ export class AppModule {
       controllers: [
         HealthController,
         AuthController,
+        RolesController,
         NodesController,
         ReportsController,
         NodeGroupsController,
@@ -229,6 +233,19 @@ export class AppModule {
         // policy, not a seam: the enterprise layer replaces the POLICY, not
         // where roles live (ADR-0018 §2).
         RoleRegistry,
+        LdapMappingSource,
+        {
+          provide: RolesService,
+          inject: [PrismaService, AUDIT_SINK, RoleRegistry, LdapMappingSource],
+          // Explicit, because MappingSource is an interface — Nest cannot infer
+          // a provider for it from metadata.
+          useFactory: (
+            prisma: PrismaService,
+            audit: IAuditSink,
+            registry: RoleRegistry,
+            mappings: LdapMappingSource,
+          ): RolesService => new RolesService(prisma, audit, registry, mappings),
+        },
         ...coreServices,
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },

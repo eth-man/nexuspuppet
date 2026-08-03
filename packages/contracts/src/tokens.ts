@@ -109,6 +109,15 @@ export const CAPABILITIES = {
   SSO_OIDC: 'sso.oidc',
   DIRECTORY_LDAP: 'directory.ldap',
   RBAC_SCOPED: 'rbac.scoped',
+  /**
+   * Creating, editing and deleting roles (ADR-0018 §6).
+   *
+   * The MECHANISM is core — the roles table, per-request resolution, the
+   * lockout rules and directory mapping all ship to every deployment and are
+   * exercised by every deployment. Only the editing is licensed, so the risky
+   * part is the part everybody runs.
+   */
+  RBAC_CUSTOM: 'rbac.custom',
   AUDIT_EXPORT: 'audit.export',
 } as const;
 
