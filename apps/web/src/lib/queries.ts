@@ -18,6 +18,7 @@ import type {
   ResourceEvent,
   SystemStatus,
   ConsoleTlsStatus,
+  Role,
   ConflictReport,
 } from '@nexuspuppet/contracts';
 import { api } from './client';
@@ -308,5 +309,21 @@ export function useCapabilities(): UseQueryResult<DeploymentCapabilities> {
     queryKey: ['capabilities'],
     queryFn: ({ signal }) => api.get<DeploymentCapabilities>('/capabilities', signal),
     staleTime: Infinity,
+  });
+}
+
+/**
+ * Every role this deployment defines.
+ *
+ * Readable by anyone who can manage settings, whether or not the deployment can
+ * EDIT roles — a console that could not show its own roles would be hiding how
+ * its authorization works.
+ */
+export function useRoles(enabled: boolean): UseQueryResult<Role[]> {
+  return useQuery({
+    queryKey: ['roles'],
+    queryFn: ({ signal }) => api.get<Role[]>('/roles', signal),
+    enabled,
+    staleTime: 30_000,
   });
 }

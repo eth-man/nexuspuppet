@@ -15,6 +15,9 @@ import type {
   ReplaceRules,
   SetParameter,
   UpdateNodeGroup,
+  Role,
+  CreateRole,
+  UpdateRole,
 } from '@nexuspuppet/contracts';
 import { api } from './client';
 
@@ -309,5 +312,35 @@ export function useTestLdapSettings(): UseMutationResult<
 export function useChangeOwnPassword(): UseMutationResult<void, Error, ChangePassword> {
   return useMutation({
     mutationFn: (input) => api.post<void>('/account/password', input),
+  });
+}
+
+export function useCreateRole(): UseMutationResult<Role, Error, CreateRole> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.post<Role>('/roles', input),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['roles'] }),
+  });
+}
+
+export function useUpdateRole(): UseMutationResult<Role, Error, { id: string; patch: UpdateRole }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }) => api.patch<Role>(`/roles/${id}`, patch),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['roles'] });
+      // A permission change alters what THIS session may do, and the console
+      // hides controls by permission — so the session has to be re-read or the
+      // operator keeps seeing buttons they just revoked from themselves.
+      void client.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
+
+export function useDeleteRole(): UseMutationResult<void, Error, string> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => api.delete<void>(`/roles/${id}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['roles'] }),
   });
 }

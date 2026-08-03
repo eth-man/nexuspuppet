@@ -616,7 +616,21 @@ export const ldapSettingsSchema = z.object({
   searchFilter: z.string().min(1).optional(),
   nestedGroups: z.boolean().default(false),
   roleMappings: z
-    .array(z.object({ groupDn: z.string().min(1), role: z.enum(['VIEWER', 'OPERATOR', 'ADMIN']) }))
+    .array(
+      z.object({
+        groupDn: z.string().min(1),
+        /*
+         * A role NAME (ADR-0018 §5), not the built-in enum.
+         *
+         * Left as an enum, the settings screen could not configure a mapping to
+         * a custom role at all — the feature would exist in the resolver and be
+         * unreachable from the console. A name with no matching role is
+         * accepted here and shown as a broken mapping, because the schema has
+         * no way to know which roles a deployment defines.
+         */
+        role: z.string().min(1).max(64),
+      }),
+    )
     .default([]),
   timeoutMs: z.number().int().positive().max(60_000).default(10_000),
   /**
