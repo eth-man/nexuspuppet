@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
+  UpdateCheck,
   AssignClass,
   ChangePassword,
   LdapSettings,
@@ -342,5 +343,20 @@ export function useDeleteRole(): UseMutationResult<void, Error, string> {
   return useMutation({
     mutationFn: (id) => api.delete<void>(`/roles/${id}`),
     onSuccess: () => client.invalidateQueries({ queryKey: ['roles'] }),
+  });
+}
+
+/**
+ * Ask whether a newer release exists. A MUTATION, deliberately.
+ *
+ * It is the only thing in the console that reaches the internet, and it must
+ * happen when an operator asks and at no other time. Modelling it as a query
+ * would invite react-query to refetch it on focus, on reconnect, on an
+ * interval — every one of which is an unprompted outbound call from an
+ * appliance that may be air-gapped on purpose.
+ */
+export function useCheckForUpdates(): UseMutationResult<UpdateCheck, unknown, void> {
+  return useMutation({
+    mutationFn: () => api.post<UpdateCheck>('/system/update-check', undefined),
   });
 }

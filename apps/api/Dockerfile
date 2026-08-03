@@ -69,6 +69,9 @@ RUN npm run build --workspace @nexuspuppet/contracts \
  && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
+# The version the console reports. Read from the manifest at BUILD time,
+# where it is present, and carried into the image as an environment
+# variable so nothing has to find a JSON file at runtime.
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production

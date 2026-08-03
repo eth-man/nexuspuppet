@@ -1,10 +1,9 @@
 'use client';
 
-import { useCapabilities } from '@/lib/queries';
 import { useAuth } from '@/providers/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { QueryError, Spinner } from '@/components/states';
+import { DeploymentCard } from '@/components/data/deployment-card';
 import { ChangePasswordCard } from '@/components/data/change-password';
 import { ConsoleTlsCard } from '@/components/data/console-tls-card';
 
@@ -20,39 +19,12 @@ import { ConsoleTlsCard } from '@/components/data/console-tls-card';
  * real deployment the ragged bottom edge cost more than the padding saved.
  */
 export default function GeneralSettingsPage() {
-  const capabilities = useCapabilities();
   const { principal, permissions, can } = useAuth();
 
   return (
     <div className="space-y-3">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Deployment</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {capabilities.isError ? (
-              <QueryError error={capabilities.error} />
-            ) : capabilities.isPending ? (
-              <Spinner />
-            ) : (
-              <dl className="grid grid-cols-[7rem_1fr] gap-y-1 text-xs">
-                <dt className="text-ink-faint">Edition</dt>
-                <dd className="text-ink">{capabilities.data.edition}</dd>
-                <dt className="text-ink-faint">Enterprise</dt>
-                <dd className="font-mono text-ink">
-                  {capabilities.data.enterpriseVersion ?? 'not installed'}
-                </dd>
-                <dt className="text-ink-faint">Capabilities</dt>
-                <dd className="text-ink">
-                  {capabilities.data.capabilities.length === 0
-                    ? 'core only'
-                    : capabilities.data.capabilities.join(', ')}
-                </dd>
-              </dl>
-            )}
-          </CardContent>
-        </Card>
+        <DeploymentCard />
 
         <Card>
           <CardHeader>

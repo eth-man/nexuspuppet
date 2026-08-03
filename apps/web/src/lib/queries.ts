@@ -2,6 +2,7 @@
 
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type {
+  DeploymentInfo,
   AuthProviderDescription,
   DeploymentCapabilities,
   FactPathIndex,
@@ -325,5 +326,20 @@ export function useRoles(enabled: boolean): UseQueryResult<Role[]> {
     queryFn: ({ signal }) => api.get<Role[]>('/roles', signal),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * What this deployment is, and whether its parts answer.
+ *
+ * Polled gently: a version does not change while somebody is looking at it,
+ * and the database round trip should not be a load source of its own.
+ */
+export function useDeployment(): UseQueryResult<DeploymentInfo> {
+  return useQuery({
+    queryKey: ['deployment'],
+    queryFn: ({ signal }) => api.get<DeploymentInfo>('/system/deployment', signal),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
   });
 }
