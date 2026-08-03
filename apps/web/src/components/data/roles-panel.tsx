@@ -1,30 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertTriangle, Lock, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, Lock, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import type { BlockingRoleMapping, Permission, Role } from '@nexuspuppet/contracts';
 import { useCapabilities, useRoles } from '@/lib/queries';
 import { useCreateRole, useDeleteRole, useUpdateRole } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
+import {
+  PERMISSIONS,
+  PERMISSION_CATALOG,
+  impactLabel,
+  type PermissionImpact,
+} from '@/lib/permission-catalog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingRows, QueryError } from '@/components/states';
-
-/** Every permission the API arbitrates, in the order they are shown. */
-const PERMISSIONS: Permission[] = [
-  'inventory:read',
-  'reports:read',
-  'classification:read',
-  'classification:write',
-  'materialization:trigger',
-  'pql:raw',
-  'users:manage',
-  'settings:manage',
-];
 
 /**
  * What a role grants, and who may change it (ADR-0018).
@@ -33,6 +28,10 @@ const PERMISSIONS: Permission[] = [
  * deployment without it still sees its three built-in roles and exactly what
  * they permit, because hiding that would hide how the product decides who can
  * do what.
+ *
+ * The table never mutates. Every change to a role is made in a dialog and
+ * committed explicitly — a stray click in a list of permissions should not be
+ * able to grant `settings:manage`.
  */
 export function RolesPanel() {
   const { can } = useAuth();
@@ -41,6 +40,9 @@ export function RolesPanel() {
   const roles = useRoles(manages);
 
   const editable = capabilities.data?.capabilities.includes('rbac.custom') === true;
+
+  /** `null` closed · `'new'` creating · a Role being edited. */
+  const [editing, setEditing] = useState<Role | 'new' | null>(null);
 
   if (!manages) return null;
   if (roles.isError) return <QueryError error={roles.error} />;
@@ -61,56 +63,181 @@ export function RolesPanel() {
             ' Defining your own roles is an enterprise capability — the built-in three are shown here regardless.'}
         </p>
 
-        <RoleTable roles={roles.data} editable={editable} />
+        <div className="scroll-x">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-line-soft text-left text-ink-faint">
+                <th className="py-1 pr-3 font-medium">Role</th>
+                <th className="py-1 pr-3 font-medium">Permissions</th>
+                <th className="py-1 pr-3 font-medium">Users</th>
+                <th className="py-1 font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {roles.data.map((role) => (
+                <RoleRow
+                  key={role.id}
+                  role={role}
+                  editable={editable}
+                  onOpen={() => setEditing(role)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-        {editable && <NewRole existing={roles.data.map((r) => r.name)} />}
+        {editable && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing('new')}>
+            <Plus className="mr-1 size-3.5" aria-hidden />
+            New role
+          </Button>
+        )}
+
+        {editing !== null && (
+          <RoleEditor
+            role={editing === 'new' ? null : editing}
+            editable={editable}
+            existing={roles.data.map((r) => r.name)}
+            onClose={() => setEditing(null)}
+          />
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function RoleTable({ roles, editable }: { roles: Role[]; editable: boolean }) {
+/**
+ * One role, read-only.
+ *
+ * Shows the permissions it holds rather than every permission that exists —
+ * the absent ones are a property of the role worth seeing while editing it, and
+ * noise while scanning a list.
+ */
+function RoleRow({
+  role,
+  editable,
+  onOpen,
+}: {
+  role: Role;
+  editable: boolean;
+  onOpen: () => void;
+}) {
+  const held = PERMISSIONS.filter((p) => role.permissions.includes(p));
+
   return (
-    <div className="scroll-x">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-line-soft text-left text-ink-faint">
-            <th className="py-1 pr-3 font-medium">Role</th>
-            <th className="py-1 pr-3 font-medium">Permissions</th>
-            <th className="py-1 pr-3 font-medium">Users</th>
-            <th className="py-1 font-medium" />
-          </tr>
-        </thead>
-        <tbody>
-          {roles.map((role) => (
-            <RoleRow key={role.id} role={role} editable={editable} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <tr
+      onClick={onOpen}
+      className="cursor-pointer border-b border-line-soft/60 align-top hover:bg-panel-raised/60"
+    >
+      <td className="py-2 pr-3">
+        <span className="flex items-center gap-1 font-mono text-ink">
+          {role.builtIn && <Lock className="size-3 text-ink-faint" aria-label="built-in" />}
+          {role.name}
+        </span>
+        {role.description !== null && (
+          <span className="text-[11px] text-ink-faint">{role.description}</span>
+        )}
+      </td>
+
+      <td className="py-2 pr-3">
+        {held.length === 0 ? (
+          <span className="text-[11px] text-state-pending">grants nothing</span>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {held.map((permission) => (
+              <span
+                key={permission}
+                title={PERMISSION_CATALOG[permission].summary}
+                className={
+                  'rounded border px-1.5 py-0.5 font-mono text-[10px] ' +
+                  (PERMISSION_CATALOG[permission].impact === 'admin'
+                    ? 'border-state-failed/40 bg-state-failed/10 text-ink'
+                    : 'border-line-soft bg-panel-raised text-ink-muted')
+                }
+              >
+                {permission}
+              </span>
+            ))}
+          </div>
+        )}
+      </td>
+
+      <td className="py-2 pr-3 tabular-nums text-ink-muted">{role.userCount}</td>
+
+      <td className="py-2 text-right">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`${editable ? 'Edit' : 'View'} ${role.name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+        >
+          <Pencil className="mr-1 size-3.5" aria-hidden />
+          {editable ? 'Edit' : 'View'}
+        </Button>
+      </td>
+    </tr>
   );
 }
 
-function RoleRow({ role, editable }: { role: Role; editable: boolean }) {
+const IMPACT_STYLE: Record<PermissionImpact, string> = {
+  read: 'border-line-soft text-ink-faint',
+  write: 'border-state-pending/50 text-state-pending',
+  admin: 'border-state-failed/50 text-state-failed',
+};
+
+/**
+ * The edit surface. Nothing here reaches the API until Save.
+ *
+ * `draft` is seeded from the role once and then owned by this component, so a
+ * background refetch cannot rewrite what somebody is halfway through deciding.
+ */
+function RoleEditor({
+  role,
+  editable,
+  existing,
+  onClose,
+}: {
+  role: Role | null;
+  editable: boolean;
+  existing: string[];
+  onClose: () => void;
+}) {
+  const create = useCreateRole();
   const update = useUpdateRole();
   const remove = useDeleteRole();
+
+  const creating = role === null;
+  const readOnly = !editable;
+
+  const [name, setName] = useState(role?.name ?? '');
+  const [description, setDescription] = useState(role?.description ?? '');
+  const [draft, setDraft] = useState<Permission[]>(role?.permissions ?? []);
   const [error, setError] = useState<string | null>(null);
   const [blocking, setBlocking] = useState<BlockingRoleMapping[] | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  /*
-   * A built-in role's PERMISSIONS are editable; its name is not. The name
-   * appears in directory mappings, in audit history, and in other people's
-   * runbooks — but what ADMIN may do is a decision a deployment is allowed to
-   * make.
-   */
+  const busy = create.isPending || update.isPending || remove.isPending;
+
+  const clash = creating && existing.includes(name);
+  // Matches the API's own rule, so the refusal happens before a round trip
+  // rather than after one.
+  const shaped = /^[A-Za-z0-9._-]+$/.test(name);
+
+  const added = draft.filter((p) => !(role?.permissions ?? []).includes(p));
+  const removed = (role?.permissions ?? []).filter((p) => !draft.includes(p));
+  const descriptionChanged = (role?.description ?? '') !== description;
+  const dirty = creating || added.length > 0 || removed.length > 0 || descriptionChanged;
+
   const toggle = (permission: Permission) => {
     setError(null);
-    setBlocking(null);
-    const next = role.permissions.includes(permission)
-      ? role.permissions.filter((p) => p !== permission)
-      : [...role.permissions, permission];
-
-    update.mutate({ id: role.id, patch: { permissions: next } }, { onError: fail });
+    setDraft((current) =>
+      current.includes(permission)
+        ? current.filter((p) => p !== permission)
+        : [...current, permission],
+    );
   };
 
   const fail = (caught: unknown) => {
@@ -126,80 +253,298 @@ function RoleRow({ role, editable }: { role: Role; editable: boolean }) {
     setBlocking(null);
   };
 
-  return (
-    <>
-      <tr className="border-b border-line-soft/60 align-top">
-        <td className="py-2 pr-3">
-          <span className="flex items-center gap-1 font-mono text-ink">
-            {role.builtIn && <Lock className="size-3 text-ink-faint" aria-label="built-in" />}
-            {role.name}
-          </span>
-          {role.description !== null && (
-            <span className="text-[11px] text-ink-faint">{role.description}</span>
-          )}
-        </td>
+  const save = () => {
+    setError(null);
+    setBlocking(null);
 
-        <td className="py-2 pr-3">
-          <div className="flex flex-wrap gap-1">
+    if (creating) {
+      create.mutate(
+        {
+          name,
+          permissions: draft,
+          ...(description.trim() === '' ? {} : { description: description.trim() }),
+        },
+        { onSuccess: onClose, onError: fail },
+      );
+      return;
+    }
+
+    update.mutate(
+      {
+        id: role.id,
+        patch: {
+          permissions: draft,
+          ...(descriptionChanged
+            ? { description: description.trim() === '' ? null : description.trim() }
+            : {}),
+        },
+      },
+      { onSuccess: onClose, onError: fail },
+    );
+  };
+
+  const title = creating ? 'New role' : readOnly ? `Role: ${role.name}` : `Edit role: ${role.name}`;
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={title}
+      description={
+        readOnly
+          ? 'Editing roles is not available in this deployment.'
+          : 'Changes take effect for everybody holding this role as soon as you save.'
+      }
+      className="w-[min(46rem,calc(100vw-2rem))]"
+      footer={
+        readOnly ? (
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy || !dirty || (creating && (name === '' || !shaped || clash))}
+              onClick={save}
+            >
+              {creating ? 'Create role' : 'Save changes'}
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <Label htmlFor="role-name">Name</Label>
+          {creating ? (
+            <>
+              <Input
+                id="role-name"
+                value={name}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setError(null);
+                }}
+                placeholder="auditor"
+                aria-invalid={name !== '' && (!shaped || clash)}
+              />
+              <p className="text-[11px] text-ink-faint">
+                {'Letters, digits, dot, underscore and hyphen. No spaces — the name goes into '}
+                {'directory mappings, which are delimited by semicolons and equals signs.'}
+              </p>
+              {name !== '' && !shaped && (
+                <p className="text-[11px] text-state-failed">
+                  Only letters, digits, dot, underscore and hyphen.
+                </p>
+              )}
+              {clash && (
+                <p className="text-[11px] text-state-failed">That name is already taken.</p>
+              )}
+            </>
+          ) : (
+            <p className="flex items-center gap-1 font-mono text-xs text-ink">
+              {role.builtIn && <Lock className="size-3 text-ink-faint" aria-hidden />}
+              {role.name}
+              <span className="ml-2 font-sans text-[11px] text-ink-faint">
+                {role.builtIn
+                  ? 'built-in — permissions can change, the name cannot'
+                  : 'names are fixed once created; they appear in directory mappings and audit history'}
+              </span>
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="role-description">Description</Label>
+          <Input
+            id="role-description"
+            value={description}
+            disabled={readOnly}
+            maxLength={256}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="What this role is for"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Permissions</Label>
+          <div className="divide-y divide-line-soft rounded border border-line-soft">
             {PERMISSIONS.map((permission) => {
-              const held = role.permissions.includes(permission);
+              const info = PERMISSION_CATALOG[permission];
+              const held = draft.includes(permission);
               return (
-                <button
+                <label
                   key={permission}
-                  type="button"
-                  disabled={!editable || update.isPending}
-                  onClick={() => toggle(permission)}
-                  aria-pressed={held}
-                  title={editable ? `Toggle ${permission}` : 'Editing roles is not available'}
                   className={
-                    'rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ' +
-                    (held
-                      ? 'border-accent/50 bg-accent/15 text-ink'
-                      : 'border-line-soft text-ink-faint') +
-                    (editable ? ' hover:border-accent disabled:opacity-50' : ' cursor-default')
+                    'flex cursor-pointer items-start gap-2.5 p-2.5 ' +
+                    (readOnly ? 'cursor-default' : 'hover:bg-panel-raised/60')
                   }
                 >
-                  {permission}
-                </button>
+                  <input
+                    type="checkbox"
+                    checked={held}
+                    disabled={readOnly}
+                    onChange={() => toggle(permission)}
+                    className="mt-0.5 size-3.5 shrink-0 accent-accent"
+                  />
+                  <span className="min-w-0 space-y-0.5">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-ink">{info.summary}</span>
+                      <span
+                        className={
+                          'rounded border px-1 py-px text-[10px] ' + IMPACT_STYLE[info.impact]
+                        }
+                      >
+                        {impactLabel(info.impact)}
+                      </span>
+                    </span>
+                    <span className="block font-mono text-[10px] text-ink-faint">{permission}</span>
+                    <span className="block max-w-prose text-[11px] text-ink-muted">
+                      {info.detail}
+                    </span>
+                    {info.caution !== undefined && (
+                      <span className="mt-0.5 flex max-w-prose items-start gap-1 text-[11px] text-state-pending">
+                        <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+                        {info.caution}
+                      </span>
+                    )}
+                  </span>
+                </label>
               );
             })}
           </div>
-        </td>
+        </div>
 
-        <td className="py-2 pr-3 tabular-nums text-ink-muted">{role.userCount}</td>
+        {!readOnly && <PendingChanges added={added} removed={removed} creating={creating} />}
 
-        <td className="py-2">
-          {editable && !role.builtIn && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={remove.isPending}
-              aria-label={`Delete ${role.name}`}
-              onClick={() => {
-                setError(null);
-                setBlocking(null);
-                remove.mutate(role.id, { onError: fail });
-              }}
-            >
-              <Trash2 className="size-3.5 text-state-failed" aria-hidden />
-            </Button>
-          )}
-        </td>
-      </tr>
+        {draft.length === 0 && !readOnly && (
+          <p className="flex items-start gap-1 text-[11px] text-state-pending">
+            <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+            {'This role would grant nothing. That is allowed — a placeholder to fill in later — '}
+            {'but anybody holding it can do nothing at all.'}
+          </p>
+        )}
 
-      {(error !== null || blocking !== null) && (
-        <tr>
-          <td colSpan={4} className="pb-2">
-            {blocking !== null ? <BlockingMappings role={role.name} mappings={blocking} /> : null}
-            {error !== null && (
-              <p role="alert" className="text-[11px] text-state-failed">
-                {error}
-              </p>
+        {blocking !== null && role !== null && (
+          <BlockingMappings role={role.name} mappings={blocking} />
+        )}
+
+        {error !== null && (
+          <p role="alert" className="text-[11px] text-state-failed">
+            {error}
+          </p>
+        )}
+
+        {!readOnly && !creating && !role.builtIn && (
+          <div className="space-y-1.5 rounded border border-state-failed/30 p-2.5">
+            <p className="text-[11px] font-semibold text-ink">Delete this role</p>
+            <p className="max-w-prose text-[11px] text-ink-muted">
+              {role.userCount > 0
+                ? `${role.userCount} user${role.userCount === 1 ? '' : 's'} currently hold this role and will need another one.`
+                : 'No users hold this role.'}
+              {' Directory groups mapped to it will be refused until they are repointed.'}
+            </p>
+            {confirmingDelete ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    setError(null);
+                    setBlocking(null);
+                    remove.mutate(role.id, { onSuccess: onClose, onError: fail });
+                  }}
+                >
+                  <Trash2 className="mr-1 size-3.5 text-state-failed" aria-hidden />
+                  {`Yes, delete "${role.name}"`}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmingDelete(false)}>
+                  Keep it
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                aria-label={`Delete ${role.name}`}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                <Trash2 className="mr-1 size-3.5 text-state-failed" aria-hidden />
+                Delete role
+              </Button>
             )}
-          </td>
-        </tr>
+          </div>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * What Save is about to do, in words, before it does it.
+ *
+ * The checkbox list shows the resulting state; this shows the delta. They are
+ * different questions — "what will this role be" versus "what am I changing" —
+ * and the second is the one somebody is accountable for.
+ */
+function PendingChanges({
+  added,
+  removed,
+  creating,
+}: {
+  added: Permission[];
+  removed: Permission[];
+  creating: boolean;
+}) {
+  const escalating = useMemo(
+    () => added.filter((p) => PERMISSION_CATALOG[p].impact === 'admin'),
+    [added],
+  );
+
+  if (creating || (added.length === 0 && removed.length === 0)) return null;
+
+  return (
+    <div className="space-y-1 rounded border border-accent/40 bg-accent/10 p-2.5">
+      <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+      {/*
+       * Marked with glyphs rather than colour. The palette's state tokens mean
+       * Puppet run states (changed / unchanged / failed) and borrowing one to
+       * mean "granting" would collide with them; a + and a − also survive being
+       * read by somebody who cannot tell the two colours apart.
+       */}
+      {added.length > 0 && (
+        <p className="text-[11px] text-ink-muted">
+          <span aria-hidden className="font-mono text-ink">
+            +
+          </span>{' '}
+          <span className="font-medium text-ink">Granting</span>{' '}
+          <span className="font-mono text-ink">{added.join(', ')}</span>
+        </p>
       )}
-    </>
+      {removed.length > 0 && (
+        <p className="text-[11px] text-ink-muted">
+          <span aria-hidden className="font-mono text-ink">
+            −
+          </span>{' '}
+          <span className="font-medium text-ink">Revoking</span>{' '}
+          <span className="font-mono text-ink">{removed.join(', ')}</span>
+        </p>
+      )}
+      {escalating.length > 0 && (
+        <p className="mt-1 flex max-w-prose items-start gap-1 text-[11px] text-state-failed">
+          <ShieldAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
+          {'This grants administrative access. Everybody already holding this role gets it too, '}
+          {'including anybody mapped in from a directory group.'}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -232,123 +577,6 @@ function BlockingMappings({ role, mappings }: { role: string; mappings: Blocking
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function NewRole({ existing }: { existing: string[] }) {
-  const create = useCreateRole();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [permissions, setPermissions] = useState<Permission[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const clash = existing.includes(name);
-  // Matches the API's own rule, so the refusal happens before a round trip
-  // rather than after one.
-  const shaped = /^[A-Za-z0-9._-]+$/.test(name);
-
-  if (!open) {
-    return (
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
-        <Plus className="mr-1 size-3.5" aria-hidden />
-        New role
-      </Button>
-    );
-  }
-
-  return (
-    <div className="space-y-2 rounded border border-line-soft p-3">
-      <div className="space-y-1">
-        <Label htmlFor="role-name">Name</Label>
-        <Input
-          id="role-name"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-          placeholder="auditor"
-          aria-invalid={name !== '' && (!shaped || clash)}
-        />
-        <p className="text-[11px] text-ink-faint">
-          {'Letters, digits, dot, underscore and hyphen. No spaces — the name goes into '}
-          {'directory mappings, which are delimited by semicolons and equals signs.'}
-        </p>
-        {clash && <p className="text-[11px] text-state-failed">That name is already taken.</p>}
-      </div>
-
-      <div className="space-y-1">
-        <Label>Permissions</Label>
-        <div className="flex flex-wrap gap-1">
-          {PERMISSIONS.map((permission) => {
-            const held = permissions.includes(permission);
-            return (
-              <button
-                key={permission}
-                type="button"
-                aria-pressed={held}
-                onClick={() =>
-                  setPermissions((current) =>
-                    current.includes(permission)
-                      ? current.filter((p) => p !== permission)
-                      : [...current, permission],
-                  )
-                }
-                className={
-                  'rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ' +
-                  (held
-                    ? 'border-accent/50 bg-accent/15 text-ink'
-                    : 'border-line-soft text-ink-faint hover:border-accent')
-                }
-              >
-                {permission}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {error !== null && (
-        <p role="alert" className="text-[11px] text-state-failed">
-          {error}
-        </p>
-      )}
-
-      <div className="flex gap-2">
-        <Button
-          variant="primary"
-          size="sm"
-          disabled={name === '' || !shaped || clash || create.isPending}
-          onClick={() =>
-            create.mutate(
-              { name, permissions },
-              {
-                onSuccess: () => {
-                  setOpen(false);
-                  setName('');
-                  setPermissions([]);
-                },
-                onError: (caught) =>
-                  setError(caught instanceof ApiError ? caught.message : String(caught)),
-              },
-            )
-          }
-        >
-          Create role
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-      </div>
-
-      {permissions.length === 0 && (
-        <p className="flex items-start gap-1 text-[11px] text-state-pending">
-          <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
-          {'This role would grant nothing. That is allowed — a placeholder to fill in later — '}
-          {'but anybody holding it can do nothing at all.'}
-        </p>
-      )}
     </div>
   );
 }
