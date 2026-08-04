@@ -103,8 +103,19 @@ test.describe('primitives', () => {
    * not loaded, the branch never runs, and the failure surfaces as a missing
    * field rather than as a race. Waiting on "the CTA or the form, whichever
    * arrives" is what makes the branch decision mean anything.
+   *
+   * @param editing ask for the form to be UNLOCKED as well as shown.
+   *
+   * The screen renders read-only until somebody asks to change it (ADR-0016), so
+   * "the form is on screen" and "the form can be typed into" stopped being the
+   * same state. Anything that clicks, focuses or saves needs the second one;
+   * anything asserting layout or presence should stay on the first, because that
+   * is what an operator sees on arrival.
    */
-  async function openDirectoryForm(page: import('@playwright/test').Page) {
+  async function openDirectoryForm(
+    page: import('@playwright/test').Page,
+    { editing = false }: { editing?: boolean } = {},
+  ) {
     await page.goto('/settings/auth');
 
     const cta = page.getByRole('button', { name: 'Configure directory' });
@@ -112,6 +123,15 @@ test.describe('primitives', () => {
     await expect(cta.or(url).first()).toBeVisible();
     if ((await cta.count()) > 0) await cta.click();
     await expect(url).toBeVisible();
+
+    if (!editing) return;
+
+    // Absent on a deployment that arrived through the empty-state CTA — that
+    // path opens straight into an editable form, since there is nothing yet to
+    // protect from an accidental keystroke.
+    const edit = page.getByRole('button', { name: 'Edit settings' });
+    if ((await edit.count()) > 0) await edit.click();
+    await expect(url).toBeEditable();
   }
 
   test('an unconfigured deployment offers an empty state, not a blank form', async ({ page }) => {
@@ -147,7 +167,7 @@ test.describe('primitives', () => {
     test.skip(!directory, 'requires the directory.ldap capability');
 
     await login(page);
-    await openDirectoryForm(page);
+    await openDirectoryForm(page, { editing: true });
 
     for (const label of ['Server URL', 'Bind DN', 'Search base', 'Group search base']) {
       const control = page.getByRole('textbox', { name: new RegExp(`^${label}`) }).first();
@@ -186,7 +206,7 @@ test.describe('primitives', () => {
     test.skip(!directory, 'requires the directory.ldap capability');
 
     await login(page);
-    await openDirectoryForm(page);
+    await openDirectoryForm(page, { editing: true });
 
     await page.getByRole('button', { name: 'About the server URL' }).focus();
     await expect(page.getByRole('tooltip')).toContainText('ldaps://');
@@ -215,7 +235,7 @@ test.describe('primitives', () => {
     test.skip(!directory, 'requires the directory.ldap capability');
 
     await login(page);
-    await openDirectoryForm(page);
+    await openDirectoryForm(page, { editing: true });
 
     const heading = page.getByRole('heading', { name: 'Test this configuration' });
     await expect(heading).toBeVisible();
