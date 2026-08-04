@@ -6,12 +6,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AUDIT_SINK, AUTH_PROVIDER } from '@nexuspuppet/contracts';
+import { AUDIT_SINK } from '@nexuspuppet/contracts';
 import type {
   AuthenticatedPrincipal,
   CreateUser,
   IAuditSink,
-  IAuthProvider,
   ManagedUser,
   ManagedUserDetail,
   UpdateUser,
@@ -20,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TokenService } from './token.service';
 import { hashPassword, verifyPassword } from './password';
 import { normalizeEmail } from './local-auth.provider';
+import { AuthProviderResolver } from './auth-provider.resolver';
 
 /**
  * Local user administration (ADR-0006).
@@ -38,7 +38,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
     private readonly tokens: TokenService,
-    @Inject(AUTH_PROVIDER) private readonly authProvider: IAuthProvider,
+    private readonly providers: AuthProviderResolver,
   ) {}
 
   async list(): Promise<ManagedUser[]> {
@@ -54,15 +54,26 @@ export class UsersService {
     const email = normalizeEmail(input.email);
     const authSource = input.authSource;
 
-    // An account whose authSource no configured provider answers to can never
-    // be authenticated. Creating one silently is how an operator ends up with a
-    // user list full of accounts that cannot log in, with no error to explain
-    // it. 'local' stays allowed regardless: dropping back to the core edition
-    // must not orphan the accounts created before it.
-    if (authSource !== 'local' && authSource !== this.authProvider.source) {
+    /*
+     * An account whose authSource no configured provider answers to can never be
+     * authenticated. Creating one silently is how an operator ends up with a
+     * user list full of accounts that cannot log in, with no error to explain
+     * it. 'local' stays allowed regardless: dropping back to the core edition
+     * must not orphan the accounts created before it.
+     *
+     * Asks the RESOLVER, not a single injected provider. This compared against
+     * `AUTH_PROVIDER.source` — one provider, chosen at boot — which was correct
+     * before ADR-0015 made registration additive and wrong immediately after.
+     * On a hybrid deployment it rejected `ldap` while the same process logged
+     * "Authentication sources: ldap, local" at start-up, so no directory account
+     * could be provisioned at all, and every directory login then failed with a
+     * silent 401 because there was no row to dispatch on.
+     */
+    const known = this.providers.sources();
+    if (authSource !== 'local' && !known.includes(authSource)) {
       throw new BadRequestException(
-        `No configured provider authenticates "${authSource}". This deployment uses ` +
-          `"${this.authProvider.source}". Use that, or "local" for a password account.`,
+        `No configured provider authenticates "${authSource}". This deployment has: ` +
+          `${known.join(', ')}. Use one of those, or "local" for a password account.`,
       );
     }
 

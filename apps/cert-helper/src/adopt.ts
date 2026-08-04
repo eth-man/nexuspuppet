@@ -50,7 +50,7 @@ export async function adoptExisting(root: string, now: Date): Promise<'adopted' 
  * discard that pointer instead of leaving the broken state visible to whoever
  * has to fix it. stat() follows the link and reports a dangling one as absent.
  */
-async function exists(path: string): Promise<boolean> {
+export async function exists(path: string): Promise<boolean> {
   try {
     await lstat(path);
     return true;

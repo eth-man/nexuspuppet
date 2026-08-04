@@ -128,6 +128,16 @@ export const certificateSummarySchema = z.object({
   expired: z.boolean(),
   notYetValid: z.boolean(),
   selfSigned: z.boolean(),
+  /**
+   * A placeholder this deployment generated for itself, rather than one an
+   * operator chose.
+   *
+   * Both are self-signed and otherwise identical, so the console cannot tell
+   * them apart from `selfSigned` alone — and it needs to, because it should say
+   * "replace this" about the first and nothing about the second (ADR-0013,
+   * self-signed fallback).
+   */
+  temporary: z.boolean(),
 });
 
 export const consoleTlsStatusSchema = z.object({
@@ -137,6 +147,16 @@ export const consoleTlsStatusSchema = z.object({
    */
   configured: z.boolean(),
   certificate: certificateSummarySchema.nullable(),
+  /**
+   * Why there is no certificate summary, as something the console can phrase.
+   *
+   * `error` used to carry the filesystem path, which then appeared in the
+   * browser: an end user cannot act on `/etc/nexuspuppet/tls/console.pem` and
+   * should not be shown the server's layout to reach that conclusion. The path
+   * stays in the API log, where somebody with shell access reads it.
+   */
+  errorCode: z.enum(['missing', 'unreadable', 'unparsable']).nullable(),
+
   /** The name operators are expected to reach the console by, if declared. */
   expectedHostname: z.string().nullable(),
   /**
@@ -162,3 +182,41 @@ export const consoleTlsStatusSchema = z.object({
 
 export type CertificateSummary = z.infer<typeof certificateSummarySchema>;
 export type ConsoleTlsStatus = z.infer<typeof consoleTlsStatusSchema>;
+
+/**
+ * What this deployment is, and whether its parts are answering.
+ *
+ * Deliberately cheap: a version string, a clock, and one round trip to the
+ * database. An operator opening Settings should not cause work.
+ */
+export const deploymentInfoSchema = z.object({
+  version: z.string(),
+  /** When this API process started, so uptime is derived rather than stored. */
+  startedAt: z.string(),
+  uptimeSeconds: z.number().int().nonnegative(),
+  database: z.object({
+    connected: z.boolean(),
+    /** Round-trip time of the health query. Null when it did not answer. */
+    latencyMs: z.number().int().nonnegative().nullable(),
+  }),
+});
+export type DeploymentInfo = z.infer<typeof deploymentInfoSchema>;
+
+/**
+ * The result of an explicitly requested update check (never automatic).
+ *
+ * `reachable` is a first-class field rather than an error, because being
+ * offline is the NORMAL state for an air-gapped estate and must not read as a
+ * fault. Nothing about the deployment is sent in the request.
+ */
+export const updateCheckSchema = z.object({
+  current: z.string(),
+  /** Null when the check could not complete. */
+  latest: z.string().nullable(),
+  updateAvailable: z.boolean(),
+  releaseUrl: z.string().nullable(),
+  reachable: z.boolean(),
+  /** Why it could not be reached, in words. Null when it succeeded. */
+  message: z.string().nullable(),
+});
+export type UpdateCheck = z.infer<typeof updateCheckSchema>;

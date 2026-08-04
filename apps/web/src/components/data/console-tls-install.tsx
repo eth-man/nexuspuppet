@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, ShieldAlert, Upload } from 'lucide-react';
+import { CheckCircle2, Info, Loader2, ShieldAlert, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { PemInput } from '@/components/ui/pem-input';
+import { InfoHint } from '@/components/ui/info-hint';
 import {
   type CertificateIdentity,
   InstallError,
@@ -163,10 +163,6 @@ export function ConsoleTlsInstall() {
     <div className="space-y-3 border-t border-line-soft pt-3">
       <div>
         <p className="text-xs font-semibold text-ink">Install a new certificate</p>
-        <p className="mt-1 max-w-prose text-[11px] text-ink-faint">
-          {'The key is uploaded directly to the certificate installer, not to the API. '}
-          {'Paste the full chain if you have one — the leaf must come first.'}
-        </p>
       </div>
 
       {phase.name === 'confirming' ? (
@@ -183,37 +179,49 @@ export function ConsoleTlsInstall() {
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field id="tls-cert" label="Certificate (PEM)" hint="Leaf first, then any issuers.">
-              <Textarea
-                id="tls-cert"
-                rows={5}
-                className="font-mono text-[11px]"
-                placeholder="-----BEGIN CERTIFICATE-----"
-                value={certificate}
-                onChange={(e) => setCertificate(e.target.value)}
-              />
-            </Field>
-            <Field
-              id="tls-key"
-              label="Private key (PEM)"
-              hint="Must not be passphrase-protected — the proxy has nowhere to keep one."
-            >
-              <Textarea
-                id="tls-key"
-                rows={5}
-                className="font-mono text-[11px]"
-                // Deliberately not the literal PEM banner. CI greps the tree for one
-                // to catch a committed key, and a placeholder that trips that guard is
-                // a reason to change the placeholder — never the guard.
-                placeholder="The PEM private key for that certificate"
-                value={privateKey}
-                onChange={(e) => setPrivateKey(e.target.value)}
-              />
-            </Field>
+            <PemInput
+              label="Certificate"
+              accept=".pem,.crt,.cer"
+              value={certificate}
+              onChange={setCertificate}
+              placeholder="-----BEGIN CERTIFICATE-----"
+              constraints={['Leaf first, then any issuers']}
+              tooltip={
+                <InfoHint
+                  label="About the certificate file"
+                  text="If your CA gave you a chain, include it in this one file with the leaf certificate first. A missing intermediate is the usual cause of a browser rejecting an otherwise valid certificate."
+                />
+              }
+            />
+            <PemInput
+              label="Private key"
+              accept=".key,.pem"
+              value={privateKey}
+              onChange={setPrivateKey}
+              // Deliberately not the literal PEM banner. CI greps the tree for one
+              // to catch a committed key, and a placeholder that trips that guard is
+              // a reason to change the placeholder — never the guard.
+              placeholder="The PEM private key for that certificate"
+              constraints={['Not passphrase-protected', 'Must match the certificate']}
+              tooltip={
+                <InfoHint
+                  label="About the private key file"
+                  text="A passphrase-protected key cannot be used: the proxy would have to be given the passphrase on every start, and there is nowhere to keep it that is safer than not encrypting the key at all."
+                />
+              }
+            />
           </div>
 
-          <div className="flex items-start gap-2 rounded border border-state-pending/40 bg-state-pending/10 p-2">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-state-pending" aria-hidden />
+          {/*
+            Guidance, not an alarm.
+            
+            Amber said "something is wrong" about a sentence describing the
+            safety net working correctly — the operator has not made a mistake
+            and nothing has failed. It is the most reassuring thing on the
+            screen and was styled as the most alarming.
+          */}
+          <div className="flex items-start gap-2 rounded border border-accent/30 bg-accent/10 p-2">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
             <p className="text-[11px] text-ink-muted">
               <span className="font-semibold text-ink">Keep this tab open.</span>
               {' The new certificate is installed immediately but kept only if this browser can '}
@@ -331,26 +339,6 @@ function Failed({
       <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>
         Try again
       </Button>
-    </div>
-  );
-}
-
-function Field({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      <p className="text-[11px] text-ink-faint">{hint}</p>
     </div>
   );
 }

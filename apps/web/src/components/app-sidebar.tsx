@@ -9,13 +9,17 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  Monitor,
+  Moon,
   Server,
   Settings,
+  Sun,
   Layers,
 } from 'lucide-react';
 import type { Permission } from '@nexuspuppet/contracts';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth-provider';
+import { useTheme, type ThemePreference } from '@/providers/theme-provider';
 
 /**
  * Primary navigation.
@@ -126,6 +130,8 @@ export function AppSidebar() {
           </div>
         )}
 
+        <ThemeControl collapsed={collapsed} />
+
         <button
           type="button"
           onClick={() => void logout()}
@@ -150,5 +156,74 @@ export function AppSidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Light / dark / follow-the-system, in the sidebar footer.
+ *
+ * Three explicit states rather than a two-way flip. A flip cannot express
+ * "follow my machine", so choosing it once would silently opt somebody out of
+ * their OS switching at sunset, with no way back short of clearing site data.
+ *
+ * Collapsed, it becomes a single cycling button: there is no room for three
+ * targets, and the icon still says which state is current.
+ */
+function ThemeControl({ collapsed }: { collapsed: boolean }) {
+  const { preference, resolved, setPreference } = useTheme();
+
+  const options: Array<{ value: ThemePreference; icon: typeof Sun; label: string }> = [
+    { value: 'light', icon: Sun, label: 'Light' },
+    { value: 'dark', icon: Moon, label: 'Dark' },
+    { value: 'system', icon: Monitor, label: 'System' },
+  ];
+
+  if (collapsed) {
+    const next: ThemePreference =
+      preference === 'light' ? 'dark' : preference === 'dark' ? 'system' : 'light';
+    const Icon = preference === 'system' ? Monitor : resolved === 'light' ? Sun : Moon;
+
+    return (
+      <button
+        type="button"
+        onClick={() => setPreference(next)}
+        title={`Theme: ${preference}. Switch to ${next}.`}
+        aria-label={`Theme: ${preference}. Switch to ${next}.`}
+        className="mb-0.5 flex h-8 w-full items-center justify-center rounded text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+      >
+        <Icon className="size-4 shrink-0" aria-hidden />
+      </button>
+    );
+  }
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Theme"
+      className="mb-1 flex gap-0.5 rounded border border-line-soft p-0.5"
+    >
+      {options.map(({ value, icon: Icon, label }) => {
+        const active = preference === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={label}
+            title={label}
+            onClick={() => setPreference(value)}
+            className={cn(
+              'flex h-6 flex-1 items-center justify-center rounded transition-colors',
+              active
+                ? 'bg-accent/15 text-accent'
+                : 'text-ink-faint hover:bg-panel-raised hover:text-ink',
+            )}
+          >
+            <Icon className="size-3.5" aria-hidden />
+          </button>
+        );
+      })}
+    </div>
   );
 }

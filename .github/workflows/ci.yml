@@ -247,6 +247,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run format:check
+      # Palette contrast, measured rather than eyeballed (issue #72). Lives with
+      # formatting because it needs no database, no browser and no build — it
+      # reads globals.css and does arithmetic.
+      - run: npm run qa:contrast
 
   licenses:
     name: Dependency licences

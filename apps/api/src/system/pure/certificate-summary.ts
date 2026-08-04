@@ -54,6 +54,18 @@ export function summariseCertificate(pem: string, now: Date): CertificateSummary
     // is enough for the one thing this drives — telling an operator whether the
     // browser warning they are seeing is the expected private-CA one.
     selfSigned: certificate.issuer === certificate.subject,
+    /*
+     * A placeholder this deployment generated for itself (ADR-0013).
+     *
+     * Detected from the marker cert-helper writes into the subject, because
+     * that is the only thing that distinguishes it: one we generated and one
+     * an operator deliberately self-signed are otherwise identical, and the
+     * console should say "replace this" about the first and nothing about
+     * the second.
+     */
+    temporary:
+      certificate.issuer === certificate.subject &&
+      /NexusPuppet temporary self-signed/i.test(certificate.subject),
   };
 }
 

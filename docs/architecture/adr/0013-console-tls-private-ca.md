@@ -146,3 +146,72 @@ None remain. Every question below was resolved during implementation; they are k
    A browser that has seen HSTS refuses plain HTTP to that host for the whole `max-age`, regardless of what the server later says. That turns "drop to HTTP for ten minutes to find out why the proxy is routing wrongly" into a per-browser cache-clearing exercise, during an incident. It is trivial to enable at an edge or load balancer, where whoever turns it on also owns the rollback — so it belongs there, not in a default we ship. The Caddyfile carries a commented one-liner for operators who want it anyway.
 
    The HTTP→HTTPS **redirect** stays on: it is reversible, and serving the console unencrypted by accident is the failure it prevents.
+
+---
+
+## Amendment — self-signed fallback on an empty first run
+
+**Status:** Accepted, superseding the "not automatic issuance" note above in one
+narrow case.
+
+The original decision said no ACME, no CA integration, no auto-issue, and that
+automatic issuance was "a plausible follow-on and a poor thing to design
+speculatively". Two of those still hold. The third stopped being speculative.
+
+### What went wrong
+
+A first run against an empty `/etc/nexuspuppet/tls` does not start. Caddy is
+handed `live/console.pem` and there is nothing there, so `docker compose
+--profile tls up` fails — and the operator's remaining options are to run
+`puppetserver ca generate` (which needs a Puppet CA and root), or to bring the
+console up without the `tls` profile, on plain HTTP.
+
+That second option is the problem. It is the path of least resistance from a
+failed start, it is reachable by an operator who has not yet read §7, and it
+serves a login form over cleartext. An appliance that answers a fresh install by
+either crashing or falling back to unencrypted HTTP has chosen the two worst
+outcomes available to it.
+
+This was found by rebuilding the VM from nothing and noticing that the install
+only succeeded because the previous certificate had been preserved. Nothing in
+the test suite covered it: every environment that runs the stack already has a
+certificate on disk, so the empty case had never been executed.
+
+### Decision
+
+**cert-helper generates a self-signed certificate when, and only when, the TLS
+directory holds nothing it can serve.** The order at boot is: adopt an existing
+`console.pem`/`console.key` if present, else generate. An operator who has put a
+certificate there always keeps it; generation is reachable only from empty.
+
+The certificate carries `O=NexusPuppet temporary self-signed` in its subject.
+That is not decoration: a certificate that is self-signed because we made one and
+a certificate that is self-signed because the operator meant it look identical
+otherwise, and the console has to be able to say "replace this" about the first
+without nagging about the second. `CertificateSummary.temporary` is derived from
+that marker, and the console leads with it.
+
+It is a real certificate with the console's hostname in the SAN, five-year
+validity, and a 2048-bit RSA key — long-lived deliberately, because a fallback
+that expires turns a working console into a broken one at a date nobody wrote
+down.
+
+### What this costs
+
+**A browser warning on first contact.** Accepted. The alternative on offer was
+not "no warning" — it was "no encryption", or "no console". A warning is a thing
+an operator can read, understand, and fix by installing their own certificate;
+cleartext is a thing they do not notice.
+
+**`openssl` in the cert-helper image**, about 5 MB. Node has no
+certificate-signing API, and the alternative was a JavaScript X.509 library in
+the one component whose entire job is handling private keys. A binary from the
+distribution, invoked with a fixed argument list through `execFile` and never a
+shell, is the smaller thing to trust.
+
+### What is still not done
+
+No ACME. No issuance from the Puppet CA. No renewal of anything. The product
+still expects an operator to install a certificate their organisation trusts,
+and still tells them when it is expiring — this only removes the state where
+there is nothing to serve at all.

@@ -99,11 +99,36 @@ function Body({ status }: { status: ConsoleTlsStatus }) {
   }
 
   if (status.error !== null || status.certificate === null) {
+    /*
+     * A STATUS, not a stack trace.
+     *
+     * This used to render the API's message verbatim, and that message carried
+     * the filesystem path — so an end user was shown
+     * `/etc/nexuspuppet/tls/console.pem`, which they cannot reach, cannot fix,
+     * and did not need in order to understand that no certificate is
+     * installed. The path is still logged by the API, where somebody with
+     * shell access reads it.
+     */
+    const detail =
+      status.errorCode === 'missing'
+        ? 'If the console is already reachable over HTTPS, the proxy has one and this service has not been given a copy — only the expiry reporting here is affected. Otherwise, install one below.'
+        : status.errorCode === 'unparsable'
+          ? 'The file the console was given is not a certificate it can read. Replacing it below is the fix.'
+          : 'The certificate could not be read. This is usually a file permission on the server.';
+
     return (
-      <p className="flex items-start gap-1.5 text-state-failed">
-        <AlertTriangle className="mt-px shrink-0" size={13} aria-hidden />
-        <span>{status.error ?? 'The certificate could not be read.'}</span>
-      </p>
+      <div className="space-y-1">
+        <p className="flex items-start gap-1.5 text-state-failed">
+          <AlertTriangle className="mt-px shrink-0" size={13} aria-hidden />
+          <span>
+            <span className="font-medium">Status:</span>{' '}
+            {status.errorCode === 'missing'
+              ? 'No certificate visible to the console'
+              : 'Certificate unreadable'}
+          </span>
+        </p>
+        <p className="pl-[18px] text-ink-muted">{detail}</p>
+      </div>
     );
   }
 
@@ -148,14 +173,31 @@ function Body({ status }: { status: ConsoleTlsStatus }) {
         </Note>
       )}
 
-      {cert.selfSigned && (
-        <p className="flex items-start gap-1.5 text-ink-faint">
-          <Lock className="mt-px shrink-0" size={13} aria-hidden />
-          <span>
-            Self-signed, or issued by a CA this host does not chain to. Browsers warn until your
-            CA&apos;s certificate is installed on the machines that use the console.
-          </span>
-        </p>
+      {/*
+        A placeholder we generated, versus one the operator chose.
+        
+        Both are self-signed and look identical in the certificate itself, so
+        the API distinguishes them by the marker cert-helper writes into the
+        subject (ADR-0013). Saying "replace this" about somebody's deliberate
+        choice would be nagging; not saying it about our own placeholder would
+        leave a deployment on it indefinitely.
+      */}
+      {cert.temporary ? (
+        <Note tone="pending">
+          <span className="font-medium">Status: temporary self-signed certificate.</span> This
+          console generated one for itself at first start so the connection is encrypted from the
+          beginning. Browsers will warn until you install a certificate your organisation trusts.
+        </Note>
+      ) : (
+        cert.selfSigned && (
+          <p className="flex items-start gap-1.5 text-ink-faint">
+            <Lock className="mt-px shrink-0" size={13} aria-hidden />
+            <span>
+              Self-signed, or issued by a CA this host does not chain to. Browsers warn until your
+              CA&apos;s certificate is installed on the machines that use the console.
+            </span>
+          </p>
+        )
       )}
     </>
   );

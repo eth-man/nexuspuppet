@@ -38,6 +38,7 @@ import { ConflictReportService } from './classification/conflict-report.service'
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
 import { ConsoleTlsService } from './system/console-tls.service';
+import { DeploymentService } from './system/deployment.service';
 import { ConsoleTlsGrantService } from './system/console-tls-grant.service';
 import {
   AuditDeliveryWorker,
@@ -87,6 +88,16 @@ import type {
  * A token with no core default would mean the product is incomplete without
  * the enterprise layer, which ADR-0002 forbids.
  */
+/**
+ * The running version.
+ *
+ * From the environment, set at image build from the package manifest, rather
+ * than reading the manifest at runtime: the runtime image ships compiled
+ * output and its own trimmed package.json, and a relative path into it from
+ * `dist/` is a thing that breaks quietly the next time the build layout moves.
+ */
+const PACKAGE_VERSION: string = process.env['NEXUSPUPPET_VERSION'] ?? '0.0.0-dev';
+
 @Module({})
 export class AppModule {
   static async bootstrap(): Promise<DynamicModule> {
@@ -295,6 +306,17 @@ export class AppModule {
           provide: ConsoleTlsService,
           useFactory: (): ConsoleTlsService =>
             new ConsoleTlsService(env.CONSOLE_TLS_CERT_PATH ?? null, env.CONSOLE_HOSTNAME ?? null),
+        },
+        {
+          provide: DeploymentService,
+          inject: [PrismaService],
+          /*
+           * The version is read HERE, from the package manifest, rather than
+           * inside the service — so a build that ships without one fails at
+           * boot instead of reporting "unknown" on a card nobody looks at twice.
+           */
+          useFactory: (prisma: PrismaService): DeploymentService =>
+            new DeploymentService(prisma, PACKAGE_VERSION),
         },
         {
           provide: ConsoleTlsGrantService,

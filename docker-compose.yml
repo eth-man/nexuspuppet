@@ -24,6 +24,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      # One flag, in .env, instead of four hand edits to the Dockerfile.
+      #   EDITION=enterprise   docker compose build api
+      args:
+        EDITION: ${EDITION:-core}
     restart: unless-stopped
     depends_on:
       db:
@@ -60,6 +64,9 @@ services:
       ENC_OUTPUT_DIR: /srv/nexuspuppet/enc
       # Reporting only, and optional. Unset means "TLS terminates somewhere I
       # cannot see", which is the normal state and not an error (ADR-0013).
+      # Reported on the Settings screen. Defaults so a checkout without it
+      # says so plainly rather than claiming a version it is not.
+      NEXUSPUPPET_VERSION: ${NEXUSPUPPET_VERSION:-0.0.0-dev}
       CONSOLE_TLS_CERT_PATH: ${CONSOLE_TLS_CERT_PATH:-}
       CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
     volumes:

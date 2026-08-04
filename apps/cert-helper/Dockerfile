@@ -31,6 +31,14 @@ ENV NODE_ENV=production
 # uid 100 by the install guide, and this process must be able to write it — a
 # base-image bump that shifted the number would leave certificate installation
 # failing with a permission error nobody had changed anything to cause.
+# openssl, for the self-signed fallback on an empty first run (ADR-0013).
+#
+# Node has no certificate-signing API. The alternative was a JavaScript X.509
+# library inside the one component whose whole job is handling private keys; a
+# binary from the distribution, invoked through execFile with a fixed argument
+# list and never a shell, is the smaller thing to trust.
+RUN apk add --no-cache openssl
+
 RUN addgroup -S -g 101 app && adduser -S -u 100 -G app app
 
 # node_modules comes from the build stage. Worth noting what is NOT here: this

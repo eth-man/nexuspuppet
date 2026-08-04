@@ -62,7 +62,12 @@ describe('user administration (integration)', () => {
       accessTtl: '15m',
       refreshTtl: '30d',
     });
-    users = new UsersService(prisma, new PrismaAuditSink(prisma), tokens, provider);
+    users = new UsersService(
+      prisma,
+      new PrismaAuditSink(prisma),
+      tokens,
+      new AuthProviderResolver([provider], prisma, 0),
+    );
   });
 
   const makeUser = async (email: string, role: 'VIEWER' | 'OPERATOR' | 'ADMIN', isActive = true) =>
@@ -836,7 +841,67 @@ describe('user administration (integration)', () => {
 
     let ldapUsers: UsersService;
     beforeEach(() => {
-      ldapUsers = new UsersService(prisma, new PrismaAuditSink(prisma), tokens, externalProvider);
+      ldapUsers = new UsersService(
+        prisma,
+        new PrismaAuditSink(prisma),
+        tokens,
+        new AuthProviderResolver([provider, externalProvider], prisma, 0),
+      );
+    });
+
+    /**
+     * The regression that broke enterprise on a real deployment.
+     *
+     * The guard compared the requested authSource against a single injected
+     * AUTH_PROVIDER, which was right until ADR-0015 made registration additive
+     * and wrong immediately after. A hybrid deployment logged "Authentication
+     * sources: ldap, local" at boot and then refused to provision an ldap
+     * account, saying no provider answered to it — so no directory user could
+     * be created, and every directory login failed with a silent 401 because
+     * there was no row to dispatch on.
+     *
+     * Nothing caught it because every existing test built the service with ONE
+     * provider, which is the only shape where the old check was correct.
+     */
+    it('provisions an account for any registered provider, not just the first', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      const created = await ldapUsers.create(
+        {
+          email: 'directory-person@example.com',
+          displayName: 'Directory Person',
+          role: 'VIEWER',
+          authSource: 'ldap',
+        },
+        principalFor(admin),
+        CTX,
+      );
+
+      expect(created.authSource).toBe('ldap');
+    });
+
+    it('still refuses a source nothing answers to, and names what does', async () => {
+      const admin = await makeUser('admin@example.com', 'ADMIN');
+
+      const error = await ldapUsers
+        .create(
+          {
+            email: 'saml-person@example.com',
+            displayName: 'SAML Person',
+            role: 'VIEWER',
+            authSource: 'saml',
+          },
+          principalFor(admin),
+          CTX,
+        )
+        .catch((caught: unknown) => caught);
+
+      const message = String((error as Error).message);
+      expect(message).toContain('saml');
+      // The list is the useful half: "not saml" is not actionable; "this
+      // deployment has ldap, local" is.
+      expect(message).toContain('ldap');
+      expect(message).toContain('local');
     });
 
     it('creates an account with no password hash', async () => {

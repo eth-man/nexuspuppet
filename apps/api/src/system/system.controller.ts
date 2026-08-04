@@ -1,9 +1,15 @@
-import { Controller, Get, Post, Req } from '@nestjs/common';
-import type { ConsoleTlsStatus, SystemStatus } from '@nexuspuppet/contracts';
+import { Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import type {
+  ConsoleTlsStatus,
+  DeploymentInfo,
+  SystemStatus,
+  UpdateCheck,
+} from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SystemStatusService } from './system-status.service';
 import { ConsoleTlsService } from './console-tls.service';
 import { ConsoleTlsGrantService } from './console-tls-grant.service';
+import { DeploymentService } from './deployment.service';
 
 /**
  * Operational status for the console.
@@ -20,6 +26,7 @@ export class SystemController {
     private readonly status: SystemStatusService,
     private readonly tls: ConsoleTlsService,
     private readonly grants: ConsoleTlsGrantService,
+    private readonly deploymentService: DeploymentService,
   ) {}
 
   /**
@@ -29,6 +36,31 @@ export class SystemController {
    * and collector hostnames, which is infrastructure detail a viewer should not
    * acquire from a dashboard card.
    */
+  /**
+   * What this deployment is. Cheap, and safe for anyone who can see the
+   * dashboard: a version, a clock and one database round trip.
+   */
+  @RequirePermission('inventory:read')
+  @Get('deployment')
+  deployment(): Promise<DeploymentInfo> {
+    return this.deploymentService.info();
+  }
+
+  /**
+   * POST, and administrator-only, because it REACHES THE INTERNET.
+   *
+   * A GET invites a browser, a proxy or a prefetcher to make it happen without
+   * anybody asking — and the entire point of this endpoint is that the outbound
+   * call only ever happens when an operator presses the button. The verb is the
+   * cheapest way to say that to every intermediary at once.
+   */
+  @RequirePermission('settings:manage')
+  @Post('update-check')
+  @HttpCode(HttpStatus.OK)
+  updateCheck(): Promise<UpdateCheck> {
+    return this.deploymentService.checkForUpdates();
+  }
+
   @RequirePermission('inventory:read')
   @Get('status')
   get(@Req() request: AuthenticatedRequest): Promise<SystemStatus> {

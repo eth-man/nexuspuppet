@@ -26,6 +26,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     this.logger.log('Database connection established.');
   }
 
+  /**
+   * One round trip, for the health indicator on the Settings screen.
+   *
+   * A real query rather than a flag: the client reports itself connected long
+   * after the database has gone away, because the pool only finds out on the
+   * next statement. An indicator reading a cached boolean is green during
+   * exactly the incident it exists to reveal.
+   *
+   * Raw SQL, and therefore here — ADR-0005 confines it to this service, and
+   * `SELECT 1` is the canonical case for that exception.
+   */
+  async ping(): Promise<void> {
+    await this.$queryRaw`SELECT 1`;
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
   }
