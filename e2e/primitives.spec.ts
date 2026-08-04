@@ -56,10 +56,17 @@ test.describe('primitives', () => {
     await expect(url).toBeVisible();
     await expect(url).toBeDisabled();
 
-    for (const name of ['Save', 'Test connection']) {
-      const button = page.getByRole('button', { name: new RegExp(`^${name}`) }).first();
-      await expect(button).toBeVisible();
-      await expect(button).toBeDisabled();
+    /*
+     * ABSENT, not merely disabled.
+     *
+     * The action bar sits outside the fieldset now — it has to, or the Edit
+     * button disables itself — so a disabled bar in core would depend on props
+     * rather than on the browser. Not rendering it is the stronger guarantee
+     * and the simpler one: there is nothing to act on, so there are no
+     * actions.
+     */
+    for (const name of ['Save', 'Test connection', 'Edit settings']) {
+      await expect(page.getByRole('button', { name: new RegExp(`^${name}`) })).toHaveCount(0);
     }
 
     await expect(page.getByRole('switch', { name: /Verify the directory/i })).toBeDisabled();
