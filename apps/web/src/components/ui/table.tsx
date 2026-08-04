@@ -23,7 +23,10 @@ import { cn } from '@/lib/utils';
  */
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
   return (
-    <table className={cn('w-full border-collapse bg-surface text-sm', className)} {...props} />
+    <table
+      className={cn('w-full border-collapse bg-surface glass-surface text-sm', className)}
+      {...props}
+    />
   );
 }
 

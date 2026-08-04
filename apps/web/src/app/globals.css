@@ -213,6 +213,43 @@ body {
   }
 }
 
+/**
+ * Content containers that let the canvas grid through (light theme only).
+ *
+ * An opaque container stops the grid dead at its edge, which reads as a block
+ * stamped onto the canvas rather than as something resting on it. At 80% with a
+ * short blur the lines carry under the content as texture instead of as rules —
+ * the same lines, no longer legible as geometry, which is the difference
+ * between a surface and a pattern showing through a window.
+ *
+ * LIGHT ONLY, and deliberately. Dark renders byte-for-byte what it rendered
+ * before the light theme existed, which is the constraint the whole palette was
+ * built under; a dark console gains nothing here and would risk panels reading
+ * as murky over a near-black canvas.
+ *
+ * NOT applied to the sticky table header, which stays opaque. It scrolls rows
+ * beneath itself, and a translucent sticky header shows the data sliding under
+ * it — a real defect, not a texture.
+ *
+ * Two classes rather than one taking a parameter: the base colour differs by
+ * container (a card is panel, a table is the canvas itself), and threading that
+ * through a custom property to save one selector would make both harder to read.
+ */
+:root[data-theme='light'] .glass-panel {
+  background-color: color-mix(in srgb, var(--color-panel) 80%, transparent);
+}
+
+:root[data-theme='light'] .glass-surface {
+  background-color: color-mix(in srgb, var(--color-surface) 70%, transparent);
+}
+
+@supports (backdrop-filter: blur(2px)) {
+  :root[data-theme='light'] .glass-panel,
+  :root[data-theme='light'] .glass-surface {
+    backdrop-filter: blur(2px);
+  }
+}
+
 /* Dense scrollbars: default widths eat horizontal space in a wide inventory. */
 @supports (scrollbar-width: thin) {
   * {

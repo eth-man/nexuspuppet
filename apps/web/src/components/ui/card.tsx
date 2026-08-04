@@ -3,7 +3,12 @@ import { cn } from '@/lib/utils';
 
 /** Panel surface. One elevation step above the page background, no shadow. */
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('rounded border border-line-soft bg-panel', className)} {...props} />;
+  return (
+    <div
+      className={cn('rounded border border-line-soft bg-panel glass-panel', className)}
+      {...props}
+    />
+  );
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
