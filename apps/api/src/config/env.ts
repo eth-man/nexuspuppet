@@ -114,7 +114,11 @@ export const envSchema = z.object({
    */
   PUPPETDB_PROJECTED_FACTS: z
     .string()
-    .default('os,networking,processors,memory,virtual,is_virtual,kernel')
+    .default(
+      // Keep in step with .env.example, which explains the choices. A
+      // deployment that never copies that file still gets this.
+      'role,profile,tier,datacenter,location,application,tenant,cluster,trusted,clientcert,fips_enabled,os,kernel,kernelrelease,timezone,system_uptime,networking,processors,memory,virtual,is_virtual,dmi,disks',
+    )
     .transform((raw) =>
       raw
         .split(',')

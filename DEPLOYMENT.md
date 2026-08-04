@@ -447,7 +447,7 @@ projected for rule evaluation. Add the custom facts *your* estate reports —
 but only if a module on your nodes actually supplies them:
 
 ```ini
-PUPPETDB_PROJECTED_FACTS=os,networking,processors,memory,virtual,is_virtual,kernel,profile,tier
+PUPPETDB_PROJECTED_FACTS=role,profile,tier,datacenter,location,application,tenant,cluster,trusted,clientcert,fips_enabled,os,kernel,kernelrelease,timezone,system_uptime,networking,processors,memory,virtual,is_virtual,dmi,disks
 ```
 
 **Add only facts your nodes actually report.** A name nothing reports is not

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadEnv } from './env';
 
 const minimal = {
@@ -100,5 +102,45 @@ describe('loadEnv', () => {
     expect(loadEnv({ ...minimal, API_PORT: '8080' }).API_PORT).toBe(8080);
     expect(() => loadEnv({ ...minimal, API_PORT: 'abc' })).toThrow(/API_PORT/);
     expect(() => loadEnv({ ...minimal, API_PORT: '70000' })).toThrow(/API_PORT/);
+  });
+  /**
+   * The shipped default lives in two files, and only one of them is executable.
+   *
+   * `.env.example` is what an operator copies; the Zod default is what a
+   * deployment gets when it never copies anything. They drifted apart once
+   * already — the example was extended and the code default was not, so
+   * "the product default" was true only for people who happened to start from
+   * the example.
+   *
+   * Compared as SETS: the order in the file is grouped for a human reader and
+   * carries no meaning to the parser, so requiring the same sequence would fail
+   * for a reason nobody cares about.
+   */
+  it('ships the same projected-fact default in .env.example and in code', () => {
+    const example = readFileSync(join(__dirname, '../../../../.env.example'), 'utf8');
+    const line = example.split('\n').find((l) => l.startsWith('PUPPETDB_PROJECTED_FACTS='));
+    // Jest's expect takes no message argument — the name of the test carries it.
+    expect(line).toBeDefined();
+
+    const documented = new Set(
+      (line as string)
+        .split('=')[1]
+        ?.split(',')
+        .map((f) => f.trim()),
+    );
+    const actual = new Set(loadEnv(minimal).PUPPETDB_PROJECTED_FACTS);
+
+    expect(actual).toEqual(documented);
+  });
+
+  /**
+   * A dotted path here fetches nothing: this list selects which TOP-LEVEL facts
+   * are retrieved, and a rule addresses inside them afterwards. Getting it wrong
+   * is silent — the rule simply never matches — so it is worth a test rather
+   * than only a comment.
+   */
+  it('ships no dotted paths in the default, which would fetch nothing', () => {
+    const defaults = loadEnv(minimal).PUPPETDB_PROJECTED_FACTS;
+    expect(defaults.filter((f) => f.includes('.'))).toEqual([]);
   });
 });
