@@ -2,6 +2,24 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-08-04
+
+Appearance only. No behaviour, API or ENC contract changes; upgrading changes what the console looks like and nothing else.
+
+### Changed
+
+**A warm canvas, and a technical surface treatment for the light theme.** The background is parchment rather than near-white, overlaid with a faint two-axis grid derived from the line colour so it follows the theme. Cards and tables are translucent over it with a short backdrop blur, so the grid carries underneath as texture rather than stopping dead at each container edge. Light theme only — dark renders exactly as it did.
+
+**Tags and run states are monospaced.** Environments, class names and statuses are set in uppercase mono: they are values the system produced, and they now look like it. Presentation only — the underlying text is unchanged, so anything reading a badge's label still sees the original string.
+
+**Destructive actions are filled rather than tinted.** A delete button was a wash of the failed-run colour, which gave "delete this permanently" the same weight as a row that failed its last run. Critical actions now use a dedicated fill: the same hue in the role of an action, distinguished from the status by treatment.
+
+### Fixed
+
+**Amber run states no longer sit under the contrast floor on the light canvas.** Warming the background lowered its luminance and took the pending state to 4.48:1, below the 4.5 WCAG minimum. It is 4.79:1 on the canvas and 5.40:1 on a card.
+
+**The sticky table header stays opaque** while the table around it is translucent, so scrolling rows do not show through the column labels.
+
 ## [1.1.0] — 2026-08-04
 
 ### Added
