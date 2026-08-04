@@ -2,6 +2,38 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-08-04
+
+### Added
+
+**A light theme, and a theme control.** The console defaults to dark and stays there unless asked otherwise — following the operating system is opt-in and is remembered. Contrast is checked in CI against WCAG thresholds rather than by eye.
+
+**Card and control primitives.** Fields, hints, switches and action bars are shared components now, so a label stays associated with its control and a sub-task cannot drift back into the row holding Save.
+
+**A rebuilt directory settings screen.** Grouped into cards by the decision each one asks you to make, with an empty state instead of a blank form, guidance reachable from the keyboard, and connection testing that reports into its own panel rather than beside Save.
+
+**Deployment metrics.** Version, uptime, and database health, with an update check that runs only when you press it. Nothing contacts the internet unprompted, and being offline is reported as a normal result rather than an error — an air-gapped deployment is not a broken one.
+
+**A self-signed fallback for the console certificate.** A first run with no certificate generates a placeholder that names itself as temporary, so the console serves HTTPS instead of failing to start. It is replaced through the same path as any other certificate.
+
+**Custom roles.** Roles are rows rather than an enum, permissions are described in the console in words, and built-in roles are immutable — duplicate one to make a variant.
+
+### Changed
+
+**Core sees the real directory form, disabled.** It used to be a teaser card. Rendering the actual form, inert, with one quiet line explaining why, shows what the feature is without letting anyone fill in six fields, save, and discover later that nothing ran.
+
+**The directory settings are locked until you ask to change them.** They render read-only with an explicit Edit, and a save states what it is about to change before it changes it.
+
+**One build flag selects the edition.** `EDITION=enterprise` replaces four hand edits to the Dockerfile that had to be made together — making three of them produced an image that built, started, and silently ran core.
+
+### Fixed
+
+**A user's role name and role key could drift apart.** A directory sign-in that changed somebody's role updated the name the console displays but not the key every count and guard reads. The visible symptom was a Roles screen crediting the wrong role with the wrong number of people. The quiet one mattered more: the last-administrator guard counts through that key, so an administrator whose key was stale did not count as an administrator, and the guard was protecting a set that did not include them. Deployments are repaired automatically on upgrade.
+
+**The console reported `0.0.0-dev` regardless of what it was running.** The version came from an environment variable that no build ever set. Images now stamp their own version at build time.
+
+**The enterprise image could not be built from a clean checkout.** It required a lockfile that had been mutated locally, which is not a change that can be committed.
+
 ## [1.0.0] — 2026-07-31
 
 First stable release. The console has been installed on real Puppet and OpenVox estates, and the API and ENC contract are now covered by semantic versioning.

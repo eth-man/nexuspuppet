@@ -64,9 +64,12 @@ services:
       ENC_OUTPUT_DIR: /srv/nexuspuppet/enc
       # Reporting only, and optional. Unset means "TLS terminates somewhere I
       # cannot see", which is the normal state and not an error (ADR-0013).
-      # Reported on the Settings screen. Defaults so a checkout without it
-      # says so plainly rather than claiming a version it is not.
-      NEXUSPUPPET_VERSION: ${NEXUSPUPPET_VERSION:-0.0.0-dev}
+      # Reported on the Settings screen. NO DEFAULT: the image stamps its own
+      # version at build time, and a default here would override it with
+      # `0.0.0-dev` on every deployment that had not hand-set the variable —
+      # which was every deployment. Passed through only when an operator has
+      # deliberately set it.
+      NEXUSPUPPET_VERSION: ${NEXUSPUPPET_VERSION:-}
       CONSOLE_TLS_CERT_PATH: ${CONSOLE_TLS_CERT_PATH:-}
       CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
     volumes:

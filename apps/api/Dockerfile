@@ -134,9 +134,20 @@ RUN npm run build --workspace @nexuspuppet/contracts \
  && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
-# The version the console reports. Read from the manifest at BUILD time,
-# where it is present, and carried into the image as an environment
-# variable so nothing has to find a JSON file at runtime.
+# The version the image reports, taken from the root manifest at BUILD time.
+#
+# This is what the comment above `PACKAGE_VERSION` always claimed happened and
+# what nothing actually did: the version came from an environment variable that
+# no build set, so every image reported `0.0.0-dev` — including the one running
+# in front of customers — until somebody remembered to hand-write it into .env.
+#
+# A file rather than an ENV baked from an ARG, because an ARG would have to be
+# passed in, which is the hand-editing this removes. A file rather than reading
+# package.json at runtime, because the runtime layout is `dist/` and a relative
+# path into a trimmed manifest is the fragile thing the original comment was
+# right to avoid. This path is fixed by the two lines that create and copy it.
+RUN node -p "require('./package.json').version" > /repo/VERSION
+
 FROM node:22-alpine AS assembled
 WORKDIR /app
 ENV NODE_ENV=production
@@ -168,6 +179,8 @@ COPY --from=build /repo/apps/api/prisma ./prisma
 # needs transpiling.
 COPY --from=build /repo/apps/api/prisma.config.ts ./
 COPY --from=build /repo/apps/api/package.json ./
+# Read at boot by app.module.ts. An absolute, Dockerfile-controlled path.
+COPY --from=build /repo/VERSION ./VERSION
 
 # --- edition selection: the built layer -------------------------------------
 FROM assembled AS runtime-core

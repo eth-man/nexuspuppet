@@ -38,6 +38,7 @@ import { ConflictReportService } from './classification/conflict-report.service'
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
 import { ConsoleTlsService } from './system/console-tls.service';
+import { readFileSync } from 'node:fs';
 import { DeploymentService } from './system/deployment.service';
 import { ConsoleTlsGrantService } from './system/console-tls-grant.service';
 import {
@@ -89,14 +90,43 @@ import type {
  * the enterprise layer, which ADR-0002 forbids.
  */
 /**
- * The running version.
+ * The running version, as the console reports it.
  *
- * From the environment, set at image build from the package manifest, rather
- * than reading the manifest at runtime: the runtime image ships compiled
- * output and its own trimmed package.json, and a relative path into it from
- * `dist/` is a thing that breaks quietly the next time the build layout moves.
+ * Three sources, in order, and the order is the point:
+ *
+ *   1. NEXUSPUPPET_VERSION, for an operator who genuinely needs to override it.
+ *   2. The VERSION file the image build writes from the root manifest.
+ *   3. `0.0.0-dev`, which now means what it says — not built from an image.
+ *
+ * It used to be (1) then (3), and nothing wrote (1). Every image ever built
+ * reported `0.0.0-dev`, production included, unless somebody hand-wrote the
+ * number into .env — and a version nobody maintains is worse than none, because
+ * "am I on the version with the fix?" gets a confident wrong answer.
+ *
+ * A file, not the manifest: the runtime image ships compiled output and a
+ * trimmed package.json, and a relative path into it from `dist/` breaks quietly
+ * the next time the build layout moves. This path is absolute and is created by
+ * the same Dockerfile that copies it.
+ *
+ * An empty string counts as absent. Compose passes the whole of .env through,
+ * and `NEXUSPUPPET_VERSION=` in a file is somebody clearing it, not somebody
+ * asking to be called "".
  */
-const PACKAGE_VERSION: string = process.env['NEXUSPUPPET_VERSION'] ?? '0.0.0-dev';
+function resolveVersion(): string {
+  const override = process.env['NEXUSPUPPET_VERSION'];
+  if (override !== undefined && override.trim() !== '') return override.trim();
+
+  try {
+    const stamped = readFileSync('/app/VERSION', 'utf8').trim();
+    if (stamped !== '') return stamped;
+  } catch {
+    // Not running from the image — a dev run, or the test suite.
+  }
+
+  return '0.0.0-dev';
+}
+
+const PACKAGE_VERSION: string = resolveVersion();
 
 @Module({})
 export class AppModule {
