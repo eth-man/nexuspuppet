@@ -118,6 +118,23 @@ const TEXT_TOKENS = [
   ['color-accent-interactive', 3.0],
 ];
 
+/**
+ * Tokens used as a FILL behind fixed-colour text, rather than as text on a
+ * surface.
+ *
+ * A different shape from the loop above, which measures a foreground token over
+ * every surface. A filled control brings its own background, so the pair is
+ * fixed and whatever is underneath does not enter into it.
+ *
+ * `--color-critical` exists because this check has an answer: white on
+ * state-failed is 3.72:1 in dark, so a filled danger button reusing the status
+ * token would have shipped with a label nobody could read.
+ */
+const FILLED = [
+  // [background token, foreground literal, label, minimum]
+  ['color-critical', [1, 1, 1], 'white on color-critical (filled danger button)', 4.5],
+];
+
 /*
  * `color-line` and `color-line-soft` are deliberately NOT measured.
  *
@@ -191,6 +208,27 @@ for (const [themeName, palette] of [
             `(min ${minimum.toFixed(1)})  ${token} on ${surface}`,
         );
       }
+    }
+  }
+
+  for (const [bgToken, fgRgb, label, minimum] of FILLED) {
+    const bg = palette[bgToken];
+    if (bg === undefined) continue;
+
+    const ratio = contrast(fgRgb, bg);
+    const ok = ratio >= minimum;
+    const key = `${themeName} ${label}`;
+    const excused = !ok && BASELINE.has(key);
+
+    if (excused) known += 1;
+    else if (!ok) failures += 1;
+    if (excused) unseen.delete(key);
+
+    if (!ok || showAll) {
+      const mark = ok ? 'ok  ' : excused ? 'known' : 'FAIL';
+      console.log(
+        `  ${mark} ${ratio.toFixed(2).padStart(5)}:1 (min ${minimum.toFixed(1)})  ${label}`,
+      );
     }
   }
 

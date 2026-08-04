@@ -58,6 +58,38 @@
      Kept as an alias so there is one definition, not two that drift. */
   --color-accent: var(--color-accent-interactive);
 
+  /**
+   * The blueprint grid on the canvas.
+   *
+   * Derived from --color-line rather than hard-coded, so it follows the theme
+   * instead of being a third thing to keep in sync. Deliberately far below the
+   * contrast floor: it is texture, not information, and nothing is ever encoded
+   * in it. If it becomes legible enough to read, it is too strong.
+   */
+  --color-grid: color-mix(in oklab, var(--color-line) 30%, transparent);
+  --grid-size: 32px;
+
+  /**
+   * Critical ACTIONS — delete, revoke, force. Filled, not tinted.
+   *
+   * NOT a fourth hue. A burnt orange was asked for and measured first: the warm
+   * half of this palette is already occupied by state-failed and state-pending,
+   * 44.8° apart in dark and only 32.1° in light. Dropping an orange between them
+   * puts three warm colours inside that span — 11° from amber in the light theme
+   * — and a table can show a pending badge beside a destructive button. The
+   * palette moved accent from blue to indigo for exactly this reason; adding a
+   * hue nobody can separate would undo that argument in the other direction.
+   *
+   * So it is the failure hue, one step darker, in the role of an action. Same
+   * vocabulary — red still means "this is the dangerous one" — distinguished
+   * from the STATUS by treatment: status is a tint, an action is a fill.
+   *
+   * Darker than --color-state-failed on purpose. White on rose-500 is 3.72:1 and
+   * fails; at L 0.55 it is 5.40:1. A filled button whose label cannot be read is
+   * a worse outcome than a duller red.
+   */
+  --color-critical: oklch(0.55 0.208 25.3);
+
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   /* Facts, YAML, and run logs are read as data. Proportional type destroys the
@@ -136,12 +168,49 @@
   /* Still separated from state-changed by HUE (277 vs 263), not lightness —
      the same rule the dark palette follows, and for the same reason. */
   --color-accent-interactive: oklch(0.511 0.262 276.966); /* indigo-600 */
+
+  /* A shade stronger than dark's: the same alpha over parchment reads fainter
+     than over slate-950, so matching the NUMBER would not match the effect. */
+  --color-grid: color-mix(in oklab, var(--color-line) 42%, transparent);
+
+  /* rose-700 already carries white at 6.38:1, so light needs no separate step —
+     it is state-failed's own value, used as a fill rather than as a tint. */
+  --color-critical: oklch(0.514 0.222 16.935);
 }
 
 html,
 body {
   background-color: var(--color-surface);
   color: var(--color-ink);
+}
+
+/*
+ * The grid rides on BODY, not on a fixed overlay element.
+ *
+ * A `position: fixed` layer would sit above the canvas and need a z-index that
+ * every dialog, dropdown and sticky header then has to beat — one of those
+ * eventually loses. As a background image it is behind everything by
+ * construction, and panels paint over it because they carry their own
+ * background.
+ *
+ * It scrolls with the page for the same reason: a grid that stays still while
+ * content moves reads as a screen artefact rather than as the surface the
+ * content sits on.
+ */
+body {
+  background-image:
+    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+}
+
+/* Texture is decoration. Anyone who has asked the OS to reduce motion or who
+   reads with high-contrast settings gets a plain canvas rather than a pattern
+   competing with the text. */
+@media (prefers-contrast: more) {
+  body {
+    background-image: none;
+  }
 }
 
 /* Dense scrollbars: default widths eat horizontal space in a wide inventory. */

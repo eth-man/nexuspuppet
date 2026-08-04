@@ -29,8 +29,16 @@ const buttonVariants = cva(
          */
         outline: 'border border-line bg-transparent text-ink hover:bg-panel-raised',
         ghost: 'text-ink-muted hover:bg-panel-raised hover:text-ink',
-        danger:
-          'bg-state-failed/15 text-state-failed border border-state-failed/40 hover:bg-state-failed/25',
+        /*
+         * FILLED, not tinted. The one bold colour in the interface, spent only
+         * on actions that destroy something.
+         *
+         * It was a 15% wash of the status colour, which made "delete this
+         * permanently" the same weight as a row that happened to fail its last
+         * run. `--color-critical` is the same hue one step darker, so the
+         * meaning carries while the treatment separates an ACTION from a STATE.
+         */
+        danger: 'bg-critical text-white hover:bg-critical/90',
         link: 'text-accent underline-offset-2 hover:underline',
       },
       size: {
