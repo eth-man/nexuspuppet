@@ -6,9 +6,14 @@ import { stateStyle, type DisplayState } from '@/lib/status';
  * A tag: an environment, a class name, a count — something the system produced
  * rather than something a person wrote.
  *
- * MONOSPACED, and only the presentation changes. `text-transform` and
- * `font-family` do not touch the DOM, so the accessible name and every test
- * that locates a badge by its text still see exactly the string passed in.
+ * MONOSPACED and uppercased. `textContent` is untouched, so `getByText` and
+ * the accessible name still see the string that was passed in.
+ *
+ * `innerText` is NOT untouched — it reports RENDERED text, so a badge styled
+ * uppercase reads back as "FAILED" there. An inventory E2E assertion comparing
+ * `allInnerTexts()` against "Failed" caught this, having been written when the
+ * two were interchangeable. Anything reading a badge's label for comparison
+ * should use `textContent`, or compare case-insensitively.
  *
  * The tracking is not decoration: uppercase monospace at this size sets tightly
  * enough that a short identifier reads as one run of letters, and the extra

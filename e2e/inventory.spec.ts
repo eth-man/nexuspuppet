@@ -103,9 +103,16 @@ test.describe('inventory', () => {
     await expect(rows.first()).toBeVisible();
 
     // Every visible row must actually be failing, not merely fewer rows.
+    //
+    // Compared case-insensitively because state badges are styled
+    // `text-transform: uppercase`, and `innerText` reports RENDERED text —
+    // unlike `textContent`, which does not. The distinction is easy to get
+    // wrong: the DOM still holds "Failed", so `getByText('Failed')` matches
+    // while this assertion saw "FAILED". What the test cares about is that
+    // every row is the failed state, not which case it is drawn in.
     const statuses = await rows.locator('td:nth-child(2)').allInnerTexts();
     expect(statuses.length).toBeGreaterThan(0);
-    expect(new Set(statuses.map((s) => s.trim()))).toEqual(new Set(['Failed']));
+    expect(new Set(statuses.map((s) => s.trim().toLowerCase()))).toEqual(new Set(['failed']));
   });
 
   /**
