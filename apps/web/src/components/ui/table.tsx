@@ -9,8 +9,22 @@ import { cn } from '@/lib/utils';
  * it. Header is sticky because a long inventory is scrolled, not paged.
  */
 
+/**
+ * OPAQUE, deliberately.
+ *
+ * The canvas carries a faint grid, and a table with transparent rows let it
+ * show straight through the data — vertical rules landing mid-column, reading
+ * as phantom separators that do not line up with anything. Worse in motion:
+ * body does not scroll, so the lines sat still while the rows moved over them.
+ *
+ * `bg-surface` is the canvas colour, so this changes nothing visible except
+ * that the texture stops where the data starts. The grid is there to give empty
+ * canvas a material; it was never meant to be read through content.
+ */
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
-  return <table className={cn('w-full border-collapse text-sm', className)} {...props} />;
+  return (
+    <table className={cn('w-full border-collapse bg-surface text-sm', className)} {...props} />
+  );
 }
 
 export function THead({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
