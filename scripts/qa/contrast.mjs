@@ -185,14 +185,11 @@ const FILLED = [
  * and account for six of the eight.
  */
 const BASELINE = new Set([
-  'dark color-ink-faint on color-surface',
-  'dark color-ink-faint on color-panel',
-  'dark color-ink-faint on color-panel-raised',
-  'dark color-state-failed on color-panel-raised',
-  'dark color-state-changed on color-panel-raised',
-  'dark color-state-unknown on color-surface',
-  'dark color-state-unknown on color-panel',
-  'dark color-state-unknown on color-panel-raised',
+  // EMPTY, and the point is that it stays that way (#72 slice 5 paid the
+  // eight dark entries that sat here from the day this tool existed). A new
+  // failure now fails the run outright; there is no excuse list to hide in,
+  // and the stale-baseline check below fails the run if anyone re-adds an
+  // entry that does not correspond to a real failure.
 ]);
 
 const showAll = process.argv.includes('--all');

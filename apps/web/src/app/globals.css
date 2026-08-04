@@ -25,14 +25,27 @@
   /* Text */
   --color-ink: oklch(0.97 0.014 254.6); /* slate-100 */
   --color-ink-muted: oklch(0.71 0.035 256.8); /* slate-400 */
-  --color-ink-faint: oklch(0.55 0.041 257.4); /* slate-500 */
+  /*
+   * Lifted from slate-500 (#72 slice 5). At L 0.55 this cleared 4.5:1 on NO
+   * dark surface — 3.01:1 on panel-raised — and it carries timestamps and
+   * helper text, which people read. It sat in the contrast baseline as "known"
+   * from the day the tool existed; this slice is where that debt was paid
+   * rather than excused. Still a full step below ink-muted (0.71), so the
+   * three-level text hierarchy survives.
+   */
+  --color-ink-faint: oklch(0.66 0.041 257.4);
 
   /* Puppet run states. Fixed by the UI guidelines; do not add shades. */
-  --color-state-failed: oklch(0.64 0.208 25.3); /* rose-500 */
-  --color-state-changed: oklch(0.62 0.214 259.8); /* blue-500 */
+  /* rose-500 lifted half a step: 3.93:1 on panel-raised at L 0.64, 4.70:1
+     here. A failed run must be readable inside a raised card, which is exactly
+     where report detail shows it (#72 slice 5). */
+  --color-state-failed: oklch(0.685 0.208 25.3);
+  /* blue-500 lifted for the same reason as failed. Further from the indigo
+     accent than before (the distinctness check measures it), not closer. */
+  --color-state-changed: oklch(0.67 0.214 259.8);
   --color-state-unchanged: oklch(0.7 0.15 162.5); /* emerald-500 */
   --color-state-pending: oklch(0.77 0.16 70.1); /* amber-500 */
-  --color-state-unknown: oklch(0.55 0.041 257.4); /* slate-500 */
+  --color-state-unknown: oklch(0.66 0.041 257.4); /* matches ink-faint, deliberately */
 
   /**
    * Interactive chrome: active tab, primary button, toggle, focus ring, the
