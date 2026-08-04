@@ -10,9 +10,10 @@
 #   docker compose build api                      # core
 #   EDITION=enterprise docker compose build api   # enterprise
 #
-# The enterprise layer must already be fetched and `npm install` run on the
-# host: `npm ci` needs the lockfile to carry @nexuspuppet/enterprise, and this
-# argument cannot conjure that.
+# The enterprise layer must already be fetched into packages/enterprise —
+# `npm run enterprise:fetch`, or a clone with a deploy key. Nothing else is
+# needed on the host: the enterprise install stage resolves its own tree, so a
+# clean checkout builds with the flag alone.
 ARG EDITION=core
 
 FROM node:22-alpine AS deps
@@ -39,10 +40,8 @@ COPY apps/api/package.json apps/api/
 #   4. in the runtime stage, copy packages/enterprise/dist and its package.json,
 #      or the node_modules symlink copied from build points at nothing
 #
-# Run `npm run enterprise:fetch` AND `npm install` on the host first. `npm ci`
-# fails outright without the second — the committed lock file has no entry for
-# @nexuspuppet/enterprise:
-#   npm error Missing: @nexuspuppet/enterprise@0.1.0 from lock file
+# Fetching the layer is the only host step. The install stage below uses
+# `npm install` precisely so no lockfile surgery is needed — see the note there.
 #
 # For LDAP, also `npm install ldapts --workspace @nexuspuppet/enterprise`. It is
 # an optional peer dependency so an OIDC-only deployment does not pull an LDAP
@@ -85,11 +84,30 @@ FROM manifests AS install-core
 RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/api --include-workspace-root
 
 FROM manifests AS install-enterprise
+# `npm install`, not `npm ci`, and only in this stage.
+#
+# `npm ci` requires the lockfile to already describe every workspace, and the
+# committed lockfile cannot describe this one: @nexuspuppet/enterprise is
+# private and absent from every public clone, so an entry for it would break
+# `npm ci` for everyone who does not have the layer. The two requirements are
+# mutually exclusive, and `ci` is the one that has to give.
+#
+# This used to be `npm ci`, which meant the build only worked on a host whose
+# lockfile had been mutated by a prior `npm install` — an uncommittable local
+# change. It worked on the one machine that had it and failed on every clean
+# clone with "Missing: @nexuspuppet/enterprise@0.1.0 from lock file", which
+# makes `--build-arg EDITION=enterprise` alone insufficient and puts the
+# developer surgery back that the flag exists to remove.
+#
+# The reproducibility given up is smaller than it looks: core still resolves
+# through `npm ci` against the committed lockfile, and this stage installs the
+# same manifests pinned by the same version ranges.
+#
 # `ldapts` is an optional PEER dependency, so npm writes it to the lockfile and
 # to no package's `dependencies`. Installing it here means the image cannot be
 # built without it — which is the failure this used to have at runtime, on
 # every LDAP login, long after the build went green.
-RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/enterprise --workspace @nexuspuppet/api --include-workspace-root \
+RUN npm install --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/enterprise --workspace @nexuspuppet/api --include-workspace-root \
  && npm install ldapts --workspace @nexuspuppet/enterprise
 
 FROM install-${EDITION} AS installed
