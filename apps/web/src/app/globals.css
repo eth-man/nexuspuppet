@@ -134,13 +134,14 @@
    * the next one. The hex is named because it is what was asked for and what
    * anyone will search this file for.
    *
-   * This is the only surface that moves. `--color-panel` stays pure white, so
-   * cards now separate from the canvas on their own rather than relying on a
-   * border to be visible at all — which is why the borders below did not need
-   * to get heavier to compensate.
+   * Panels sit just above it on the same warm axis rather than at pure white.
+   * The two are close in lightness (0.958 vs 0.985) and share a hue, so a card
+   * still separates from the canvas by value while the whole surface family
+   * reads as one material instead of warm paper with white squares stuck on it.
    */
   --color-surface: oklch(0.9585 0.0098 87.5); /* #f4f1ea */
-  --color-panel: oklch(1 0 0); /* white */
+  /* Cards, the sidebar, table headers — everything using bg-panel. */
+  --color-panel: oklch(0.9848 0.0054 95.1); /* #fbfaf6 */
   --color-panel-raised: oklch(0.968 0.007 247.896); /* slate-100 */
   --color-line: oklch(0.869 0.022 252.894); /* slate-300 */
   --color-line-soft: oklch(0.929 0.013 255.508); /* slate-200 */
