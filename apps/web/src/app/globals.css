@@ -90,6 +90,23 @@
    */
   --color-critical: oklch(0.55 0.208 25.3);
 
+  /**
+   * The active sidebar item's pill.
+   *
+   * An OPAQUE value rather than `accent/8`, so it can be measured: an alpha
+   * over an unstated background is not a colour a contrast tool can check, and
+   * this one needed checking twice.
+   *
+   * 8% accent over panel, chosen by measurement and not by eye. The label on it
+   * is INK, not accent: indigo-500 on slate-900 is 3.11:1 whatever the tint, so
+   * an accent label here would fail 4.5:1 in dark no matter how the pill was
+   * mixed. Accent carries the left border and the icon instead — the icon is a
+   * graphical object at 3:1, which 3.11 clears, and only just. Going darker for
+   * a stronger pill pushes the icon under that floor; that is why this is 8%
+   * and light is 12%.
+   */
+  --color-accent-soft: oklch(0.289 0.0948 275.9); /* accent 8% over panel */
+
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   /* Facts, YAML, and run logs are read as data. Proportional type destroys the
@@ -176,6 +193,10 @@
   /* rose-700 already carries white at 6.38:1, so light needs no separate step —
      it is state-failed's own value, used as a fill rather than as a tint. */
   --color-critical: oklch(0.514 0.222 16.935);
+
+  /* 12% here against dark's 8%: white gives the accent far more room, so the
+     pill can be stronger while the icon still reads at 5.79:1. */
+  --color-accent-soft: oklch(0.9641 0.0164 288.1); /* accent 12% over panel */
 }
 
 html,

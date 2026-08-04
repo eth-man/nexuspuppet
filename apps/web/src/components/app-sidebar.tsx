@@ -109,14 +109,26 @@ export function AppSidebar() {
               title={collapsed ? item.label : undefined}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                'flex h-8 items-center gap-2.5 rounded px-2 text-sm transition-colors',
+                // The border is on EVERY item, transparent when inactive.
+                // Applying it only to the active one would shift the row two
+                // pixels sideways as you navigate.
+                'flex h-8 items-center gap-2.5 rounded border-l-2 pl-1.5 pr-2 text-sm transition-colors',
                 active
-                  ? 'bg-panel-raised font-medium text-ink'
-                  : 'text-ink-muted hover:bg-panel-raised hover:text-ink',
+                  ? 'border-accent bg-accent-soft font-medium text-ink'
+                  : 'border-transparent text-ink-muted hover:bg-panel-raised hover:text-ink',
               )}
             >
-              <Icon className="size-4 shrink-0" aria-hidden />
-              {!collapsed && <span className="truncate">{item.label}</span>}
+              <Icon className={cn('size-4 shrink-0', active && 'text-accent')} aria-hidden />
+              {/*
+               * ALWAYS rendered, only visually hidden.
+               *
+               * This used to be `{!collapsed && <span>}`, which left every nav
+               * link with an EMPTY accessible name once collapsed — the icon is
+               * aria-hidden, so a screen reader announced five unlabelled
+               * links. `title` does not fix that: it is advisory, and a
+               * keyboard user never sees it.
+               */}
+              <span className={cn('truncate', collapsed && 'sr-only')}>{item.label}</span>
             </Link>
           );
         })}
@@ -139,7 +151,8 @@ export function AppSidebar() {
           className="flex h-8 w-full items-center gap-2.5 rounded px-2 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
         >
           <LogOut className="size-4 shrink-0" aria-hidden />
-          {!collapsed && <span>Sign out</span>}
+          {/* Hidden, not absent — same reason as the nav links above. */}
+          <span className={cn(collapsed && 'sr-only')}>Sign out</span>
         </button>
 
         <button

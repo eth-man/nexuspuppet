@@ -130,6 +130,31 @@ const TEXT_TOKENS = [
  * state-failed is 3.72:1 in dark, so a filled danger button reusing the status
  * token would have shipped with a label nobody could read.
  */
+/**
+ * Token-on-token pairs the surface loop does not generate.
+ *
+ * It measures every text token over the three SURFACES. A tinted control brings
+ * its own background, so its pairs must be named — and the numbers here are not
+ * intuition-friendly: the active sidebar item cannot use the accent as its
+ * LABEL, because indigo on slate-900 is 3.11:1 whatever the pill is mixed at.
+ * The label is ink; the accent carries the border and the icon, and 3:1 is the
+ * right floor for the icon because it is a graphical object rather than text.
+ *
+ * `--color-accent-soft` is stored OPAQUE rather than as `accent/8` precisely so
+ * it can appear here. An alpha over an unstated background is not something
+ * this tool can evaluate, which is how a control gets shipped unmeasured.
+ */
+const EXPLICIT_PAIRS = [
+  // [foreground token, background token, label, minimum]
+  ['color-ink', 'color-accent-soft', 'ink on the active sidebar pill', 4.5],
+  [
+    'color-accent-interactive',
+    'color-accent-soft',
+    'accent icon on the active sidebar pill (graphical, 3:1)',
+    3.0,
+  ],
+];
+
 const FILLED = [
   // [background token, foreground literal, label, minimum]
   ['color-critical', [1, 1, 1], 'white on color-critical (filled danger button)', 4.5],
@@ -208,6 +233,28 @@ for (const [themeName, palette] of [
             `(min ${minimum.toFixed(1)})  ${token} on ${surface}`,
         );
       }
+    }
+  }
+
+  for (const [fgToken, bgToken, label, minimum] of EXPLICIT_PAIRS) {
+    const fg = palette[fgToken];
+    const bg = palette[bgToken];
+    if (fg === undefined || bg === undefined) continue;
+
+    const ratio = contrast(fg, bg);
+    const ok = ratio >= minimum;
+    const key = `${themeName} ${label}`;
+    const excused = !ok && BASELINE.has(key);
+
+    if (excused) known += 1;
+    else if (!ok) failures += 1;
+    if (excused) unseen.delete(key);
+
+    if (!ok || showAll) {
+      const mark = ok ? 'ok  ' : excused ? 'known' : 'FAIL';
+      console.log(
+        `  ${mark} ${ratio.toFixed(2).padStart(5)}:1 (min ${minimum.toFixed(1)})  ${label}`,
+      );
     }
   }
 
