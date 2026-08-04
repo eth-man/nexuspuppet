@@ -94,7 +94,20 @@
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --color-surface: oklch(0.984 0.003 247.858); /* slate-50 */
+  /*
+   * Warm parchment (#f4f1ea), not slate-50.
+   *
+   * Kept in oklch like every other value here so the palette stays comparable
+   * in one colour space — a hex among oklch reads as an exception and invites
+   * the next one. The hex is named because it is what was asked for and what
+   * anyone will search this file for.
+   *
+   * This is the only surface that moves. `--color-panel` stays pure white, so
+   * cards now separate from the canvas on their own rather than relying on a
+   * border to be visible at all — which is why the borders below did not need
+   * to get heavier to compensate.
+   */
+  --color-surface: oklch(0.9585 0.0098 87.5); /* #f4f1ea */
   --color-panel: oklch(1 0 0); /* white */
   --color-panel-raised: oklch(0.968 0.007 247.896); /* slate-100 */
   --color-line: oklch(0.869 0.022 252.894); /* slate-300 */
@@ -107,7 +120,17 @@
   --color-state-failed: oklch(0.514 0.222 16.935); /* rose-700 */
   --color-state-changed: oklch(0.546 0.245 262.881); /* blue-600 */
   --color-state-unchanged: oklch(0.508 0.118 165.612); /* emerald-700 */
-  --color-state-pending: oklch(0.555 0.163 48.998); /* amber-700 */
+  /*
+   * One step darker than amber-700, because the canvas moved.
+   *
+   * Amber cleared 4.5:1 against slate-50 with almost nothing to spare. Warming
+   * the surface to #f4f1ea lowered its luminance and took this pair to 4.48:1 —
+   * a failure produced by changing a colour nobody was looking at, which is the
+   * whole reason `qa:contrast` runs in CI rather than living in a review
+   * comment. L 0.555 → 0.54 returns it to 4.79:1 on the canvas and 5.40:1 on a
+   * card, so the next surface tweak has room before it breaks again.
+   */
+  --color-state-pending: oklch(0.54 0.163 48.998); /* amber-700, darkened for #f4f1ea */
   --color-state-unknown: oklch(0.52 0.045 257.417); /* matches ink-faint */
 
   /* Still separated from state-changed by HUE (277 vs 263), not lightness —
