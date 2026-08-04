@@ -42,6 +42,11 @@ describe('LocalUserDirectory (integration)', () => {
     await prisma.refreshToken.deleteMany();
     await prisma.auditLog.deleteMany();
     await prisma.user.deleteMany();
+    // Custom roles a test created. In beforeEach and not at the end of the test
+    // that makes one, because an assertion that fails skips every line after it
+    // — and the leftover row then fails the NEXT run on the unique name, which
+    // reads as a bug in the code under test rather than in the fixture.
+    await prisma.role.deleteMany({ where: { builtIn: false } });
   });
 
   async function seed(
@@ -139,6 +144,73 @@ describe('LocalUserDirectory (integration)', () => {
 
       expect((await directory.findById(user.id))?.role).toBe('OPERATOR');
       expect((await directory.findByEmail('alice@example.com'))?.role).toBe('OPERATOR');
+    });
+
+    /**
+     * The drift that made the Roles card lie.
+     *
+     * A user carries their role TWICE: `role` (the name, what the console
+     * shows) and `roleId` (the foreign key, what every count and guard reads).
+     * This method wrote the name and left the key wherever the account was
+     * provisioned.
+     *
+     * Nothing above catches it, because every assertion up to here goes
+     * through `findById`, which reads the name. Reported from a live
+     * deployment instead: the Roles card said OPERATOR was held by nobody
+     * while an operator was signed in, and VIEWER was credited with four
+     * people when two were viewers.
+     *
+     * The quiet half is worse than the visible one. `assertAdministrationSurvives`
+     * counts administrators by the key, so an admin whose key still said
+     * VIEWER did not count as an administrator — the guard against deleting
+     * the last one was measuring the wrong set.
+     */
+    it('moves the role key with the role name', async () => {
+      const user = await seed({ role: 'VIEWER' });
+
+      await directory.recordLogin(user.id, { role: 'OPERATOR', displayName: 'Alice Ng' });
+
+      const row = await prisma.user.findUniqueOrThrow({
+        where: { id: user.id },
+        include: { roleRef: { select: { name: true } } },
+      });
+      expect(row.role).toBe('OPERATOR');
+      expect(row.roleRef.name).toBe('OPERATOR');
+    });
+
+    /** A directory group can map to a custom role since ADR-0018, not only the built-in three. */
+    it('moves the key to a custom role too', async () => {
+      const user = await seed({ role: 'VIEWER' });
+      const custom = await prisma.role.create({
+        data: {
+          name: 'auditor',
+          description: 'Reads everything, changes nothing.',
+          permissions: ['inventory:read'],
+        },
+      });
+
+      await directory.recordLogin(user.id, { role: 'auditor', displayName: 'Alice Ng' });
+
+      const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(row.role).toBe('auditor');
+      expect(row.roleId).toBe(custom.id);
+    });
+
+    /**
+     * The key is NOT NULL, so there is no "unset" to fall back to. Leaving it
+     * stale is the least-wrong option: the account resolves permissions by
+     * NAME, so it already resolves none, and pointing the key at a guess would
+     * hand it whatever that guess allows.
+     */
+    it('leaves the key alone when the name is not a role this deployment defines', async () => {
+      const user = await seed({ role: 'VIEWER' });
+      const before = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+
+      await directory.recordLogin(user.id, { role: 'no-such-role', displayName: 'Alice Ng' });
+
+      const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(row.role).toBe('no-such-role');
+      expect(row.roleId).toBe(before.roleId);
     });
 
     it('records when the directory last confirmed the account', async () => {
