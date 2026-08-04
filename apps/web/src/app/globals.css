@@ -68,6 +68,10 @@
    */
   --color-grid: color-mix(in oklab, var(--color-line) 30%, transparent);
   --grid-size: 32px;
+  /* How far the grid takes to reach full strength below the top of the
+     viewport. Roughly three grid cells: long enough to read as a transition
+     rather than as an edge. */
+  --grid-fade: 220px;
 
   /**
    * Critical ACTIONS — delete, revoke, force. Filled, not tinted.
@@ -194,15 +198,31 @@ body {
  * construction, and panels paint over it because they carry their own
  * background.
  *
- * It scrolls with the page for the same reason: a grid that stays still while
- * content moves reads as a screen artefact rather than as the surface the
- * content sits on.
+ * It does not move when content does, and that is a property of the layout
+ * rather than a choice made here: the shell is `h-screen overflow-hidden` with
+ * the scroll container on `<main>`, so BODY never scrolls. An earlier version
+ * of this comment claimed the grid scrolls with the page. It does not, and the
+ * fade below depends on it not doing so.
+ *
+ * THE FADE IS A BACKGROUND LAYER, NOT A MASK. `mask-image` on body would fade
+ * the content with it, and a masked pseudo-element brings back the z-index
+ * problem the first paragraph avoids. Layers paint first-listed on top, so a
+ * wash of the canvas colour laid over the lines hides them at the top and
+ * releases them further down — same result, nothing to stack.
+ *
+ * Because body does not scroll, the top of this gradient is always the top of
+ * the viewport, which is where the navigation and page title sit.
  */
 body {
   background-image:
+    linear-gradient(to bottom, var(--color-surface), transparent),
     linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
     linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
-  background-size: var(--grid-size) var(--grid-size);
+  background-size:
+    100% var(--grid-fade),
+    var(--grid-size) var(--grid-size),
+    var(--grid-size) var(--grid-size);
+  background-repeat: no-repeat, repeat, repeat;
 }
 
 /* Texture is decoration. Anyone who has asked the OS to reduce motion or who
