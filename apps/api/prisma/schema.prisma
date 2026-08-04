@@ -30,9 +30,13 @@ datasource db {
 /// Added ahead of the resolution change on purpose. This migration is purely
 /// additive: the table is created, the three built-ins are seeded to exactly the
 /// sets `ROLE_PERMISSIONS` grants today, and every user is pointed at the row
-/// matching the enum they already have. Nothing reads `roleId` yet, so this step
-/// cannot change who can do what — which is the point of separating it from the
-/// step that can.
+/// matching the enum they already have.
+///
+/// That was written while nothing read `roleId`. Plenty does now — the user
+/// counts on the Roles screen, the last-administrator guard, and the check that
+/// refuses to delete a role somebody still holds all count through the key,
+/// while the console displays the name. Anything that writes one and not the
+/// other makes those two disagree, and the disagreement is silent.
 model Role {
   id          String  @id @default(uuid()) @db.Uuid
   /// Matches the UserRole enum for the seeded rows, so a mapping or a runbook

@@ -185,6 +185,8 @@ export class LocalAuthProvider implements IAuthProvider {
 /** Core's user directory: Postgres-backed and writable. */
 @Injectable()
 export class LocalUserDirectory implements IUserDirectory {
+  private readonly logger = new Logger(LocalUserDirectory.name);
+
   readonly readOnly = false;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -212,16 +214,49 @@ export class LocalUserDirectory implements IUserDirectory {
    */
   async recordLogin(
     userId: string,
-    update: { role: UserRole; displayName: string },
+    // A role NAME, which since ADR-0018 may be a custom one a directory group
+    // maps to — not only the built-in three.
+    update: { role: string; displayName: string },
   ): Promise<void> {
+    /*
+     * BOTH columns, or they drift.
+     *
+     * This wrote `role` and left `roleId` pointing wherever the account was
+     * provisioned. The schema comment already said the two move together; this
+     * was the one place that did not, and the drift is invisible because the
+     * console displays the NAME while every guard and count reads the KEY.
+     *
+     * It showed up as a directory user signing in as OPERATOR while the Roles
+     * card reported OPERATOR held by nobody — and worse, silently: the
+     * last-administrator guard counts by roleRef, so an admin whose key still
+     * said VIEWER did not count as an administrator at all.
+     */
+    const role = await this.prisma.role.findUnique({
+      where: { name: update.role },
+      select: { id: true },
+    });
+
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         role: update.role,
+        // Left alone when the name resolves to nothing. The column is NOT NULL,
+        // and pointing it at a guess would be worse than leaving it stale —
+        // the account still resolves no permissions by name, which is the
+        // documented behaviour for a mapping naming a role that does not exist
+        // (ADR-0018 §5).
+        ...(role === null ? {} : { roleId: role.id }),
         displayName: update.displayName,
         lastLoginAt: new Date(),
       },
     });
+
+    if (role === null) {
+      this.logger.warn(
+        `Signed in a user whose directory role "${update.role}" is not a role this deployment ` +
+          'defines. They will resolve no permissions until the mapping names an existing role.',
+      );
+    }
   }
 
   async list(options: { limit: number; offset: number }): Promise<{
