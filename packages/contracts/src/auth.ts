@@ -482,6 +482,35 @@ export interface IAuditTransport {
    */
   readonly configured: boolean;
   deliver(entries: readonly AuditDeliveryEntry[]): Promise<void>;
+
+  /**
+   * Try a candidate forwarding configuration without saving it (ADR-0016 §4).
+   *
+   * Core cannot do the work — the syslog and webhook senders live in the
+   * enterprise layer, which core may not import (ADR-0002) — so the settings
+   * surface asks the registered transport, exactly as LDAP settings ask the
+   * registered provider through `verifyConfiguration`. Optional because every
+   * transport written before it existed does not have it; core answers 501
+   * before this is ever consulted.
+   */
+  verifyConfiguration?(
+    kind: AuditTransportKind,
+    candidate: unknown,
+  ): Promise<ProviderVerification>;
+
+  /**
+   * The forwarding configuration this transport was built from at boot, or
+   * null when the environment configures none.
+   *
+   * The environment baseline for `audit.*` settings (ADR-0016 §2): the
+   * variables are parsed by the enterprise layer, so core asks the transport
+   * built from them rather than growing a second parser.
+   *
+   * MUST NOT include secrets. The result is rendered in a browser. Core strips
+   * the fields it knows to be sensitive before returning them, but that is a
+   * backstop and not permission to return a token or client key here.
+   */
+  currentConfiguration?(): { kind: AuditTransportKind; config: unknown } | null;
 }
 
 export interface LicenseStatus {
@@ -691,6 +720,113 @@ export interface SettingsView<T> {
    * (ADR-0016 §4). The console must say so rather than appear to have worked.
    */
   liveReload: boolean;
+}
+
+/**
+ * Audit forwarding to a collector (ADR-0016 §5).
+ *
+ * Two transports, ONE active at a time: `AUDIT_TRANSPORT` is a single token
+ * and the outbox clears a delivery job on a single confirmation, so running
+ * both would either drop a copy silently or need per-transport jobs. The
+ * operator's choice is stored under the `audit.forwarding` setting kind and
+ * switching it is an explicit act, separate from saving a configuration.
+ */
+export const AUDIT_TRANSPORT_KINDS = ['syslog', 'webhook'] as const;
+export type AuditTransportKind = (typeof AUDIT_TRANSPORT_KINDS)[number];
+
+/**
+ * A syslog collector (RFC 5424). TCP by default, TLS recommended, UDP opt-in
+ * and reported as unconfirmable delivery — over UDP, "sent" means the kernel
+ * accepted a datagram, not that the collector received it.
+ */
+export const syslogSettingsSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  protocol: z.enum(['tcp', 'tls', 'udp']).default('tcp'),
+  /** PEM bundle that signs the collector's certificate, for `tls`. */
+  caCert: z.string().min(1).optional(),
+  /** PEM client certificate, when the collector requires mutual TLS. */
+  clientCert: z.string().min(1).optional(),
+  /** Omit to keep the stored one. Never returned by a read. */
+  clientKey: z.string().min(1).optional(),
+  /** RFC 5424 facility. 13 is "log audit", which is exactly what this is. */
+  facility: z.number().int().min(0).max(23).default(13),
+  appName: z.string().min(1).max(48).default('nexuspuppet'),
+  /**
+   * Per-batch socket write budget (ADR-0016 §5). TCP backpressure from a
+   * drowning collector must fail the batch back to the outbox's retry
+   * schedule, not stall the delivery worker indefinitely.
+   */
+  timeoutMs: z.number().int().positive().max(60_000).default(10_000),
+  /** Accepting any certificate removes the point of TLS. Test rigs exist. */
+  tlsRejectUnauthorized: z.boolean().default(true),
+});
+
+export type SyslogSettings = z.infer<typeof syslogSettingsSchema>;
+
+/**
+ * A webhook collector. HTTPS, or HTTP to loopback only — audit records do not
+ * travel a network in clear. Any 2xx confirms a delivery (ADR-0016, resolved
+ * question 1).
+ */
+export const webhookSettingsSchema = z.object({
+  url: z
+    .string()
+    .min(1)
+    .refine(
+      (value) =>
+        /^https:\/\//i.test(value) || /^http:\/\/(localhost|127\.0\.0\.1)([:/]|$)/i.test(value),
+      { message: 'Must be https://, or http:// to localhost only' },
+    ),
+  /** Omit to keep the stored one. Never returned by a read. */
+  token: z.string().min(1).optional(),
+  timeoutMs: z.number().int().positive().max(60_000).default(10_000),
+});
+
+export type WebhookSettings = z.infer<typeof webhookSettingsSchema>;
+
+/** The operator's transport choice, stored under `audit.forwarding`. */
+export const auditForwardingSelectionSchema = z.object({
+  active: z.enum(['syslog', 'webhook', 'none']),
+});
+
+export type AuditForwardingSelection = z.infer<typeof auditForwardingSelectionSchema>;
+
+/** What the Integrations screen renders. Secret values never appear. */
+export interface AuditForwardingView {
+  syslog: SettingsView<SyslogSettings>;
+  webhook: SettingsView<WebhookSettings>;
+  /**
+   * Which transport delivery uses. Falls back to the transport the
+   * environment configured when nothing is stored — the same baseline rule
+   * every other setting follows.
+   */
+  active: AuditForwardingSelection['active'];
+}
+
+/**
+ * What the registered transport should do right now, resolved from stored
+ * settings. Server-side only — the config INCLUDES secrets, because the
+ * transport has to authenticate with them. This never crosses HTTP.
+ *
+ * `unset` is not `off`: unset means nothing was ever stored, so the
+ * environment the transport was built from still governs (ADR-0016 §2);
+ * `off` means an operator explicitly switched forwarding away.
+ */
+export type AuditForwardingState =
+  | { state: 'unset' }
+  | { state: 'off' }
+  | { state: 'syslog'; config: SyslogSettings }
+  | { state: 'webhook'; config: WebhookSettings };
+
+/**
+ * Core's resolver for the stored forwarding configuration. The enterprise
+ * transport injects this (via `AUDIT_FORWARDING_SETTINGS`) and consults it
+ * per delivery, which is what makes reconfiguration live (ADR-0016 §4)
+ * without the transport ever touching the database (ADR-0002).
+ */
+export interface IAuditForwardingSettings {
+  resolveActive(): Promise<AuditForwardingState>;
 }
 
 /** A role as the console sees it (ADR-0018). */

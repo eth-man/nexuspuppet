@@ -9,7 +9,13 @@ import { SecretBoxError, open, parseKey, seal } from './secret-box';
  * console renders and validates; a caller cannot invent a kind and have it
  * silently persisted.
  */
-export const SETTING_KINDS = ['auth.ldap', 'audit.syslog', 'audit.webhook'] as const;
+export const SETTING_KINDS = [
+  'auth.ldap',
+  'audit.syslog',
+  'audit.webhook',
+  /** The operator's transport choice — which of the two audit kinds delivers. */
+  'audit.forwarding',
+] as const;
 export type SettingKind = (typeof SETTING_KINDS)[number];
 
 /** Where a resolved configuration came from. Reported to the console. */
