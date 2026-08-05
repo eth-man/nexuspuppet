@@ -93,6 +93,21 @@ export const AUDIT_DELIVERY_OUTBOX = Symbol.for('nexuspuppet.AuditDeliveryOutbox
 export const AUDIT_FORWARDING_SETTINGS = Symbol.for('nexuspuppet.AuditForwardingSettings');
 
 /**
+ * Core's reader for stored authentication-provider settings (ADR-0016 §4).
+ *
+ * NOT a capability, for the same reason as the two above: core owns the
+ * settings store, and a provider asks it what an operator has configured. It
+ * exists as a token because the enterprise layer cannot import core's class
+ * (ADR-0002).
+ *
+ * This is what makes ADR-0016 §4's claim true. Without it a provider snapshots
+ * its configuration at construction, and everything saved through the settings
+ * screen is displayed back and never applied — which is what the screen looked
+ * like it was doing, and was not.
+ */
+export const AUTH_PROVIDER_SETTINGS = Symbol.for('nexuspuppet.AuthProviderSettings');
+
+/**
  * Every seam, enumerable at runtime.
  *
  * Exists so a test can assert properties of ALL of them — that each has a core
