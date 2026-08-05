@@ -3,6 +3,7 @@ import {
   AUDIT_SINK,
   type IAuditSink,
   type LdapSettings,
+  type OidcSettings,
   type ProviderVerification,
   type SettingsView,
 } from '@nexuspuppet/contracts';
@@ -38,6 +39,8 @@ export class SettingsService {
     private readonly ldapFromEnv: () => LdapSettings | null,
     /** Whether an LDAP provider is registered, i.e. whether edits take effect live. */
     private readonly ldapRegistered: () => boolean,
+    /** The OIDC baseline, by the same route and for the same reason as LDAP's. */
+    private readonly oidcFromEnv: () => OidcSettings | null,
   ) {}
 
   async describeLdap(): Promise<SettingsView<LdapSettings>> {
@@ -52,6 +55,65 @@ export class SettingsService {
       updatedByEmail: resolved.updatedByEmail,
       liveReload: this.ldapRegistered(),
     };
+  }
+
+  /**
+   * The OIDC configuration in force, without secrets. READ-ONLY (#106).
+   *
+   * There is no save counterpart on purpose: a provider snapshots its
+   * configuration at construction, so a stored row would be shown here and
+   * never applied. Reporting what IS running is worth having on its own — an
+   * administrator can check the issuer and the role mappings without shell
+   * access — and it is what lets the role-deletion guard see which roles OIDC
+   * depends on (ADR-0018 §5).
+   */
+  async describeOidc(): Promise<SettingsView<OidcSettings>> {
+    const resolved = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
+
+    return {
+      source: resolved.source,
+      config: resolved.config,
+      disabled: resolved.disabled,
+      secretsHeld: resolved.secretsHeld,
+      updatedAt: resolved.updatedAt?.toISOString() ?? null,
+      updatedByEmail: resolved.updatedByEmail,
+      // Honest rather than copied from the LDAP view: nothing here can be
+      // changed at all, let alone changed without a restart.
+      liveReload: false,
+    };
+  }
+
+  /**
+   * Check the running OIDC configuration against the identity provider.
+   *
+   * Takes no candidate, because nothing can be saved: this answers "is what we
+   * are running with actually reachable and self-consistent", which is the
+   * question an operator has when sign-in is refused and they cannot tell
+   * whether the fault is the issuer, the network, or their own account.
+   */
+  async verifyOidc(resolver: AuthProviderResolver): Promise<ProviderVerification> {
+    const provider = resolver.forSource('oidc');
+
+    if (provider === null) {
+      return {
+        ok: false,
+        message: 'No OIDC provider is running in this deployment, so there is nothing to check.',
+      };
+    }
+    if (provider.verifyConfiguration === undefined) {
+      return { ok: false, message: 'The OIDC provider in this build cannot check itself.' };
+    }
+
+    try {
+      // No candidate: the interface takes one, and this provider ignores it.
+      return await provider.verifyConfiguration(undefined);
+    } catch (error) {
+      this.logger.error(`OIDC verification threw: ${describe(error)}`);
+      return {
+        ok: false,
+        message: 'The identity provider could not be reached. See the server log.',
+      };
+    }
   }
 
   async saveLdap(

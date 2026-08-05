@@ -3,9 +3,11 @@ import {
   type AuditTransportKind,
   type IAuditTransport,
   type LdapSettings,
+  type OidcSettings,
   type SyslogSettings,
   type WebhookSettings,
   ldapSettingsSchema,
+  oidcSettingsSchema,
   syslogSettingsSchema,
   webhookSettingsSchema,
 } from '@nexuspuppet/contracts';
@@ -71,6 +73,56 @@ export function ldapEnvBaseline(resolver: AuthProviderResolver): LdapSettings | 
   }
 
   return safe as LdapSettings;
+}
+
+/** Fields core strips from an OIDC self-report, whatever the provider returns. */
+const OIDC_NEVER_REPORTED = ['clientSecret'] as const;
+
+/**
+ * The OIDC configuration the running provider was built from, or null.
+ *
+ * Same rule and same failure posture as {@link ldapEnvBaseline}: core cannot
+ * parse `OIDC_*` (ADR-0002), so it asks the provider built from them, and a
+ * misbehaving provider yields an empty view rather than a 500.
+ */
+export function oidcEnvBaseline(resolver: AuthProviderResolver): OidcSettings | null {
+  const provider = resolver.forSource('oidc');
+  if (provider?.currentConfiguration === undefined) return null;
+
+  let reported: unknown;
+  try {
+    reported = provider.currentConfiguration();
+  } catch (error) {
+    logger.warn(
+      `The 'oidc' provider failed to report its configuration: ${describeError(error)}. ` +
+        'The settings view will be empty.',
+    );
+    return null;
+  }
+  if (reported === null || reported === undefined) return null;
+
+  const parsed = oidcSettingsSchema.safeParse(reported);
+  if (!parsed.success) {
+    logger.warn(
+      "The 'oidc' provider reported a configuration that does not match the settings schema " +
+        `(${parsed.error.issues.map((i) => i.path.join('.') || '(root)').join(', ')}). ` +
+        'The settings view will be empty.',
+    );
+    return null;
+  }
+
+  const safe = { ...parsed.data } as Record<string, unknown>;
+  for (const field of OIDC_NEVER_REPORTED) {
+    if (safe[field] !== undefined) {
+      delete safe[field];
+      logger.warn(
+        `The 'oidc' provider included '${field}' in its reported configuration. It was ` +
+          'discarded — a provider must not return secrets from currentConfiguration().',
+      );
+    }
+  }
+
+  return safe as OidcSettings;
 }
 
 /**

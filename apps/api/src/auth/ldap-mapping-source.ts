@@ -35,6 +35,7 @@ export class LdapMappingSource implements MappingSource {
         groupDn: mapping.groupDn,
         role: mapping.role,
         source,
+        provider: 'ldap',
       }));
     } catch {
       return [];

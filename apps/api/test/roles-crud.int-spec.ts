@@ -154,6 +154,51 @@ describe('RolesService (integration)', () => {
       expect(String(body['message'])).toContain('cn=readonly,ou=groups,dc=example,dc=com');
     });
 
+    /**
+     * The #110 regression, end to end. The guard read LDAP mappings only, so a
+     * role named exclusively by an OIDC claim mapping could be deleted — and
+     * everyone in that claim group would then authenticate holding nothing,
+     * with no message anywhere explaining why.
+     */
+    it('refuses a role named only by an OIDC mapping', async () => {
+      const role = await roles.create({ name: 'crud-oidc-only', permissions: [] }, request);
+      mappings = [
+        { groupDn: 'auditors', role: 'crud-oidc-only', source: 'environment', provider: 'oidc' },
+      ];
+
+      const error = await roles.remove(role.id, request).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      const body = (error as ConflictException).getResponse() as Record<string, unknown>;
+      expect(body['error']).toBe('ROLE_REFERENCED_BY_MAPPING');
+      // The claim value verbatim, and WHICH provider — "configured in this
+      // deployment's environment" alone would send an operator to LDAP_* half
+      // the time.
+      expect(String(body['message'])).toContain('auditors');
+      expect(String(body['message'])).toContain('OIDC');
+    });
+
+    it('names the provider when several directories map the same role', async () => {
+      const role = await roles.create({ name: 'crud-both', permissions: [] }, request);
+      mappings = [
+        {
+          groupDn: 'cn=ops,dc=example,dc=com',
+          role: 'crud-both',
+          source: 'database',
+          provider: 'ldap',
+        },
+        { groupDn: 'platform', role: 'crud-both', source: 'environment', provider: 'oidc' },
+      ];
+
+      const error = (await roles
+        .remove(role.id, request)
+        .catch((e: unknown) => e)) as ConflictException;
+      const message = String((error.getResponse() as Record<string, unknown>)['message']);
+
+      expect(message).toContain('LDAP');
+      expect(message).toContain('OIDC');
+    });
+
     it('says where the mapping is configured, so the operator knows where to go', async () => {
       const role = await roles.create({ name: 'crud-envmapped', permissions: [] }, request);
       mappings = [
