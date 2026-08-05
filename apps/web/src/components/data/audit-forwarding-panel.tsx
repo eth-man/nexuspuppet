@@ -402,7 +402,10 @@ function SyslogCard({
                   placeholder={
                     holdsKey
                       ? '(a key is stored — leave empty to keep it)'
-                      : '-----BEGIN PRIVATE KEY-----'
+                      : // Prose, not a PEM marker: CI greps the tree for
+                        // private-key blocks and cannot tell a placeholder
+                        // from a leak — nor should it have to.
+                        '(paste the key, or choose its file)'
                   }
                   constraints={[
                     'Never sent back to the browser. Empty keeps the stored key; pasting replaces it.',
