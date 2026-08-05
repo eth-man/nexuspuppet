@@ -1,6 +1,6 @@
 # ADR-0016 — A settings store operators can use, and an audit table that stays bounded
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-08-05)
 - **Deciders:** Architect
 - **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0014](./0014-enterprise-licensing.md), [ADR-0015](./0015-hybrid-authentication.md)
 
@@ -67,9 +67,53 @@ Therefore:
 - **UDP is opt-in**, marked in the UI as *unconfirmable delivery*, in those terms.
 - **A UDP send clears its job but is recorded as unconfirmed**, so `GET /system/status` can report that this deployment cannot prove its audit records arrived. The retention sweeper is unaffected: records age out on the same schedule either way, because retention is about disk and not about delivery.
 
+#### Enterprise, under the capability that already exists
+
+Forwarding is licensed; recording and retention are not. The syslog transport
+joins the webhook under **`audit.export`** — one licence line meaning "your
+audit trail can leave the box", with the transport choice being configuration
+rather than entitlement. A separate `audit.syslog` capability was considered
+and rejected: nobody has asked for transport-level licensing, and
+[ADR-0014](./0014-enterprise-licensing.md) already declined per-capability
+sprawl. The Integrations cards render for every deployment and are disabled
+with the capability named where the licence lacks it — the existing
+501-not-404 convention, applied to a screen.
+
+#### One transport active at a time
+
+`AUDIT_TRANSPORT` is a single token and `AuditDeliveryJob` is one row per
+record, cleared on one confirmation. Running syslog and webhook simultaneously
+would make both of those lies: a job cleared by whichever transport confirmed
+first silently drops the other copy, and doing it honestly means one job per
+(record, transport) — a schema change. So the operator chooses the active
+transport in settings, and switching is a settings change. Fan-out to multiple
+collectors is a future ADR if anyone asks for it, not a default to grow into.
+
+#### A slow collector must not stall the queue
+
+TCP applies backpressure, so a collector that is drowning — accepting the
+connection but not draining it — could stall the delivery worker indefinitely,
+where a dead one fails fast. The transport applies a **per-batch socket write
+timeout**; on expiry the batch fails, the jobs stay queued, and the outbox's
+existing retry backoff takes over. No rate limiter: it would add tuning knobs
+nobody can set before estate-scale measurement exists, and a timeout is still
+needed underneath one anyway.
+
+**A webhook delivery is confirmed by any 2xx.** The proxy worry — a 200 from
+something in front of a dead collector — is real and unactionable at any
+status code. A wrong answer now clears a delivery job rather than deleting a
+record, so the blast radius is a missed retry, not a lost row.
+
 ### 6. Bounded by a retention policy, not by purge-on-delivery
 
 **`AUDIT_RETENTION_DAYS`, default 90, plus `AUDIT_RETENTION_MAX_ROWS` as a ceiling.** A sweeper deletes what falls outside either bound.
+
+**The ceiling ships unset.** There is no estate-scale measurement to size it
+against, and the ceiling is the one bound permitted to delete undelivered
+records — a wrong default has teeth. A deployment opts in with a number; until
+it does, `GET /system/status` reports that no row ceiling is configured. Age
+alone still bounds the common case, and a default that trips on a normal
+Tuesday is worse than no ceiling.
 
 The problem being solved is unbounded growth on a host that has to keep running — not the existence of local records. An earlier draft of this ADR purged each record the moment a transport confirmed it. That bounds growth too, and costs more than it needs to:
 
@@ -161,7 +205,8 @@ empty field on save means *keep it*.
 
 ### What it does NOT buy
 
-- **Not multi-destination.** One syslog target, as with one webhook.
+- **Not multi-destination.** One syslog target, as with one webhook — and one *active transport* at a time (§5): syslog or webhook, never both.
+- **Not application-log shipping.** Operational logs stay on stdout; getting them to a collector is the container runtime's job (Docker's syslog logging driver), documented in the deployment guide. This ADR is about the audit trail only.
 - **Not a local audit viewer.** The records are kept and indexed, so one can be built; this ADR does not build it.
 - **Not tamper-evidence.** Neither signed records nor a hash chain. A retained local trail plus a forwarded copy is two places to compare, which is weaker than integrity proof and better than one.
 - **Not unbounded history.** Anything older than the window is gone. A deployment with a statutory retention requirement must forward to something that keeps it.
@@ -176,14 +221,14 @@ empty field on save means *keep it*.
 
 **Keep configuration in the environment; add a read-only settings view.** No second source of truth, no encryption key, no precedence rule. Rejected: it does not meet the requirement, and a read-only view of a file the operator must still edit by hand is worse than no view.
 
-## Open questions
+## Questions resolved at acceptance (2026-08-05)
 
-1. **What confirms a webhook delivery?** Any 2xx, or a specific status? A collector answering `202 Accepted` has taken responsibility; one answering `200` may be a proxy in front of it. Less destructive than it was — a wrong answer now clears a delivery job rather than deleting the record — but it still decides whether a record is silently never retried.
+1. **What confirms a webhook delivery?** Any 2xx (§5). A `200`-returning proxy in front of a dead collector is indistinguishable from a working one at any status code, so a stricter rule buys nothing and generates retry storms against good endpoints.
 
-2. **What are the right defaults?** 90 days and a row ceiling of what? The ceiling has to be chosen against a realistic burst: a classification change across a large estate writes one record per affected group operation, not per node, but that has not been measured. A default that trips on a normal Tuesday is worse than no ceiling.
+2. **What are the right defaults?** 90 days; the row ceiling ships unset and is opt-in (§6). The ceiling cannot be sized honestly before an estate-scale measurement exists, and it is the one bound permitted to delete undelivered records.
 
-3. **Where does `CONFIG_ENCRYPTION_KEY` live in the container deployment?** The convention here is mounted files for key material ([ADR-0013](./0013-console-tls-private-ca.md) §2), which argues for a file — but the API needs it before it can read anything.
+3. **Where does `CONFIG_ENCRYPTION_KEY` live in the container deployment?** Resolved by the implementation that shipped with the settings store: an environment variable holding a base64-encoded 32-byte key (`config/env.ts`). The mounted-file convention lost to the fact that the API needs the key before it can read anything — including a mount path from configuration.
 
-4. **Should the sweeper refuse to run when forwarding is configured but has never succeeded?** Deleting on schedule while every delivery fails is technically correct and probably not what the operator wants on day one of a broken SIEM integration. An alarm plus a grace period may be better than a rule.
+4. **Should the sweeper refuse to run when forwarding is configured but has never succeeded?** The question dissolved under the other answers: age-based sweeping already skips rows with pending delivery jobs, and the only bound that can drop them — the row ceiling — is now opt-in. A never-succeeding collector loses nothing by default; the pending-queue count in `GET /system/status` remains the alarm.
 
-5. **Does a syslog transport need its own rate limiting?** RFC 5424 over TCP applies backpressure; a slow collector could stall the delivery worker and, through it, the queue.
+5. **Does a syslog transport need its own rate limiting?** No — a per-batch write timeout plus the outbox's existing retry backoff (§5). A rate limiter needs tuning data that does not exist yet.
