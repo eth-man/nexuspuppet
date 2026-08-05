@@ -3,6 +3,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type {
   DeploymentInfo,
+  AuditForwardingView,
   AuthProviderDescription,
   DeploymentCapabilities,
   FactPathIndex,
@@ -245,6 +246,19 @@ export function useLdapSettings(enabled: boolean): UseQueryResult<SettingsView<L
   return useQuery({
     queryKey: ['settings', 'auth.ldap'],
     queryFn: ({ signal }) => api.get<SettingsView<LdapSettings>>('/settings/auth/ldap', signal),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/**
+ * Both audit forwarding transports and which one is active (ADR-0016 §5).
+ * Same `staleTime: 0` reasoning as the directory settings above.
+ */
+export function useAuditForwarding(enabled: boolean): UseQueryResult<AuditForwardingView> {
+  return useQuery({
+    queryKey: ['settings', 'audit.forwarding'],
+    queryFn: ({ signal }) => api.get<AuditForwardingView>('/settings/audit/forwarding', signal),
     enabled,
     staleTime: 0,
   });
