@@ -135,3 +135,20 @@ npm run enterprise:fetch     # no-op without NEXUSPUPPET_ENTERPRISE_REPO
 Reviewed PR · unit tests for new logic · `npm run typecheck` clean ·
 `npm run lint` clean · `prisma generate` run if the schema changed · new
 architectural decisions captured as an ADR.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `eth-man/nexuspuppet`, via the `gh` CLI. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at the repo root, ADRs in
+`docs/architecture/adr/`. See `docs/agents/domain.md`.
