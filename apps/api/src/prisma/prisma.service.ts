@@ -150,4 +150,6 @@ export const ADVISORY_LOCKS = {
   NODE_PROJECTION: 8_442_003n,
   /** Held by the single active audit delivery worker (ADR-0005). */
   AUDIT_DELIVERY: 8_442_004n,
+  /** Held per retention batch, so exactly one replica sweeps (ADR-0016 §6). */
+  AUDIT_RETENTION: 8_442_005n,
 } as const;
