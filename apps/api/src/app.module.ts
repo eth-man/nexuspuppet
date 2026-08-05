@@ -58,6 +58,7 @@ import { AuthProviderResolver } from './auth/auth-provider.resolver';
 import { SettingsController } from './settings/settings.controller';
 import { ldapEnvBaseline } from './settings/provider-baseline';
 import { AuditForwardingController } from './settings/audit-forwarding.controller';
+import { AuditForwardingResolver } from './settings/audit-forwarding.resolver';
 import { AuditForwardingService } from './settings/audit-forwarding.service';
 import { SettingsService } from './settings/settings.service';
 import { SettingsStore } from './settings/settings.store';
@@ -316,15 +317,30 @@ export class AppModule {
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
         {
+          provide: AuditForwardingResolver,
+          inject: [SettingsStore],
+          useFactory: (store: SettingsStore): AuditForwardingResolver =>
+            new AuditForwardingResolver(store),
+        },
+        // Aliased under a contracts token so the forwarding capability can ask
+        // which transport is active and with what configuration (ADR-0016 §4).
+        // Bound to the RESOLVER, never the service: the service injects the
+        // transport, and an enterprise transport injects this token — binding
+        // it to the service is a circular dependency the injector deadlocks
+        // on, silently, and only in enterprise deployments.
+        { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingResolver },
+        {
           provide: AuditForwardingService,
-          inject: [SettingsStore, AUDIT_SINK, AUDIT_TRANSPORT],
+          inject: [SettingsStore, AuditForwardingResolver, AUDIT_SINK, AUDIT_TRANSPORT],
           useFactory: (
             store: SettingsStore,
+            resolver: AuditForwardingResolver,
             audit: IAuditSink,
             transport: IAuditTransport,
           ): AuditForwardingService =>
             new AuditForwardingService(
               store,
+              resolver,
               audit,
               transport,
               // "Registered" is the capability, not the transport instance —
@@ -333,10 +349,6 @@ export class AppModule {
               () => registry.has(CAPABILITIES.AUDIT_EXPORT),
             ),
         },
-        // Aliased under a contracts token so the forwarding capability can ask
-        // which transport is active and with what configuration (ADR-0016 §4).
-        // Same arrangement as AUDIT_DELIVERY_OUTBOX above it.
-        { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingService },
         Reflector,
 
         // --- Auth (ADR-0006) ------------------------------------------------

@@ -10,6 +10,7 @@ import {
 } from '@nexuspuppet/contracts';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
 import type { PrismaService } from '../prisma/prisma.service';
+import { AuditForwardingResolver } from './audit-forwarding.resolver';
 import { AuditForwardingService } from './audit-forwarding.service';
 import { SettingsStore } from './settings.store';
 
@@ -128,7 +129,12 @@ function build(options?: {
   forcedSource?: 'db' | 'env';
   /** Reuse another build's rows — "same database, different boot flags". */
   prisma?: FakePrisma;
-}): { service: AuditForwardingService; sink: RecordingSink; prisma: FakePrisma } {
+}): {
+  service: AuditForwardingService;
+  resolver: AuditForwardingResolver;
+  sink: RecordingSink;
+  prisma: FakePrisma;
+} {
   const prisma = options?.prisma ?? new FakePrisma();
   const store = new SettingsStore(
     prisma as unknown as PrismaService,
@@ -136,13 +142,15 @@ function build(options?: {
     options?.forcedSource ?? 'db',
   );
   const sink = new RecordingSink();
+  const resolver = new AuditForwardingResolver(store);
   const service = new AuditForwardingService(
     store,
+    resolver,
     sink,
     options?.transport ?? NOOP_TRANSPORT,
     () => options?.registered ?? false,
   );
-  return { service, sink, prisma };
+  return { service, resolver, sink, prisma };
 }
 
 describe('AuditForwardingService', () => {
@@ -221,7 +229,7 @@ describe('AuditForwardingService', () => {
     });
 
     it('keeps the stored secret when a save omits it', async () => {
-      const { service } = build();
+      const { service, resolver } = build();
       await service.save('syslog', SYSLOG, REQUEST);
 
       const withoutKey = syslogSettingsSchema.parse({
@@ -232,7 +240,7 @@ describe('AuditForwardingService', () => {
       await service.save('syslog', withoutKey, REQUEST);
       await service.setActive('syslog', REQUEST);
 
-      const state = await service.resolveActive();
+      const state = await resolver.resolveActive();
       expect(state).toMatchObject({
         state: 'syslog',
         config: { host: 'siem2.example.test', clientKey: 'PEM-CLIENT-KEY' },
@@ -270,13 +278,13 @@ describe('AuditForwardingService', () => {
     });
 
     it('turns forwarding off explicitly, which is not the same as never configured', async () => {
-      const { service } = build();
+      const { service, resolver } = build();
       await service.save('syslog', SYSLOG, REQUEST);
       await service.setActive('syslog', REQUEST);
 
       await service.setActive('none', REQUEST);
 
-      expect(await service.resolveActive()).toEqual({ state: 'off' });
+      expect(await resolver.resolveActive()).toEqual({ state: 'off' });
     });
   });
 
@@ -305,17 +313,17 @@ describe('AuditForwardingService', () => {
 
   describe('resolveActive', () => {
     it('reports unset when nothing was ever stored, so the environment governs', async () => {
-      const { service } = build();
+      const { resolver } = build();
 
-      expect(await service.resolveActive()).toEqual({ state: 'unset' });
+      expect(await resolver.resolveActive()).toEqual({ state: 'unset' });
     });
 
     it('returns the active configuration WITH its secret for the transport', async () => {
-      const { service } = build();
+      const { service, resolver } = build();
       await service.save('webhook', WEBHOOK, REQUEST);
       await service.setActive('webhook', REQUEST);
 
-      const state = await service.resolveActive();
+      const state = await resolver.resolveActive();
 
       expect(state).toMatchObject({
         state: 'webhook',
@@ -324,14 +332,14 @@ describe('AuditForwardingService', () => {
     });
 
     it('reports off, loudly, when the selection points at a missing configuration', async () => {
-      const { service, prisma } = build();
+      const { service, resolver, prisma } = build();
       await service.save('syslog', SYSLOG, REQUEST);
       await service.setActive('syslog', REQUEST);
       // Simulate the row vanishing underneath the selection (clear() refuses
       // this path, so it takes direct interference to get here).
       prisma.rows.delete('audit.syslog');
 
-      expect(await service.resolveActive()).toEqual({ state: 'off' });
+      expect(await resolver.resolveActive()).toEqual({ state: 'off' });
     });
 
     it('ignores stored rows entirely under SETTINGS_SOURCE=env', async () => {
@@ -342,7 +350,7 @@ describe('AuditForwardingService', () => {
       // Same rows, new process booted with the escape hatch set.
       const forced = build({ forcedSource: 'env', prisma });
 
-      expect(await forced.service.resolveActive()).toEqual({ state: 'unset' });
+      expect(await forced.resolver.resolveActive()).toEqual({ state: 'unset' });
     });
   });
 

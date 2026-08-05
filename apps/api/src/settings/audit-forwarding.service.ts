@@ -2,14 +2,9 @@ import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   AUDIT_SINK,
   AUDIT_TRANSPORT,
-  auditForwardingSelectionSchema,
-  syslogSettingsSchema,
-  webhookSettingsSchema,
   type AuditForwardingSelection,
-  type AuditForwardingState,
   type AuditForwardingView,
   type AuditTransportKind,
-  type IAuditForwardingSettings,
   type IAuditSink,
   type IAuditTransport,
   type ProviderVerification,
@@ -18,6 +13,7 @@ import {
   type WebhookSettings,
 } from '@nexuspuppet/contracts';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
+import { AuditForwardingResolver } from './audit-forwarding.resolver';
 import { AUDIT_SECRET_FIELDS, auditEnvBaseline } from './provider-baseline';
 import { SettingsStore, type SettingKind } from './settings.store';
 
@@ -39,13 +35,19 @@ type ActiveChoice = AuditForwardingSelection['active'];
  * 2. **Saving is not switching.** Saving a configuration never changes which
  *    transport delivers; activation is its own explicit, audited act. An
  *    operator preparing a syslog config must not silently stop the webhook.
+ *
+ * NOT what AUDIT_FORWARDING_SETTINGS binds to — that is AuditForwardingResolver.
+ * This service injects the transport (Test, env baseline), and the enterprise
+ * transport injects the seam token; binding the token here closes a circular
+ * dependency the injector deadlocks on (see the resolver's comment).
  */
 @Injectable()
-export class AuditForwardingService implements IAuditForwardingSettings {
+export class AuditForwardingService {
   private readonly logger = new Logger(AuditForwardingService.name);
 
   constructor(
     private readonly store: SettingsStore,
+    private readonly resolver: AuditForwardingResolver,
     @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
     @Inject(AUDIT_TRANSPORT) private readonly transport: IAuditTransport,
     /** Whether a real forwarding transport is registered, i.e. edits can act. */
@@ -193,38 +195,6 @@ export class AuditForwardingService implements IAuditForwardingSettings {
     }
   }
 
-  /**
-   * What the registered transport should do right now (IAuditForwardingSettings).
-   *
-   * Server-side only: the returned config INCLUDES secrets.
-   */
-  async resolveActive(): Promise<AuditForwardingState> {
-    const selection = await this.storedSelection();
-    if (selection === null) return { state: 'unset' };
-    if (selection === 'none') return { state: 'off' };
-
-    const stored = await this.store.resolve<Record<string, unknown>>(
-      SETTING_KIND[selection],
-      () => null,
-    );
-
-    if (selection === 'syslog') {
-      const parsed = syslogSettingsSchema.safeParse(stored.config);
-      if (parsed.success) return { state: 'syslog', config: parsed.data };
-    } else {
-      const parsed = webhookSettingsSchema.safeParse(stored.config);
-      if (parsed.success) return { state: 'webhook', config: parsed.data };
-    }
-
-    // A selection pointing at a missing or unusable configuration forwards
-    // nowhere. Loud, because records queue while this is true.
-    this.logger.warn(
-      `Audit forwarding is set to "${selection}" but no usable ${selection} configuration ` +
-        'is stored. Forwarding is off until one is saved.',
-    );
-    return { state: 'off' };
-  }
-
   private async describeKind<T>(kind: AuditTransportKind): Promise<SettingsView<T>> {
     const resolved = await this.store.describe<T>(
       SETTING_KIND[kind],
@@ -242,22 +212,9 @@ export class AuditForwardingService implements IAuditForwardingSettings {
     };
   }
 
-  /** The stored transport choice, or null when nothing usable is stored. */
-  private async storedSelection(): Promise<ActiveChoice | null> {
-    const resolved = await this.store.resolve<AuditForwardingSelection>(
-      'audit.forwarding',
-      () => null,
-    );
-    if (resolved.source !== 'database' || resolved.config === null) return null;
-
-    const parsed = auditForwardingSelectionSchema.safeParse(resolved.config);
-    if (!parsed.success) {
-      this.logger.warn(
-        'The stored audit.forwarding selection does not match its schema and was ignored.',
-      );
-      return null;
-    }
-    return parsed.data.active;
+  /** The stored transport choice, via the resolver the seam token binds to. */
+  private storedSelection(): Promise<ActiveChoice | null> {
+    return this.resolver.storedSelection();
   }
 
   /**
