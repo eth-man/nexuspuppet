@@ -493,10 +493,7 @@ export interface IAuditTransport {
    * transport written before it existed does not have it; core answers 501
    * before this is ever consulted.
    */
-  verifyConfiguration?(
-    kind: AuditTransportKind,
-    candidate: unknown,
-  ): Promise<ProviderVerification>;
+  verifyConfiguration?(kind: AuditTransportKind, candidate: unknown): Promise<ProviderVerification>;
 
   /**
    * The forwarding configuration this transport was built from at boot, or

@@ -128,7 +128,10 @@ export class AuditForwardingService implements IAuditForwardingSettings {
     });
   }
 
-  async setActive(active: ActiveChoice, request: AuthenticatedRequest): Promise<AuditForwardingView> {
+  async setActive(
+    active: ActiveChoice,
+    request: AuthenticatedRequest,
+  ): Promise<AuditForwardingView> {
     const actor = request.principal;
 
     if (active !== 'none') {
