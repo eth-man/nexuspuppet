@@ -16,6 +16,7 @@ import {
   type ProviderVerification,
   type SettingsView,
   ldapSettingsSchema,
+  oidcSettingsSchema,
 } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { AuthProviderResolver } from '../auth/auth-provider.resolver';
@@ -106,17 +107,48 @@ export class SettingsController {
   }
 
   /**
-   * Check the running OIDC configuration against the identity provider.
+   * Replace the stored OIDC configuration.
    *
-   * No body: there is no candidate to test, because nothing can be saved. This
-   * answers whether what the deployment is running with is reachable and
-   * self-consistent — the failure that otherwise presents as an opaque refusal
-   * at the login page.
+   * A body without `clientSecret` KEEPS the stored one. The console never
+   * receives the secret, so it cannot send it back, and treating its absence as
+   * "clear it" would strip the credential whenever somebody corrected a claim.
+   */
+  @Put('auth/oidc')
+  async writeOidc(
+    @Body(new ZodValidationPipe(oidcSettingsSchema)) body: OidcSettings,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<SettingsView<OidcSettings>> {
+    return this.settings.saveOidc(body, request);
+  }
+
+  /**
+   * Discard the stored configuration and fall back to the environment.
+   *
+   * Distinct from turning SSO off: this removes the row, so whatever the
+   * environment says becomes authoritative again — which is the recovery path
+   * when a saved configuration turns out to be wrong.
+   */
+  @Delete('auth/oidc')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async clearOidc(@Req() request: AuthenticatedRequest): Promise<void> {
+    await this.settings.clearOidc(request);
+  }
+
+  /**
+   * Check a configuration against the identity provider.
+   *
+   * An empty body checks what is in force; a candidate checks what would be
+   * saved. Bounded on purpose, and the UI must not overstate it: a login
+   * happens in a browser at another origin, so this establishes that the
+   * issuer answers, that its discovery document describes the issuer asked
+   * for rather than a substituted one, and that its signing keys parse.
    */
   @Post('auth/oidc/test')
   @HttpCode(HttpStatus.OK)
-  async testOidc(): Promise<ProviderVerification> {
-    return this.settings.verifyOidc(this.resolver);
+  async testOidc(
+    @Body(new ZodValidationPipe(oidcSettingsSchema.optional())) body: OidcSettings | undefined,
+  ): Promise<ProviderVerification> {
+    return this.settings.verifyOidc(this.resolver, body);
   }
 
   @Post('auth/ldap/test')

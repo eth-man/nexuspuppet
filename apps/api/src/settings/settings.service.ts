@@ -23,6 +23,9 @@ const LDAP_SOURCE = 'ldap';
  */
 const LDAP_SECRET_FIELDS = ['bindPassword'] as const;
 
+/** Same rule for OIDC: named here so adding a field is a deliberate decision. */
+const OIDC_SECRET_FIELDS = ['clientSecret'] as const;
+
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
@@ -41,6 +44,8 @@ export class SettingsService {
     private readonly ldapRegistered: () => boolean,
     /** The OIDC baseline, by the same route and for the same reason as LDAP's. */
     private readonly oidcFromEnv: () => OidcSettings | null,
+    /** Whether an OIDC provider is registered, i.e. whether edits take effect live. */
+    private readonly oidcRegistered: () => boolean,
   ) {}
 
   async describeLdap(): Promise<SettingsView<LdapSettings>> {
@@ -77,21 +82,98 @@ export class SettingsService {
       secretsHeld: resolved.secretsHeld,
       updatedAt: resolved.updatedAt?.toISOString() ?? null,
       updatedByEmail: resolved.updatedByEmail,
-      // Honest rather than copied from the LDAP view: nothing here can be
-      // changed at all, let alone changed without a restart.
-      liveReload: false,
+      // True once a provider is registered, exactly as for LDAP: a saved
+      // configuration reaches it on the next login through the settings seam
+      // (#113). False means no OIDC provider exists yet, so turning SSO on for
+      // the first time still needs one restart (ADR-0016 §4).
+      liveReload: this.oidcRegistered(),
     };
   }
 
   /**
-   * Check the running OIDC configuration against the identity provider.
+   * Replace the stored OIDC configuration.
    *
-   * Takes no candidate, because nothing can be saved: this answers "is what we
-   * are running with actually reachable and self-consistent", which is the
-   * question an operator has when sign-in is refused and they cannot tell
-   * whether the fault is the issuer, the network, or their own account.
+   * A body without `clientSecret` KEEPS the stored one, exactly as the LDAP
+   * bind password does: the console never receives the secret, so it cannot
+   * send it back, and treating its absence as "clear it" would strip the
+   * credential every time somebody corrected a claim name.
    */
-  async verifyOidc(resolver: AuthProviderResolver): Promise<ProviderVerification> {
+  async saveOidc(
+    config: OidcSettings,
+    request: AuthenticatedRequest,
+  ): Promise<SettingsView<OidcSettings>> {
+    const actor = request.principal;
+    const before = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
+
+    await this.store.save(
+      'auth.oidc',
+      config as unknown as Record<string, unknown>,
+      OIDC_SECRET_FIELDS,
+      actor?.email ?? 'unknown',
+    );
+
+    const after = await this.describeOidc();
+
+    // Audited with the REDACTED views on both sides: the trail records that the
+    // identity provider changed and who changed it, never a client secret.
+    await this.audit.record({
+      actorUserId: actor?.userId ?? null,
+      actorEmail: actor?.email ?? null,
+      action: 'settings.auth.oidc.update',
+      entityType: 'ProviderSetting',
+      entityId: 'auth.oidc',
+      before: before.config,
+      after: after.config,
+      ipAddress: request.ip ?? null,
+      userAgent: headerOf(request, 'user-agent'),
+    });
+
+    if (!after.liveReload) {
+      this.logger.warn(
+        'OIDC settings saved, but no OIDC provider is registered — a restart is required ' +
+          'before they take effect. Registration happens at boot (ADR-0016 §4).',
+      );
+    }
+
+    return after;
+  }
+
+  /** Discard the stored configuration and fall back to the environment. */
+  async clearOidc(request: AuthenticatedRequest): Promise<void> {
+    const actor = request.principal;
+    const before = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
+
+    await this.store.clear('auth.oidc');
+
+    await this.audit.record({
+      actorUserId: actor?.userId ?? null,
+      actorEmail: actor?.email ?? null,
+      action: 'settings.auth.oidc.clear',
+      entityType: 'ProviderSetting',
+      entityId: 'auth.oidc',
+      before: before.config,
+      after: null,
+      ipAddress: request.ip ?? null,
+      userAgent: headerOf(request, 'user-agent'),
+    });
+  }
+
+  /**
+   * Check a configuration against the identity provider.
+   *
+   * With no candidate this checks what is in force. With one, it checks what
+   * WOULD be saved — the point of testing before committing, and the reason
+   * configuring an identity provider by trial and error against the login
+   * screen is how people lock themselves out.
+   *
+   * What it can establish is bounded and the UI must say so: a login happens
+   * in a browser at another origin, so this proves the issuer answers, its
+   * discovery document describes the issuer asked for, and its keys parse.
+   */
+  async verifyOidc(
+    resolver: AuthProviderResolver,
+    candidate?: OidcSettings,
+  ): Promise<ProviderVerification> {
     const provider = resolver.forSource('oidc');
 
     if (provider === null) {
@@ -105,8 +187,10 @@ export class SettingsService {
     }
 
     try {
-      // No candidate: the interface takes one, and this provider ignores it.
-      return await provider.verifyConfiguration(undefined);
+      // A candidate arriving without its secret is tested with the STORED one,
+      // so "Test" does not fail for an operator who only changed a claim name.
+      const withSecret = candidate === undefined ? undefined : await this.fillOidcSecret(candidate);
+      return await provider.verifyConfiguration(withSecret);
     } catch (error) {
       this.logger.error(`OIDC verification threw: ${describe(error)}`);
       return {
@@ -219,6 +303,15 @@ export class SettingsService {
       this.logger.error(`LDAP verification threw: ${describe(error)}`);
       return { ok: false, message: 'The directory could not be reached. See the server log.' };
     }
+  }
+
+  private async fillOidcSecret(candidate: OidcSettings): Promise<OidcSettings> {
+    if (candidate.clientSecret !== undefined) return candidate;
+
+    const stored = await this.store.resolve<OidcSettings>('auth.oidc', this.oidcFromEnv);
+    if (stored.config?.clientSecret === undefined) return candidate;
+
+    return { ...candidate, clientSecret: stored.config.clientSecret };
   }
 
   private async fillSecrets(candidate: LdapSettings): Promise<LdapSettings> {
