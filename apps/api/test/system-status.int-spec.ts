@@ -41,6 +41,40 @@ const projectorReporting = (absent: string[]) =>
     typeof SystemStatusService
   >[2];
 
+/** A forwarding view for a deployment with nothing configured (issue #95). */
+const forwardingOff = () =>
+  ({
+    describe: async () => ({
+      active: 'none',
+      syslog: {
+        source: 'unset',
+        config: null,
+        disabled: false,
+        secretsHeld: [],
+        updatedAt: null,
+        updatedByEmail: null,
+        liveReload: false,
+      },
+      webhook: {
+        source: 'unset',
+        config: null,
+        disabled: false,
+        secretsHeld: [],
+        updatedAt: null,
+        updatedByEmail: null,
+        liveReload: false,
+      },
+    }),
+  }) as unknown as ConstructorParameters<typeof SystemStatusService>[4];
+
+const RETENTION = {
+  retentionDays: 90,
+  maxRows: null,
+  intervalMs: 0,
+  batchSize: 500,
+  maxBatchesPerPass: 10,
+};
+
 describe('system status (integration)', () => {
   let prisma: PrismaService;
   let outbox: AuditDeliveryOutbox;
@@ -64,7 +98,15 @@ describe('system status (integration)', () => {
   });
 
   const service = (transport: IAuditTransport = new NoopAuditTransport(), absent: string[] = []) =>
-    new SystemStatusService(prisma, outbox, projectorReporting(absent), transport);
+    new SystemStatusService(
+      prisma,
+      outbox,
+      projectorReporting(absent),
+      transport,
+      forwardingOff(),
+      () => false,
+      RETENTION,
+    );
 
   const queueJob = (dedupeKey: string, over: Record<string, unknown> = {}) =>
     prisma.encMaterializationJob.create({

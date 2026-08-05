@@ -75,6 +75,51 @@ export const auditDeliveryHealthSchema = z.object({
   failures: z.array(failureDetailSchema),
 });
 
+/**
+ * The audit forwarding pipeline, as an operator should see it (ADR-0016 §5).
+ *
+ * Present in EVERY edition, unlike `auditDelivery` above — the unlicensed
+ * case is a state to report ("forwarding unavailable, here is the capability"),
+ * not a section to omit. A pending queue growing while nothing can send is an
+ * operational alarm, and an alarm that renders as an absent field is silent.
+ */
+export const auditForwardingHealthSchema = z.object({
+  /** Whether this deployment can forward at all — the `audit.export` capability. */
+  available: z.boolean(),
+  active: z.enum(['syslog', 'webhook', 'none']),
+  /** Whether the registered transport can send right now. */
+  configured: z.boolean(),
+  /**
+   * The active transport is syslog over UDP: a send clears the queue without
+   * proof of receipt, so this deployment cannot show its records arrived.
+   */
+  unconfirmableDelivery: z.boolean(),
+  pending: z.number().int(),
+  oldestDueAt: z.string().nullable(),
+  /** The most recent delivery attempt's outcome. Null before the first one. */
+  lastDelivery: z
+    .object({
+      at: z.string(),
+      ok: z.boolean(),
+      delivered: z.number().int(),
+      /** ADMIN only — carries the collector's hostname. Null for everyone else. */
+      error: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+/** The retention bounds in force, and what the ceiling has cost (ADR-0016 §6). */
+export const auditRetentionHealthSchema = z.object({
+  ageDays: z.number().int(),
+  /** Null when the operator has not opted into a row ceiling. */
+  maxRows: z.number().int().nullable(),
+  /** Cumulative, recorded by the sweeper in the same transaction as the delete. */
+  undeliveredDropped: z.object({
+    total: z.number().int(),
+    lastDroppedAt: z.string().nullable(),
+  }),
+});
+
 export const projectionHealthSchema = z.object({
   nodes: z.number().int(),
   /** Staleness: the least recently refreshed node. Null on an empty estate. */
@@ -93,6 +138,8 @@ export const systemStatusSchema = z.object({
   materialization: materializationHealthSchema,
   /** Absent when the deployment has no audit transport installed. */
   auditDelivery: auditDeliveryHealthSchema.optional(),
+  auditForwarding: auditForwardingHealthSchema,
+  retention: auditRetentionHealthSchema,
   projection: projectionHealthSchema,
   /** Whether this response includes error detail, so the UI need not guess. */
   includesDetail: z.boolean(),
@@ -100,6 +147,8 @@ export const systemStatusSchema = z.object({
 
 export type MaterializationHealth = z.infer<typeof materializationHealthSchema>;
 export type AuditDeliveryHealth = z.infer<typeof auditDeliveryHealthSchema>;
+export type AuditForwardingHealth = z.infer<typeof auditForwardingHealthSchema>;
+export type AuditRetentionHealth = z.infer<typeof auditRetentionHealthSchema>;
 export type ProjectionHealth = z.infer<typeof projectionHealthSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;
 

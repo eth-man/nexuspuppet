@@ -139,6 +139,17 @@ export class AppModule {
     const env = loadEnv();
     const enterprise = await EnterpriseLoader.load();
 
+    // ONE policy object, shared by the sweeper that enforces it and the status
+    // surface that reports it — two copies built from the same env would still
+    // be two copies, and the report must never disagree with the enforcement.
+    const retentionPolicy = {
+      retentionDays: env.AUDIT_RETENTION_DAYS,
+      maxRows: env.AUDIT_RETENTION_MAX_ROWS ?? null,
+      intervalMs: env.AUDIT_RETENTION_INTERVAL_MS,
+      batchSize: env.AUDIT_RETENTION_BATCH_SIZE,
+      maxBatchesPerPass: env.AUDIT_RETENTION_MAX_BATCHES,
+    };
+
     // EVERY capability token gets a core default (ADR-0002). A token without
     // one would mean the product is incomplete without the enterprise layer.
     const coreDefaults = new Map<CapabilityToken, Provider>([
@@ -250,13 +261,7 @@ export class AppModule {
         provide: AuditRetentionSweeper,
         inject: [PrismaService],
         useFactory: (prisma: PrismaService): AuditRetentionSweeper =>
-          new AuditRetentionSweeper(prisma, {
-            retentionDays: env.AUDIT_RETENTION_DAYS,
-            maxRows: env.AUDIT_RETENTION_MAX_ROWS ?? null,
-            intervalMs: env.AUDIT_RETENTION_INTERVAL_MS,
-            batchSize: env.AUDIT_RETENTION_BATCH_SIZE,
-            maxBatchesPerPass: env.AUDIT_RETENTION_MAX_BATCHES,
-          }),
+          new AuditRetentionSweeper(prisma, retentionPolicy),
       },
     ];
 
@@ -362,13 +367,29 @@ export class AppModule {
           // Explicit factory: NodeProjectionService is itself factory-built with
           // plain config values, so Nest cannot construct this by metadata.
           provide: SystemStatusService,
-          inject: [PrismaService, AuditDeliveryOutbox, NodeProjectionService, AUDIT_TRANSPORT],
+          inject: [
+            PrismaService,
+            AuditDeliveryOutbox,
+            NodeProjectionService,
+            AUDIT_TRANSPORT,
+            AuditForwardingService,
+          ],
           useFactory: (
             prisma: PrismaService,
             outbox: AuditDeliveryOutbox,
             projection: NodeProjectionService,
             transport: IAuditTransport,
-          ): SystemStatusService => new SystemStatusService(prisma, outbox, projection, transport),
+            forwarding: AuditForwardingService,
+          ): SystemStatusService =>
+            new SystemStatusService(
+              prisma,
+              outbox,
+              projection,
+              transport,
+              forwarding,
+              () => registry.has(CAPABILITIES.AUDIT_EXPORT),
+              retentionPolicy,
+            ),
         },
         {
           // Config passed in, not read inside the service. A service that reads
