@@ -6,6 +6,7 @@ import {
   AUDIT_DELIVERY_OUTBOX,
   AUDIT_FORWARDING_SETTINGS,
   AUDIT_TRANSPORT,
+  AUTH_PROVIDER_SETTINGS,
   CAPABILITIES,
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
@@ -59,6 +60,7 @@ import { SettingsController } from './settings/settings.controller';
 import { ldapEnvBaseline, oidcEnvBaseline } from './settings/provider-baseline';
 import { AuditForwardingController } from './settings/audit-forwarding.controller';
 import { AuditForwardingResolver } from './settings/audit-forwarding.resolver';
+import { AuthSettingsResolver } from './settings/auth-settings.resolver';
 import { AuditForwardingService } from './settings/audit-forwarding.service';
 import { SettingsService } from './settings/settings.service';
 import { SettingsStore } from './settings/settings.store';
@@ -344,6 +346,18 @@ export class AppModule {
         // it to the service is a circular dependency the injector deadlocks
         // on, silently, and only in enterprise deployments.
         { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingResolver },
+        {
+          provide: AuthSettingsResolver,
+          inject: [SettingsStore],
+          useFactory: (store: SettingsStore): AuthSettingsResolver =>
+            new AuthSettingsResolver(store),
+        },
+        // What an enterprise auth provider reads to pick up a saved
+        // configuration without a restart (ADR-0016 §4, #113). Bound to the
+        // RESOLVER, never to SettingsService: the service injects providers,
+        // and a provider injects this — the same cycle that deadlocked the
+        // audit transport at boot.
+        { provide: AUTH_PROVIDER_SETTINGS, useExisting: AuthSettingsResolver },
         {
           provide: AuditForwardingService,
           inject: [SettingsStore, AuditForwardingResolver, AUDIT_SINK, AUDIT_TRANSPORT],

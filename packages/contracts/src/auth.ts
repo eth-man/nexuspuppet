@@ -655,6 +655,30 @@ export interface ManagedUser {
  * reports whether one is held, not what it is.
  */
 /**
+ * Stored configuration for an authentication provider, read per authentication.
+ *
+ * The contract, and the two halves matter equally:
+ *
+ * - **Null means "use what you were built with".** Nothing stored, or the
+ *   environment in force — either way the provider's own boot configuration
+ *   governs. Only a configuration an operator SAVED overrides it, which is
+ *   ADR-0016 §2's precedence rule expressed where it takes effect.
+ * - **A throw means refuse the login.** A provider must not fall back to its
+ *   boot configuration when the store cannot be read: a deployment whose saved
+ *   settings point at a different directory would silently authenticate
+ *   against the old one. Local accounts are unaffected (ADR-0015 keeps them on
+ *   their own provider), so failing closed here stays recoverable.
+ *
+ * The value is opaque and INCLUDES SECRETS — a provider needs the bind
+ * password to bind. It never crosses HTTP; the settings screen reads a
+ * different, redacted view.
+ */
+export interface IAuthProviderSettings {
+  /** @param source matches `IAuthProvider.source`, e.g. `ldap`. */
+  resolve(source: string): Promise<unknown | null>;
+}
+
+/**
  * What an OIDC deployment is configured with, as the console may see it.
  *
  * READ-ONLY for now, and the shape says why it can be: there is no
