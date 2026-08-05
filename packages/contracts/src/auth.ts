@@ -679,19 +679,31 @@ export interface IAuthProviderSettings {
 }
 
 /**
- * What an OIDC deployment is configured with, as the console may see it.
+ * What an OIDC deployment is configured with (ADR-0016).
  *
- * READ-ONLY for now, and the shape says why it can be: there is no
- * `clientSecret` here. The secret is write-only across the API by the same rule
- * as the LDAP bind password (ADR-0016 §3), and nothing writes this kind yet —
- * a provider snapshots its configuration at boot, so a stored row would be
- * displayed and never applied. This exists so an administrator can SEE what the
- * deployment is running with, and so the role-deletion guard can see which
- * roles OIDC mappings depend on (ADR-0018 §5).
+ * `clientSecret` is WRITE-ONLY, by the same rule as the LDAP bind password
+ * (ADR-0016 §3): it is accepted here and never returned, so a read reports
+ * whether one is held rather than what it is, and an empty field on save means
+ * keep the stored one.
+ *
+ * Editable since the settings seam reached auth providers (#113). Before that a
+ * provider snapshotted its configuration at boot, so a stored row would have
+ * been displayed and never applied — which is why this schema was read-only
+ * when it was introduced.
  */
 export const oidcSettingsSchema = z.object({
   issuer: z.string().url(),
   clientId: z.string().min(1),
+  /** Omit to keep the stored one. Never returned by a read. */
+  clientSecret: z.string().min(1).optional(),
+  /**
+   * Where the identity provider sends the browser back.
+   *
+   * Editable, and worth understanding before it is: this value must match what
+   * is registered AT THE PROVIDER. Changing it here without changing it there
+   * breaks every login, and the failure appears at the provider rather than in
+   * this application.
+   */
   redirectUri: z.string().url(),
   scopes: z.array(z.string().min(1)).default([]),
   emailClaim: z.string().min(1),

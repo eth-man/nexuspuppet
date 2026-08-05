@@ -9,6 +9,7 @@ import type {
   FactPathIndex,
   LdapSettings,
   ManagedUser,
+  OidcSettings,
   ManagedUserDetail,
   SettingsView,
   NodeClassificationExplanation,
@@ -246,6 +247,16 @@ export function useLdapSettings(enabled: boolean): UseQueryResult<SettingsView<L
   return useQuery({
     queryKey: ['settings', 'auth.ldap'],
     queryFn: ({ signal }) => api.get<SettingsView<LdapSettings>>('/settings/auth/ldap', signal),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/** The stored OIDC configuration, without its secret. Same freshness rule as LDAP. */
+export function useOidcSettings(enabled: boolean): UseQueryResult<SettingsView<OidcSettings>> {
+  return useQuery({
+    queryKey: ['settings', 'auth.oidc'],
+    queryFn: ({ signal }) => api.get<SettingsView<OidcSettings>>('/settings/auth/oidc', signal),
     enabled,
     staleTime: 0,
   });

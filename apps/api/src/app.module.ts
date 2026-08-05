@@ -235,6 +235,7 @@ export class AppModule {
             () => resolver.forSource('ldap') !== null,
             // Same route, same reason: core cannot parse OIDC_* either.
             () => oidcEnvBaseline(resolver),
+            () => resolver.forSource('oidc') !== null,
           ),
       },
       {
