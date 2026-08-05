@@ -11,6 +11,14 @@ import { SecretBoxError, open, parseKey, seal } from './secret-box';
  */
 export const SETTING_KINDS = [
   'auth.ldap',
+  /**
+   * READ-ONLY today. Nothing writes this kind: an auth provider snapshots its
+   * configuration at construction, so a stored row would be displayed and never
+   * applied. It exists so `describe` resolves the same way for both directory
+   * providers — from a row if one ever exists, otherwise from the running
+   * provider's own report.
+   */
+  'auth.oidc',
   'audit.syslog',
   'audit.webhook',
   /** The operator's transport choice — which of the two audit kinds delivers. */

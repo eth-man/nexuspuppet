@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   type LdapSettings,
+  type OidcSettings,
   type ProviderVerification,
   type SettingsView,
   ldapSettingsSchema,
@@ -90,6 +91,34 @@ export class SettingsController {
    * through `verifyConfiguration`. When no provider can answer, that is
    * reported plainly rather than pretended to succeed.
    */
+  /**
+   * The OIDC configuration in force, without secrets.
+   *
+   * READ-ONLY, and there is deliberately no PUT beside it: a provider snapshots
+   * its configuration at boot, so accepting a write here would store something
+   * that is displayed and never applied (#106). Answers even when OIDC is not
+   * configured — `source: 'unset'` — so the console renders an empty state
+   * rather than handling an error.
+   */
+  @Get('auth/oidc')
+  async readOidc(): Promise<SettingsView<OidcSettings>> {
+    return this.settings.describeOidc();
+  }
+
+  /**
+   * Check the running OIDC configuration against the identity provider.
+   *
+   * No body: there is no candidate to test, because nothing can be saved. This
+   * answers whether what the deployment is running with is reachable and
+   * self-consistent — the failure that otherwise presents as an opaque refusal
+   * at the login page.
+   */
+  @Post('auth/oidc/test')
+  @HttpCode(HttpStatus.OK)
+  async testOidc(): Promise<ProviderVerification> {
+    return this.settings.verifyOidc(this.resolver);
+  }
+
   @Post('auth/ldap/test')
   @HttpCode(HttpStatus.OK)
   async testLdap(

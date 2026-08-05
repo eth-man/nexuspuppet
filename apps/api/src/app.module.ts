@@ -56,7 +56,7 @@ import { AccountController, UsersController } from './auth/users.controller';
 import { UsersService } from './auth/users.service';
 import { AuthProviderResolver } from './auth/auth-provider.resolver';
 import { SettingsController } from './settings/settings.controller';
-import { ldapEnvBaseline } from './settings/provider-baseline';
+import { ldapEnvBaseline, oidcEnvBaseline } from './settings/provider-baseline';
 import { AuditForwardingController } from './settings/audit-forwarding.controller';
 import { AuditForwardingResolver } from './settings/audit-forwarding.resolver';
 import { AuditForwardingService } from './settings/audit-forwarding.service';
@@ -68,6 +68,7 @@ import { RoleRegistry } from './auth/role-registry';
 import { RolesService } from './auth/roles.service';
 import { RolesController } from './auth/roles.controller';
 import { LdapMappingSource } from './auth/ldap-mapping-source';
+import { DirectoryMappingSource, OidcMappingSource } from './auth/directory-mapping-source';
 import { TokenService } from './auth/token.service';
 import {
   BootstrapService,
@@ -230,6 +231,8 @@ export class AppModule {
             // than reading the variables itself.
             () => ldapEnvBaseline(resolver),
             () => resolver.forSource('ldap') !== null,
+            // Same route, same reason: core cannot parse OIDC_* either.
+            () => oidcEnvBaseline(resolver),
           ),
       },
       {
@@ -301,17 +304,29 @@ export class AppModule {
         // where roles live (ADR-0018 §2).
         RoleRegistry,
         LdapMappingSource,
+        OidcMappingSource,
         {
           provide: RolesService,
-          inject: [PrismaService, AUDIT_SINK, RoleRegistry, LdapMappingSource],
+          inject: [PrismaService, AUDIT_SINK, RoleRegistry, LdapMappingSource, OidcMappingSource],
           // Explicit, because MappingSource is an interface — Nest cannot infer
           // a provider for it from metadata.
           useFactory: (
             prisma: PrismaService,
             audit: IAuditSink,
             registry: RoleRegistry,
-            mappings: LdapMappingSource,
-          ): RolesService => new RolesService(prisma, audit, registry, mappings),
+            ldap: LdapMappingSource,
+            oidc: OidcMappingSource,
+          ): RolesService =>
+            new RolesService(
+              prisma,
+              audit,
+              registry,
+              // EVERY directory's mappings, not just LDAP's. ADR-0018 §5's
+              // deletion guard says nothing about which directory configured a
+              // mapping, and a role named only from OIDC could be deleted
+              // while the guard looked elsewhere (#110).
+              new DirectoryMappingSource(ldap, oidc),
+            ),
         },
         ...coreServices,
         ...providers,
