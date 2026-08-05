@@ -120,9 +120,10 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0013](./adr/0013-console-tls-private-ca.md) | TLS for the console, from a private CA |
 | [0014](./adr/0014-enterprise-licensing.md) | Enterprise licensing: signed offline claim, degrading to core — **Proposed** |
 | [0015](./adr/0015-hybrid-authentication.md) | Hybrid authentication: local and directory accounts together — **Proposed** |
-| [0016](./adr/0016-settings-store-and-audit-forwarding.md) | Settings store, syslog forwarding, and audit retention — **Proposed** |
+| [0016](./adr/0016-settings-store-and-audit-forwarding.md) | Settings store, syslog forwarding, and audit retention — **Accepted** |
 | [0017](./adr/0017-console-certificate-management.md) | Installing a console certificate from the console — **Accepted** |
 | [0018](./adr/0018-custom-roles.md) | Custom roles with granular permissions — **Accepted** |
+| [0019](./adr/0019-enc-tree-replication.md) | Replicating the ENC tree to puppetserver — **Accepted** |
 
 ## 11. Open questions
 
