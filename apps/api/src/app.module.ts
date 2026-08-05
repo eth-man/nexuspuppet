@@ -46,6 +46,7 @@ import {
   DEFAULT_AUDIT_PACING,
   NoopAuditTransport,
 } from './auth/audit-delivery.worker';
+import { AuditRetentionSweeper } from './auth/audit-retention.sweeper';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthController } from './auth/auth.controller';
@@ -238,6 +239,20 @@ export class AppModule {
           transport: IAuditTransport,
         ): AuditDeliveryWorker =>
           new AuditDeliveryWorker(prisma, outbox, transport, DEFAULT_AUDIT_PACING),
+      },
+      {
+        // Explicit factory: the policy is a plain object built from env, which
+        // Nest would otherwise try to resolve as an injectable dependency.
+        provide: AuditRetentionSweeper,
+        inject: [PrismaService],
+        useFactory: (prisma: PrismaService): AuditRetentionSweeper =>
+          new AuditRetentionSweeper(prisma, {
+            retentionDays: env.AUDIT_RETENTION_DAYS,
+            maxRows: env.AUDIT_RETENTION_MAX_ROWS ?? null,
+            intervalMs: env.AUDIT_RETENTION_INTERVAL_MS,
+            batchSize: env.AUDIT_RETENTION_BATCH_SIZE,
+            maxBatchesPerPass: env.AUDIT_RETENTION_MAX_BATCHES,
+          }),
       },
     ];
 

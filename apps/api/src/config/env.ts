@@ -87,6 +87,34 @@ export const envSchema = z.object({
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12).optional(),
 
+  // ADR-0016 §6 — the audit table is bounded in every edition.
+  /**
+   * How long audit records are kept. Age bounds the creep; the row ceiling
+   * below bounds the burst. Records with a pending delivery job are exempt
+   * from age-based sweeping, however old — an outage must not become silent
+   * data loss.
+   */
+  AUDIT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  /**
+   * Hard ceiling on audit rows. UNSET BY DEFAULT, deliberately: the ceiling
+   * is the one bound permitted to delete undelivered records, and there is no
+   * estate-scale measurement to size a default against — a default that trips
+   * on a normal Tuesday is worse than no ceiling (ADR-0016, resolved
+   * question 2). The floor exists because a tiny ceiling is a foot-gun that
+   * would empty the table.
+   */
+  AUDIT_RETENTION_MAX_ROWS: z.coerce.number().int().min(1_000).optional(),
+  /** How often the sweeper looks for work. 0 disables it in this process. */
+  AUDIT_RETENTION_INTERVAL_MS: z.coerce.number().int().min(0).default(3_600_000),
+  /** Rows deleted per batch. Small batches keep vacuum happy. */
+  AUDIT_RETENTION_BATCH_SIZE: z.coerce.number().int().min(10).max(10_000).default(500),
+  /**
+   * Batches per pass. A pass that hits this stops rather than catching up in
+   * one go — one enormous delete produces exactly the bloat and I/O spike
+   * retention exists to avoid.
+   */
+  AUDIT_RETENTION_MAX_BATCHES: z.coerce.number().int().min(1).max(100).default(10),
+
   // ADR-0004 — paths to mounted files, never inline PEM content.
   PUPPETDB_URL: z.string().url(),
   PUPPETDB_CERT_PATH: z.string().min(1),
