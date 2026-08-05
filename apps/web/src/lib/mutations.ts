@@ -4,8 +4,13 @@ import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/r
 import type {
   UpdateCheck,
   AssignClass,
+  AuditForwardingSelection,
+  AuditForwardingView,
+  AuditTransportKind,
   ChangePassword,
   LdapSettings,
+  SyslogSettings,
+  WebhookSettings,
   ProviderVerification,
   SettingsView,
   CreateUserInput,
@@ -307,6 +312,54 @@ export function useTestLdapSettings(): UseMutationResult<
 > {
   return useMutation({
     mutationFn: (input) => api.post<ProviderVerification>('/settings/auth/ldap/test', input),
+  });
+}
+
+/** Replace one audit transport's stored configuration. Never switches which is active. */
+export function useSaveAuditTransport(): UseMutationResult<
+  AuditForwardingView,
+  Error,
+  { kind: AuditTransportKind; config: SyslogSettings | WebhookSettings }
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, config }) =>
+      api.put<AuditForwardingView>(`/settings/audit/${kind}`, config),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'audit.forwarding'] }),
+  });
+}
+
+/** Discard one transport's stored configuration. Refused by the API while it is active. */
+export function useClearAuditTransport(): UseMutationResult<void, Error, AuditTransportKind> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (kind) => api.delete<void>(`/settings/audit/${kind}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'audit.forwarding'] }),
+  });
+}
+
+/** Switch which transport delivers — the explicit act, separate from saving. */
+export function useSetActiveAuditTransport(): UseMutationResult<
+  AuditForwardingView,
+  Error,
+  AuditForwardingSelection['active']
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (active) => api.put<AuditForwardingView>('/settings/audit/forwarding', { active }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'audit.forwarding'] }),
+  });
+}
+
+/** Try a candidate transport configuration without saving it. Invalidates nothing. */
+export function useTestAuditTransport(): UseMutationResult<
+  ProviderVerification,
+  Error,
+  { kind: AuditTransportKind; config: SyslogSettings | WebhookSettings }
+> {
+  return useMutation({
+    mutationFn: ({ kind, config }) =>
+      api.post<ProviderVerification>(`/settings/audit/${kind}/test`, config),
   });
 }
 
