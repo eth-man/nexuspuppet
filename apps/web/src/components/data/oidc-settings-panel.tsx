@@ -333,132 +333,150 @@ export function OidcSettingsPanel() {
             })
           }
         />
-
-        <InsetPanel
-          title="Check this configuration"
-          description="Asks the identity provider for its discovery document and signing keys. It cannot prove somebody will be able to sign in — that happens in a browser at another origin."
-        >
-          {result !== null && <TestResult result={result} />}
-        </InsetPanel>
       </fieldset>
 
-      {editing && changes.length > 0 && (
-        <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
-          <p className="text-[11px] font-semibold text-ink">Pending changes</p>
-          <ul className="mt-1 space-y-0.5">
-            {changes.map((line) => (
-              <li key={line} className="text-[11px] text-ink-muted">
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/*
+        Check, delta and actions in ONE card, titled with what they control —
+        the same fix the directory card needed. Bare rows between two bordered
+        cards belong, visually, to neither.
+      */}
+      <Card>
+        <CardHeader>
+          <CardHeading>
+            <CardTitle>Apply single sign-on settings</CardTitle>
+            <CardDescription>
+              Check the settings above against the identity provider, then save them.
+            </CardDescription>
+          </CardHeading>
+        </CardHeader>
 
-      {licensed && (
-        <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
-          {view?.updatedAt !== null && view?.updatedAt !== undefined && (
-            <span className="text-[11px] text-ink-faint">
-              Last changed {absolute(view.updatedAt)}
-              {view.updatedByEmail !== null && ` by ${view.updatedByEmail}`}
-            </span>
+        <CardContent className="space-y-3">
+          <InsetPanel
+            title="Check this configuration"
+            description="Asks the identity provider for its discovery document and signing keys. It cannot prove somebody will be able to sign in — that happens in a browser at another origin."
+          >
+            {result !== null && <TestResult result={result} />}
+          </InsetPanel>
+
+          {editing && changes.length > 0 && (
+            <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
+              <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+              <ul className="mt-1 space-y-0.5">
+                {changes.map((line) => (
+                  <li key={line} className="text-[11px] text-ink-muted">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
-          <div className="ml-auto flex items-center gap-2">
-            {!editing ? (
-              <>
-                {/* Available while locked: checking that the issuer answers
+          {licensed && (
+            <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
+              {view?.updatedAt !== null && view?.updatedAt !== undefined && (
+                <span className="text-[11px] text-ink-faint">
+                  Last changed {absolute(view.updatedAt)}
+                  {view.updatedByEmail !== null && ` by ${view.updatedByEmail}`}
+                </span>
+              )}
+
+              <div className="ml-auto flex items-center gap-2">
+                {!editing ? (
+                  <>
+                    {/* Available while locked: checking that the issuer answers
                     writes nothing, and needing to unlock first inverts the
                     point of the check. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={test.isPending || blocked}
-                  onClick={() => {
-                    setError(null);
-                    test.mutate(submission(), { onSuccess: setResult, onError: fail });
-                  }}
-                >
-                  {test.isPending ? 'Checking…' : 'Check provider'}
-                </Button>
-                <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
-                  <Pencil className="mr-1 size-3.5" aria-hidden />
-                  Edit settings
-                </Button>
-              </>
-            ) : (
-              <>
-                {view?.source === 'database' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={clear.isPending}
-                    onClick={() => {
-                      setError(null);
-                      clear.mutate(undefined, { onError: fail });
-                    }}
-                  >
-                    Discard stored settings
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    // Back to what is stored, never to what was typed.
-                    setForm(
-                      view?.config === null || view?.config === undefined
-                        ? BLANK
-                        : { ...BLANK, ...view.config },
-                    );
-                    setSecret('');
-                    setResult(null);
-                    setError(null);
-                    setEditing(false);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={test.isPending || blocked}
-                  onClick={() => {
-                    setError(null);
-                    test.mutate(submission(), { onSuccess: setResult, onError: fail });
-                  }}
-                >
-                  {test.isPending ? 'Checking…' : 'Check provider'}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={save.isPending || blocked}
-                  onClick={() => {
-                    setError(null);
-                    save.mutate(submission(), {
-                      onSuccess: () => {
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={test.isPending || blocked}
+                      onClick={() => {
+                        setError(null);
+                        test.mutate(submission(), { onSuccess: setResult, onError: fail });
+                      }}
+                    >
+                      {test.isPending ? 'Checking…' : 'Check provider'}
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                      <Pencil className="mr-1 size-3.5" aria-hidden />
+                      Edit settings
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {view?.source === 'database' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={clear.isPending}
+                        onClick={() => {
+                          setError(null);
+                          clear.mutate(undefined, { onError: fail });
+                        }}
+                      >
+                        Discard stored settings
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        // Back to what is stored, never to what was typed.
+                        setForm(
+                          view?.config === null || view?.config === undefined
+                            ? BLANK
+                            : { ...BLANK, ...view.config },
+                        );
                         setSecret('');
+                        setResult(null);
+                        setError(null);
                         setEditing(false);
-                      },
-                      onError: fail,
-                    });
-                  }}
-                >
-                  {save.isPending ? 'Saving…' : 'Save'}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={test.isPending || blocked}
+                      onClick={() => {
+                        setError(null);
+                        test.mutate(submission(), { onSuccess: setResult, onError: fail });
+                      }}
+                    >
+                      {test.isPending ? 'Checking…' : 'Check provider'}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={save.isPending || blocked}
+                      onClick={() => {
+                        setError(null);
+                        save.mutate(submission(), {
+                          onSuccess: () => {
+                            setSecret('');
+                            setEditing(false);
+                          },
+                          onError: fail,
+                        });
+                      }}
+                    >
+                      {save.isPending ? 'Saving…' : 'Save'}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
-      {!licensed && (
-        <p className="text-center text-[11px] text-ink-faint">
-          Single sign-on requires the <span className="font-mono">sso.oidc</span> capability
-          (NexusPuppet Enterprise). Local accounts keep working either way.
-        </p>
-      )}
+          {!licensed && (
+            <p className="text-center text-[11px] text-ink-faint">
+              Single sign-on requires the <span className="font-mono">sso.oidc</span> capability
+              (NexusPuppet Enterprise). Local accounts keep working either way.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

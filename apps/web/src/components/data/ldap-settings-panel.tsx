@@ -446,99 +446,126 @@ export function LdapSettingsPanel() {
         happened. Keeping the outcome here, and giving Test the quieter of the
         two button weights below, is what says which one wrote something.
       */}
-        <InsetPanel
-          title="Test this configuration"
-          description="Binds with the values above without saving them."
-        >
-          {result !== null && <TestResult result={result} />}
-        </InsetPanel>
       </fieldset>
 
       {/*
-        OUTSIDE the fieldset. The action bar is chrome, not form content — and
-        a fieldset disables every control inside it, so Edit sat there
-        permanently disabling itself. Caught by the test that tried to click it.
+        TEST, DELTA AND ACTIONS IN ONE CARD, TITLED WITH WHAT THEY CONTROL.
+        
+        They used to sit as bare rows after the last card. With one provider on
+        the page that read as "the actions for the thing above"; with a second
+        provider below it, the same rows sat exactly between two bordered cards
+        and belonged, visually, to neither — reported as looking like a global
+        page action, or like the identity provider's. A bordered card whose
+        title names the directory cannot be read either way.
       */}
-      {editing && changes.length > 0 && (
-        <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
-          <p className="text-[11px] font-semibold text-ink">Pending changes</p>
-          <ul className="mt-1 space-y-0.5">
-            {changes.map((line) => (
-              <li key={line} className="text-[11px] text-ink-muted">
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <Card>
+        <CardHeader>
+          <CardHeading>
+            <CardTitle>Apply directory settings</CardTitle>
+            <CardDescription>
+              Test the settings above against the directory, then save them.
+            </CardDescription>
+          </CardHeading>
+        </CardHeader>
 
-      {/*
-        Not rendered at all in core. The bar sits outside the fieldset now, so
-        it is no longer disabled by it — and a row of live buttons under a form
-        nobody can use is exactly the "configure a dead form" this screen was
-        rebuilt to avoid.
-      */}
-      {licensed && (
-        <ActionBar
-          editing={editing}
-          onEdit={() => setEditing(true)}
-          onCancel={() => {
-            // Back to what is stored, not to what was typed. Cancel has to mean
-            // "forget this", or it is just a slower Save.
-            setForm(
-              view?.config === null || view?.config === undefined
-                ? BLANK
-                : { ...BLANK, ...view.config },
-            );
-            setPassword('');
-            setResult(null);
-            setError(null);
-            setEditing(false);
-          }}
-          busy={save.isPending || test.isPending || clear.isPending}
-          blocked={blocked}
-          testing={test.isPending}
-          saving={save.isPending}
-          onTest={() => {
-            setError(null);
-            test.mutate(submission(), { onSuccess: setResult, onError: fail });
-          }}
-          onSave={() => {
-            setError(null);
-            save.mutate(submission(), {
-              // Clear the field on success: the value is now stored, and leaving
-              // it on screen implies it is still pending.
-              onSuccess: () => {
+        <CardContent className="space-y-3">
+          {/*
+            The RESULT must not be mistaken for a save: a green tick in the same
+            strip as Save reads as confirmation that saving happened. It keeps
+            its own inset, and Test keeps the quieter button weight.
+          */}
+          <InsetPanel
+            title="Test this configuration"
+            description="Binds with the values above without saving them."
+          >
+            {result !== null && <TestResult result={result} />}
+          </InsetPanel>
+
+          {/*
+            Still outside the FIELDSET, which is what matters: a fieldset
+            disables every control inside it, so Edit sat there permanently
+            disabling itself. Caught by the test that tried to click it.
+          */}
+          {editing && changes.length > 0 && (
+            <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
+              <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+              <ul className="mt-1 space-y-0.5">
+                {changes.map((line) => (
+                  <li key={line} className="text-[11px] text-ink-muted">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/*
+            Not rendered at all in core: a row of live buttons under a form
+            nobody can use is exactly the "configure a dead form" this screen
+            was rebuilt to avoid.
+          */}
+          {licensed && (
+            <ActionBar
+              editing={editing}
+              onEdit={() => setEditing(true)}
+              onCancel={() => {
+                // Back to what is stored, not to what was typed. Cancel has to mean
+                // "forget this", or it is just a slower Save.
+                setForm(
+                  view?.config === null || view?.config === undefined
+                    ? BLANK
+                    : { ...BLANK, ...view.config },
+                );
                 setPassword('');
+                setResult(null);
+                setError(null);
                 setEditing(false);
-              },
-              onError: fail,
-            });
-          }}
-          onDiscard={
-            view?.source === 'database'
-              ? () => {
-                  setError(null);
-                  clear.mutate(undefined, { onError: fail });
-                }
-              : undefined
-          }
-          updatedAt={view?.updatedAt ?? null}
-          updatedByEmail={view?.updatedByEmail ?? null}
-        />
-      )}
+              }}
+              busy={save.isPending || test.isPending || clear.isPending}
+              blocked={blocked}
+              testing={test.isPending}
+              saving={save.isPending}
+              onTest={() => {
+                setError(null);
+                test.mutate(submission(), { onSuccess: setResult, onError: fail });
+              }}
+              onSave={() => {
+                setError(null);
+                save.mutate(submission(), {
+                  // Clear the field on success: the value is now stored, and leaving
+                  // it on screen implies it is still pending.
+                  onSuccess: () => {
+                    setPassword('');
+                    setEditing(false);
+                  },
+                  onError: fail,
+                });
+              }}
+              onDiscard={
+                view?.source === 'database'
+                  ? () => {
+                      setError(null);
+                      clear.mutate(undefined, { onError: fail });
+                    }
+                  : undefined
+              }
+              updatedAt={view?.updatedAt ?? null}
+              updatedByEmail={view?.updatedByEmail ?? null}
+            />
+          )}
 
-      {/*
-        Humble, and at the bottom. Somebody who has just read the form knows
-        what it does; this says why it will not respond. Stated once, in the
-        body text style, with no button — an upsell in the middle of a feature
-        somebody cannot use reads as a toll booth.
-      */}
-      {!licensed && (
-        <p className="text-center text-[11px] text-ink-faint">
-          This feature requires NexusPuppet Enterprise.
-        </p>
-      )}
+          {/*
+            Humble, and inside the card it explains. Stated once, in the body
+            text style, with no button — an upsell in the middle of a feature
+            somebody cannot use reads as a toll booth.
+          */}
+          {!licensed && (
+            <p className="text-center text-[11px] text-ink-faint">
+              This feature requires NexusPuppet Enterprise.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
