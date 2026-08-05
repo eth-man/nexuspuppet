@@ -91,19 +91,22 @@ export class AuditDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     if (this.pacing.intervalMs <= 0) return;
 
-    // Nothing to drain and nowhere to send it. Saying so once at boot is more
-    // useful than a worker that ticks silently forever.
     if (!this.transport.configured) {
+      // Say so once at boot — but the timer still starts. `configured` may
+      // become true while the process runs (ADR-0016 §4: reconfiguration is
+      // live), and drain() re-checks it every tick, so an operator activating
+      // a transport from the console must not need a restart before delivery
+      // begins.
       this.logger.log(
         `Audit delivery idle — transport "${this.transport.name}" is not configured. ` +
           'Records are still written to Postgres.',
       );
-      return;
+    } else {
+      this.logger.log(
+        `Audit delivery running every ${this.pacing.intervalMs}ms via "${this.transport.name}".`,
+      );
     }
 
-    this.logger.log(
-      `Audit delivery running every ${this.pacing.intervalMs}ms via "${this.transport.name}".`,
-    );
     this.timer = setInterval(() => {
       void this.tick();
     }, this.pacing.intervalMs);

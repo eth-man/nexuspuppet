@@ -83,6 +83,16 @@ export const CORE_AUDIT_SINK = Symbol.for('nexuspuppet.CoreAuditSink');
 export const AUDIT_DELIVERY_OUTBOX = Symbol.for('nexuspuppet.AuditDeliveryOutbox');
 
 /**
+ * Core's resolver for stored audit-forwarding settings (ADR-0016 §5).
+ *
+ * Also NOT a capability: core owns the settings store, and the forwarding
+ * capability asks it which transport is active and with what configuration —
+ * secrets included, server-side only. A token for the same reason as the
+ * outbox above: the enterprise layer cannot import core's class.
+ */
+export const AUDIT_FORWARDING_SETTINGS = Symbol.for('nexuspuppet.AuditForwardingSettings');
+
+/**
  * Every seam, enumerable at runtime.
  *
  * Exists so a test can assert properties of ALL of them — that each has a core
