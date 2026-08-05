@@ -62,9 +62,7 @@ class FakeDb {
 
       count: async (): Promise<number> => this.logs.length,
 
-      deleteMany: async (args: {
-        where: { id: { in: string[] } };
-      }): Promise<{ count: number }> => {
+      deleteMany: async (args: { where: { id: { in: string[] } } }): Promise<{ count: number }> => {
         const ids = new Set(args.where.id.in);
         const before = this.logs.length;
         // The delivery-job cascade is the schema's job; here a log row and its
@@ -128,7 +126,10 @@ const POLICY: AuditRetentionPolicy = {
   maxBatchesPerPass: 3,
 };
 
-function build(overrides?: Partial<AuditRetentionPolicy>): { sweeper: AuditRetentionSweeper; db: FakeDb } {
+function build(overrides?: Partial<AuditRetentionPolicy>): {
+  sweeper: AuditRetentionSweeper;
+  db: FakeDb;
+} {
   const db = new FakeDb();
   const sweeper = new AuditRetentionSweeper(db as unknown as PrismaService, {
     ...POLICY,

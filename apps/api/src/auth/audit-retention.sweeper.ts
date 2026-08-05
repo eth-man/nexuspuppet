@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  type OnModuleDestroy,
-  type OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma';
 import { ADVISORY_LOCKS, PrismaService } from '../prisma/prisma.service';
 
@@ -277,8 +272,7 @@ export class AuditRetentionSweeper implements OnModuleInit, OnModuleDestroy {
     now: Date,
   ): Promise<void> {
     const existing = await tx.appSetting.findUnique({ where: { key: UNDELIVERED_DROPS_KEY } });
-    const prior =
-      existing !== null && isDropsValue(existing.value) ? existing.value.total : 0;
+    const prior = existing !== null && isDropsValue(existing.value) ? existing.value.total : 0;
 
     const value: UndeliveredDrops = {
       total: prior + dropped,
