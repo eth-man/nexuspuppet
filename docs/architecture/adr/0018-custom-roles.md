@@ -40,7 +40,7 @@ seeded as `builtIn` rows with exactly today's permission sets, so an existing
 deployment is unchanged on the first boot after upgrade.
 
 **Built-in roles are fixed: not deletable, not renamable, and not
-redefinable.** Their names are written into LDAP role mappings, into audit
+redefinable.** Their names are written into directory role mappings, into audit
 history, and into other people's runbooks, and every one of those readers
 assumes the name still means what the product documents.
 
@@ -87,7 +87,7 @@ update, and on role deletion — inside the transaction, as the existing
 last-administrator check already is. `users:manage` cannot be removed from the
 last role that grants it.
 
-### 5. LDAP role mappings refer to roles by name
+### 5. Directory role mappings refer to roles by name
 
 `ldapSettingsSchema.roleMappings[].role` is currently the three-value enum. It
 becomes a string naming a role. Consequences worth stating:
@@ -99,7 +99,26 @@ becomes a string naming a role. Consequences worth stating:
   last-admin rule, because the failure would otherwise surface as people being
   unable to sign in.
 
-**Multiple matches: union for custom roles, ordering preserved for built-ins.**
+**Both guarantees are currently LDAP-only, and that is a gap rather than a
+decision.** `MappingSource` has one implementation, which reads the directory
+settings; OIDC mappings live in the environment and are invisible to it. So a
+role named by an OIDC mapping can be deleted without the refusal above, and a
+dangling OIDC mapping is shown nowhere, because OIDC has no settings surface at
+all yet.
+
+This was inert while OIDC mappings could only name built-in roles — built-ins
+are not deletable, so there was nothing to guard. Widening OIDC to role names
+made it live: the guard now has a hole exactly where the ADR says it must not.
+It fails closed on permissions (a name with no row grants nothing), so it is an
+operability failure rather than a privilege one — somebody signs in able to do
+nothing, with nothing to explain why, which is the outcome this bullet exists to
+prevent.
+
+Closing it means a second `MappingSource` reading the OIDC configuration, which
+is cheap once OIDC has a settings surface and awkward before then.
+
+**Multiple matches: union for custom roles, each provider's prior rule preserved
+for built-ins.**
 
 "Highest role wins" stops meaning anything once roles are unordered, so custom
 roles union their permissions. But applying a union everywhere would silently
@@ -110,7 +129,7 @@ So the rule is split by what the mapping actually names:
 
 | Mapping names | Rule |
 |---|---|
-| only built-in roles | highest wins — today's behaviour, unchanged |
+| only built-in roles | **whatever that provider already did**, unchanged |
 | any custom role | union of permissions across all matched roles |
 
 An existing deployment upgrades to identical behaviour. A deployment that opts
@@ -119,10 +138,37 @@ operator is looking at the screen and can be told. The UI states which rule is
 in force for the mapping set as configured, because a table where the semantics
 depend on the contents needs to say so.
 
+#### The built-in rule is per provider, and deliberately not unified
+
+This section was written about LDAP and now governs two providers that resolve
+built-ins differently:
+
+| Provider | Built-in rule | Where it comes from |
+|---|---|---|
+| LDAP | highest role wins | `memberOf` order is unspecified, so ordering could not be meaningful |
+| OIDC | first matching mapping in configured order | claim order is equally unspecified, so the provider ranked by the order the operator wrote instead, and documented it |
+
+**Unifying them would be tidier and is refused, for this section's own reason.**
+Switching OIDC to highest-wins re-reads existing configurations: a deployment
+listing `contractors=VIEWER` before `ops=OPERATOR` grants VIEWER today and would
+grant OPERATOR after the upgrade — a promotion, with no diff to review and no
+event to notice. That is exactly the trade the paragraph above declines, so it is
+declined here too.
+
+The consequence to state plainly: **the built-in rule is a property of the
+provider, not of the product.** Anything reading these mappings — the settings
+screen, a future provider — must ask which provider it is describing rather than
+assume one answer. A third directory provider adopts whichever rule it can
+justify from its own ordering guarantees, and says which in its own
+documentation.
+
+Union behaviour, by contrast, IS a product rule: once a custom role is matched,
+every provider unions, because no provider can rank names it did not invent.
+
 ### 6. The mechanism is core; the editing is licensed
 
 The split is not "custom roles are an enterprise feature". It cannot be: the
-roles table, per-request resolution, the lockout rules and the LDAP mapping
+roles table, per-request resolution, the lockout rules and the directory mapping
 change all sit on paths every deployment takes, and a core build has to run them
 correctly whether or not it can create a role.
 
@@ -131,7 +177,7 @@ correctly whether or not it can create a role.
 | `roles` table and seeded built-ins | ✓ | |
 | per-request permission resolution | ✓ | |
 | lockout-by-permission | ✓ | |
-| LDAP mapping to role names | ✓ | |
+| directory mapping to role names (LDAP, OIDC) | ✓ | |
 | **creating / editing / deleting roles** | | ✓ `rbac.custom` |
 
 A core deployment therefore has exactly three roles, behaving exactly as today,
