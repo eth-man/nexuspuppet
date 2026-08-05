@@ -1,0 +1,76 @@
+# Overrides for: shipping CONTAINER LOGS to a syslog collector.
+#
+#   cp docker-compose.syslog.example.yml docker-compose.override.yml
+#   docker compose up -d --force-recreate
+#
+# Compose loads docker-compose.override.yml automatically. Do not commit yours —
+# it is site configuration and the repository ignores it.
+#
+# WHAT THIS SHIPS, AND WHAT IT DOES NOT. This forwards each container's
+# stdout/stderr — the OPERATIONAL logs: request handling, worker activity,
+# errors. It is not the audit trail. Audit records are rows first and are
+# forwarded by the console's own Integrations feature (ADR-0016), which
+# confirms delivery and retries. The two answer different questions and travel
+# different paths on purpose; pointing both at the same collector is fine.
+#
+# TRADE-OFFS, honestly:
+#
+#   - `docker compose logs` STOPS WORKING for these services. The syslog
+#     driver sends log lines away instead of writing them locally, and there
+#     is nothing left on the host to read back. If you need both, keep the
+#     default driver and run a host-level forwarder instead (rsyslog/vector
+#     reading the Docker json-file logs).
+#   - Delivery is the driver's best effort, not the outbox's guarantee. With
+#     the default blocking mode a collector outage can stall container output;
+#     `mode: non-blocking` below trades that for dropping lines once the
+#     buffer fills. Neither loses audit records — those never travel this
+#     path.
+#   - A container fails to START if the collector is unreachable over TCP at
+#     start time. That is the driver connecting eagerly, not a NexusPuppet
+#     fault.
+
+# Shared options; each service adds only its tag. Address variants:
+#
+#   plain TCP   tcp://collector.example.com:601
+#   TLS         tcp+tls://collector.example.com:6514
+#               — against an internal CA, ALSO set
+#                 syslog-tls-ca-cert: /etc/docker/certs/collector-ca.pem
+#                 (read by the Docker DAEMON on the host, not the container)
+#   UDP         udp://collector.example.com:514
+#               — fire-and-forget: lost datagrams are lost silently, the same
+#                 reason the audit transport calls UDP "unconfirmable delivery"
+x-syslog-options: &syslog-options
+  syslog-address: 'tcp://collector.example.com:601'
+  syslog-format: rfc5424
+  # Buffer instead of blocking the container when the collector is slow.
+  mode: non-blocking
+  max-buffer-size: 4m
+
+services:
+  api:
+    logging:
+      driver: syslog
+      options:
+        <<: *syslog-options
+        tag: nexuspuppet-api
+
+  web:
+    logging:
+      driver: syslog
+      options:
+        <<: *syslog-options
+        tag: nexuspuppet-web
+
+  db:
+    logging:
+      driver: syslog
+      options:
+        <<: *syslog-options
+        tag: nexuspuppet-db
+
+  proxy:
+    logging:
+      driver: syslog
+      options:
+        <<: *syslog-options
+        tag: nexuspuppet-proxy
