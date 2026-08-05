@@ -298,6 +298,27 @@ Changing your own password requires the current one. Doing so **revokes every ot
 
 Every classification change and every user-administration action is written with the actor, the before and after values, and a timestamp — in the same transaction as the change itself. An audit trail that could miss changes that did happen would be worse than none, because it would look authoritative.
 
+Audit records are kept locally for a retention window (90 days by default) and can be **forwarded to a collector** — syslog or webhook — from **Settings → Integrations**. Forwarding is queued and confirmed: a collector outage queues records rather than losing them, and the System card on the dashboard shows the queue, the last delivery, and anything retention had to drop.
+
+### Operational logs
+
+Two kinds of output leave this product, and they are deliberately different things:
+
+| | What it is | How it travels |
+|---|---|---|
+| **Audit trail** | Who changed what, when — the accountability record | Written to the database in the change's own transaction; forwarded via **Settings → Integrations** with delivery confirmation and retries |
+| **Operational logs** | What the services are doing — requests, workers, errors | Container stdout/stderr; shipping them anywhere is the **container runtime's** job |
+
+To ship the operational logs to a syslog collector, use Docker's syslog logging driver — no application configuration involved. A ready-made override with the TCP, TLS and UDP variants and their trade-offs spelled out ships in the repository as `docker-compose.syslog.example.yml`:
+
+```bash
+cp docker-compose.syslog.example.yml docker-compose.override.yml
+# edit the collector address, then
+docker compose up -d --force-recreate
+```
+
+Read the comments in that file before adopting it — the driver trades away `docker compose logs`, and its delivery is best-effort in a way the audit path's is not.
+
 ### Triggering a reconcile
 
 Administrators can queue a full reconcile from the console. This re-materializes every node in cursored chunks. It is safe to run at any time — it is how you recover if the ENC directory is ever lost or inconsistent.
