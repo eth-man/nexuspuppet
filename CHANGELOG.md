@@ -2,6 +2,30 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-08-05
+
+The audit trail learns to leave the box, and to stop growing (ADR-0016). No ENC contract changes; one new database expectation — none — the release runs no migrations.
+
+### Added
+
+**Audit forwarding, configured from the console.** Settings → Integrations gains syslog and webhook cards: RFC 5424 over TCP/TLS (UDP opt-in and labelled *unconfirmable delivery* everywhere it appears), test-before-save against the collector, secrets write-only, and one active transport at a time — saving a configuration never switches which transport delivers; activation is its own explicit act. Forwarding requires the `audit.export` capability; core renders the real cards, inert, and the API answers 501 naming the capability. The environment's `AUDIT_EXPORT_URL` remains the bootstrap baseline and stored settings win once written.
+
+**Audit retention, in every edition.** `AUDIT_RETENTION_DAYS` (default 90) bounds the trail by age; `AUDIT_RETENTION_MAX_ROWS` is an opt-in ceiling for the burst case. The sweeper runs jittered and batched, never inside a request, and never age-sweeps a record still queued for delivery — the ceiling alone may, and every undelivered record it drops is counted, logged, and surfaced.
+
+**The forwarding pipeline on the System card.** `GET /system/status` reports availability, the active transport, queue depth, the last delivery outcome, the UDP unconfirmable flag while it is in force, and the retention bounds with what the ceiling has cost. The unlicensed case is a state, not an omission.
+
+**Shipping container logs to syslog.** A compose override example (`docker-compose.syslog.example.yml`) wires Docker's syslog driver with the TCP/TLS/UDP variants and their trade-offs stated; the user guide now draws the line between operational logs (the runtime's job) and the audit trail (the console's).
+
+### Changed
+
+**The sidebar names its links when collapsed and marks the active one** with a pill and a solid left border.
+
+**The default projected-fact set is broader**, and checked against what modern Facter actually emits.
+
+### Fixed
+
+**Dark-theme contrast debt paid** across the console; the visual baseline is empty again.
+
 ## [1.2.0] — 2026-08-04
 
 Appearance only. No behaviour, API or ENC contract changes; upgrading changes what the console looks like and nothing else.

@@ -22,7 +22,7 @@ import type { CapabilityToken, CapabilityName } from './tokens';
  * IUserDirectory.findById and .recordLogin, which external auth providers need
  * in order to re-resolve a principal on token refresh.
  */
-export const CONTRACTS_VERSION = '0.5.1';
+export const CONTRACTS_VERSION = '0.5.2';
 
 export interface CapabilityRegistration {
   token: CapabilityToken;

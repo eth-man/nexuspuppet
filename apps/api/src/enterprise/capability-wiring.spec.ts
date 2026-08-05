@@ -177,6 +177,13 @@ describe('capability wiring', () => {
   let controllers: Registration[];
   /** Every registration, since a controller can bypass a seam just as easily. */
   let all: Registration[];
+  /**
+   * This suite runs against whatever edition is checked out: CI is always
+   * core, a development machine may have the enterprise layer present. The
+   * few assertions whose CORRECT answer differs by edition branch on this —
+   * everything else must hold in both.
+   */
+  let enterpriseLoaded = false;
 
   beforeAll(async () => {
     for (const [key, value] of Object.entries(REQUIRED_ENV)) {
@@ -186,6 +193,9 @@ describe('capability wiring', () => {
 
     const { AppModule } = await import('../app.module');
     const module = await AppModule.bootstrap();
+
+    const { EnterpriseLoader } = await import('./enterprise.loader');
+    enterpriseLoaded = (await EnterpriseLoader.load()) !== null;
 
     registrations = (module.providers ?? []).map(describeProvider);
     controllers = (module.controllers ?? []).map((c) => describeProvider(c));
@@ -306,7 +316,14 @@ describe('capability wiring', () => {
       expect(resolved?.cls.name).toBe('PrismaAuditSink');
     });
 
-    it('is what AUDIT_SINK resolves to when no enterprise layer is installed', () => {
+    it('is what AUDIT_SINK resolves to, or is composed over, by edition', () => {
+      if (enterpriseLoaded) {
+        // The enterprise sink REPLACES the binding and composes over the core
+        // sink — registered unconditionally since forwarding became
+        // settings-driven (ADR-0016 §4).
+        expect(resolveImplementation(AUDIT_SINK)?.cls.name).toBe('ForwardingAuditSinkModule');
+        return;
+      }
       // Core behaviour must be unchanged by the existence of the seam: with
       // nothing installed, the audit sink is still the Postgres one.
       expect(resolveImplementation(AUDIT_SINK)?.cls).toBe(
@@ -314,7 +331,13 @@ describe('capability wiring', () => {
       );
     });
 
-    it('is aliased rather than constructed twice', () => {
+    it('never constructs the core sink twice', () => {
+      if (enterpriseLoaded) {
+        // The override is a class of its own; what must still be true is that
+        // the CORE sink it composes over remains a single construction.
+        expect(registrationFor(CORE_AUDIT_SINK)?.kind).toBe('useClass');
+        return;
+      }
       // useClass here would build a SECOND PrismaAuditSink, so an enterprise
       // sink delegating to CORE_AUDIT_SINK and core code using AUDIT_SINK would
       // be writing through different instances.

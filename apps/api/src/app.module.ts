@@ -6,6 +6,7 @@ import {
   AUDIT_DELIVERY_OUTBOX,
   AUDIT_FORWARDING_SETTINGS,
   AUDIT_TRANSPORT,
+  AUTH_PROVIDER_SETTINGS,
   CAPABILITIES,
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
@@ -56,8 +57,10 @@ import { AccountController, UsersController } from './auth/users.controller';
 import { UsersService } from './auth/users.service';
 import { AuthProviderResolver } from './auth/auth-provider.resolver';
 import { SettingsController } from './settings/settings.controller';
-import { ldapEnvBaseline } from './settings/provider-baseline';
+import { ldapEnvBaseline, oidcEnvBaseline } from './settings/provider-baseline';
 import { AuditForwardingController } from './settings/audit-forwarding.controller';
+import { AuditForwardingResolver } from './settings/audit-forwarding.resolver';
+import { AuthSettingsResolver } from './settings/auth-settings.resolver';
 import { AuditForwardingService } from './settings/audit-forwarding.service';
 import { SettingsService } from './settings/settings.service';
 import { SettingsStore } from './settings/settings.store';
@@ -67,6 +70,7 @@ import { RoleRegistry } from './auth/role-registry';
 import { RolesService } from './auth/roles.service';
 import { RolesController } from './auth/roles.controller';
 import { LdapMappingSource } from './auth/ldap-mapping-source';
+import { DirectoryMappingSource, OidcMappingSource } from './auth/directory-mapping-source';
 import { TokenService } from './auth/token.service';
 import {
   BootstrapService,
@@ -138,6 +142,17 @@ export class AppModule {
   static async bootstrap(): Promise<DynamicModule> {
     const env = loadEnv();
     const enterprise = await EnterpriseLoader.load();
+
+    // ONE policy object, shared by the sweeper that enforces it and the status
+    // surface that reports it — two copies built from the same env would still
+    // be two copies, and the report must never disagree with the enforcement.
+    const retentionPolicy = {
+      retentionDays: env.AUDIT_RETENTION_DAYS,
+      maxRows: env.AUDIT_RETENTION_MAX_ROWS ?? null,
+      intervalMs: env.AUDIT_RETENTION_INTERVAL_MS,
+      batchSize: env.AUDIT_RETENTION_BATCH_SIZE,
+      maxBatchesPerPass: env.AUDIT_RETENTION_MAX_BATCHES,
+    };
 
     // EVERY capability token gets a core default (ADR-0002). A token without
     // one would mean the product is incomplete without the enterprise layer.
@@ -218,6 +233,8 @@ export class AppModule {
             // than reading the variables itself.
             () => ldapEnvBaseline(resolver),
             () => resolver.forSource('ldap') !== null,
+            // Same route, same reason: core cannot parse OIDC_* either.
+            () => oidcEnvBaseline(resolver),
           ),
       },
       {
@@ -250,13 +267,7 @@ export class AppModule {
         provide: AuditRetentionSweeper,
         inject: [PrismaService],
         useFactory: (prisma: PrismaService): AuditRetentionSweeper =>
-          new AuditRetentionSweeper(prisma, {
-            retentionDays: env.AUDIT_RETENTION_DAYS,
-            maxRows: env.AUDIT_RETENTION_MAX_ROWS ?? null,
-            intervalMs: env.AUDIT_RETENTION_INTERVAL_MS,
-            batchSize: env.AUDIT_RETENTION_BATCH_SIZE,
-            maxBatchesPerPass: env.AUDIT_RETENTION_MAX_BATCHES,
-          }),
+          new AuditRetentionSweeper(prisma, retentionPolicy),
       },
     ];
 
@@ -295,31 +306,70 @@ export class AppModule {
         // where roles live (ADR-0018 §2).
         RoleRegistry,
         LdapMappingSource,
+        OidcMappingSource,
         {
           provide: RolesService,
-          inject: [PrismaService, AUDIT_SINK, RoleRegistry, LdapMappingSource],
+          inject: [PrismaService, AUDIT_SINK, RoleRegistry, LdapMappingSource, OidcMappingSource],
           // Explicit, because MappingSource is an interface — Nest cannot infer
           // a provider for it from metadata.
           useFactory: (
             prisma: PrismaService,
             audit: IAuditSink,
             registry: RoleRegistry,
-            mappings: LdapMappingSource,
-          ): RolesService => new RolesService(prisma, audit, registry, mappings),
+            ldap: LdapMappingSource,
+            oidc: OidcMappingSource,
+          ): RolesService =>
+            new RolesService(
+              prisma,
+              audit,
+              registry,
+              // EVERY directory's mappings, not just LDAP's. ADR-0018 §5's
+              // deletion guard says nothing about which directory configured a
+              // mapping, and a role named only from OIDC could be deleted
+              // while the guard looked elsewhere (#110).
+              new DirectoryMappingSource(ldap, oidc),
+            ),
         },
         ...coreServices,
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
         {
+          provide: AuditForwardingResolver,
+          inject: [SettingsStore],
+          useFactory: (store: SettingsStore): AuditForwardingResolver =>
+            new AuditForwardingResolver(store),
+        },
+        // Aliased under a contracts token so the forwarding capability can ask
+        // which transport is active and with what configuration (ADR-0016 §4).
+        // Bound to the RESOLVER, never the service: the service injects the
+        // transport, and an enterprise transport injects this token — binding
+        // it to the service is a circular dependency the injector deadlocks
+        // on, silently, and only in enterprise deployments.
+        { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingResolver },
+        {
+          provide: AuthSettingsResolver,
+          inject: [SettingsStore],
+          useFactory: (store: SettingsStore): AuthSettingsResolver =>
+            new AuthSettingsResolver(store),
+        },
+        // What an enterprise auth provider reads to pick up a saved
+        // configuration without a restart (ADR-0016 §4, #113). Bound to the
+        // RESOLVER, never to SettingsService: the service injects providers,
+        // and a provider injects this — the same cycle that deadlocked the
+        // audit transport at boot.
+        { provide: AUTH_PROVIDER_SETTINGS, useExisting: AuthSettingsResolver },
+        {
           provide: AuditForwardingService,
-          inject: [SettingsStore, AUDIT_SINK, AUDIT_TRANSPORT],
+          inject: [SettingsStore, AuditForwardingResolver, AUDIT_SINK, AUDIT_TRANSPORT],
           useFactory: (
             store: SettingsStore,
+            resolver: AuditForwardingResolver,
             audit: IAuditSink,
             transport: IAuditTransport,
           ): AuditForwardingService =>
             new AuditForwardingService(
               store,
+              resolver,
               audit,
               transport,
               // "Registered" is the capability, not the transport instance —
@@ -328,10 +378,6 @@ export class AppModule {
               () => registry.has(CAPABILITIES.AUDIT_EXPORT),
             ),
         },
-        // Aliased under a contracts token so the forwarding capability can ask
-        // which transport is active and with what configuration (ADR-0016 §4).
-        // Same arrangement as AUDIT_DELIVERY_OUTBOX above it.
-        { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingService },
         Reflector,
 
         // --- Auth (ADR-0006) ------------------------------------------------
@@ -362,13 +408,29 @@ export class AppModule {
           // Explicit factory: NodeProjectionService is itself factory-built with
           // plain config values, so Nest cannot construct this by metadata.
           provide: SystemStatusService,
-          inject: [PrismaService, AuditDeliveryOutbox, NodeProjectionService, AUDIT_TRANSPORT],
+          inject: [
+            PrismaService,
+            AuditDeliveryOutbox,
+            NodeProjectionService,
+            AUDIT_TRANSPORT,
+            AuditForwardingService,
+          ],
           useFactory: (
             prisma: PrismaService,
             outbox: AuditDeliveryOutbox,
             projection: NodeProjectionService,
             transport: IAuditTransport,
-          ): SystemStatusService => new SystemStatusService(prisma, outbox, projection, transport),
+            forwarding: AuditForwardingService,
+          ): SystemStatusService =>
+            new SystemStatusService(
+              prisma,
+              outbox,
+              projection,
+              transport,
+              forwarding,
+              () => registry.has(CAPABILITIES.AUDIT_EXPORT),
+              retentionPolicy,
+            ),
         },
         {
           // Config passed in, not read inside the service. A service that reads

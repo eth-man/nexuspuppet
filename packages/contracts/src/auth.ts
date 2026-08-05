@@ -654,6 +654,59 @@ export interface ManagedUser {
  * `bindPassword` is WRITE-ONLY. It is accepted here and never returned — a read
  * reports whether one is held, not what it is.
  */
+/**
+ * Stored configuration for an authentication provider, read per authentication.
+ *
+ * The contract, and the two halves matter equally:
+ *
+ * - **Null means "use what you were built with".** Nothing stored, or the
+ *   environment in force — either way the provider's own boot configuration
+ *   governs. Only a configuration an operator SAVED overrides it, which is
+ *   ADR-0016 §2's precedence rule expressed where it takes effect.
+ * - **A throw means refuse the login.** A provider must not fall back to its
+ *   boot configuration when the store cannot be read: a deployment whose saved
+ *   settings point at a different directory would silently authenticate
+ *   against the old one. Local accounts are unaffected (ADR-0015 keeps them on
+ *   their own provider), so failing closed here stays recoverable.
+ *
+ * The value is opaque and INCLUDES SECRETS — a provider needs the bind
+ * password to bind. It never crosses HTTP; the settings screen reads a
+ * different, redacted view.
+ */
+export interface IAuthProviderSettings {
+  /** @param source matches `IAuthProvider.source`, e.g. `ldap`. */
+  resolve(source: string): Promise<unknown | null>;
+}
+
+/**
+ * What an OIDC deployment is configured with, as the console may see it.
+ *
+ * READ-ONLY for now, and the shape says why it can be: there is no
+ * `clientSecret` here. The secret is write-only across the API by the same rule
+ * as the LDAP bind password (ADR-0016 §3), and nothing writes this kind yet —
+ * a provider snapshots its configuration at boot, so a stored row would be
+ * displayed and never applied. This exists so an administrator can SEE what the
+ * deployment is running with, and so the role-deletion guard can see which
+ * roles OIDC mappings depend on (ADR-0018 §5).
+ */
+export const oidcSettingsSchema = z.object({
+  issuer: z.string().url(),
+  clientId: z.string().min(1),
+  redirectUri: z.string().url(),
+  scopes: z.array(z.string().min(1)).default([]),
+  emailClaim: z.string().min(1),
+  displayNameClaim: z.string().min(1),
+  groupsClaim: z.string().min(1),
+  /** Claim value to role NAME, which may be one a deployment defined (ADR-0018 §5). */
+  roleMappings: z.array(z.object({ group: z.string().min(1), role: roleNameSchema })).default([]),
+  /** Absent means someone matching no mapping is REFUSED. */
+  defaultRole: roleNameSchema.optional(),
+  timeoutMs: z.number().int().positive(),
+  clockSkewSeconds: z.number().int().min(0),
+});
+
+export type OidcSettings = z.infer<typeof oidcSettingsSchema>;
+
 export const ldapSettingsSchema = z.object({
   url: z
     .string()
@@ -869,8 +922,20 @@ export type UpdateRole = z.infer<typeof updateRoleSchema>;
  * they already suspected and none of what they need.
  */
 export interface BlockingRoleMapping {
-  /** The group DN exactly as configured, so it can be searched for verbatim. */
+  /**
+   * The group exactly as configured, so it can be searched for verbatim — a DN
+   * for LDAP, a claim value for OIDC.
+   */
   groupDn: string;
   /** Where it is configured: the settings screen, or the environment. */
   source: 'database' | 'environment';
+  /**
+   * Which provider's mappings this came from.
+   *
+   * Optional because it was added once a second provider could name a role
+   * (ADR-0018 §5). "Remove or repoint these mappings" is not actionable without
+   * it once two configurations can both reference a role: the operator needs to
+   * know whether to look at the directory settings or at `OIDC_ROLE_MAPPINGS`.
+   */
+  provider?: string;
 }

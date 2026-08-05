@@ -206,7 +206,7 @@ export class RolesService {
           `"${role.name}" is still mapped from ${blocking.length} directory group(s). ` +
           'Remove or repoint these mappings first, otherwise anybody in them would sign in ' +
           'with no permissions and nothing left to explain why:\n' +
-          blocking.map((m) => `  • ${m.groupDn}  (${describeSource(m.source)})`).join('\n'),
+          blocking.map((m) => `  • ${m.groupDn}  (${describeMapping(m)})`).join('\n'),
         role: role.name,
         blockingMappings: blocking,
       });
@@ -230,7 +230,13 @@ export class RolesService {
     const all = await this.mappings.all();
     return all
       .filter((mapping) => mapping.role === roleName)
-      .map(({ groupDn, source }) => ({ groupDn, source }));
+      .map(({ groupDn, source, provider }) => ({
+        groupDn,
+        source,
+        // Spread rather than assigned: exactOptionalPropertyTypes distinguishes
+        // an absent field from one explicitly set to undefined.
+        ...(provider === undefined ? {} : { provider }),
+      }));
   }
 
   /**
@@ -306,4 +312,16 @@ function describeSource(source: BlockingRoleMapping['source']): string {
   return source === 'database'
     ? 'configured on the Directory settings screen'
     : 'configured in this deployment’s environment';
+}
+
+/**
+ * Where to go and change this mapping.
+ *
+ * Names the PROVIDER as well as the source once more than one directory can
+ * reference a role: "configured in this deployment's environment" sends an
+ * operator to the wrong variable half the time otherwise.
+ */
+function describeMapping(mapping: BlockingRoleMapping): string {
+  const where = describeSource(mapping.source);
+  return mapping.provider === undefined ? where : `${mapping.provider.toUpperCase()}, ${where}`;
 }

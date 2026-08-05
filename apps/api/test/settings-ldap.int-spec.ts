@@ -74,6 +74,8 @@ describe('LDAP settings API (integration)', () => {
       audit,
       () => null,
       () => resolver.forSource('ldap') !== null,
+      // No OIDC baseline in these tests: this suite is about the LDAP kind.
+      () => null,
     );
 
   beforeAll(async () => {
@@ -142,6 +144,7 @@ describe('LDAP settings API (integration)', () => {
         audit,
         () => null,
         () => false,
+        () => null,
       );
       expect((await noProvider.describeLdap()).liveReload).toBe(false);
     });

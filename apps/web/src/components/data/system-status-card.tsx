@@ -69,16 +69,60 @@ export function SystemStatusCard() {
               : `oldest ${relativeAge(data.projection.oldestProjectedAt)}`
           }
         />
-        {data.auditDelivery === undefined ? (
-          <Metric label="Audit export" value="—" hint="no transport configured" />
-        ) : (
-          <Metric
-            label="Audit export"
-            value={data.auditDelivery.pending}
-            hint={`queued via ${data.auditDelivery.transport}`}
-          />
-        )}
+        <Metric
+          label="Audit export"
+          value={data.auditForwarding.available ? data.auditForwarding.pending : '—'}
+          {...(forwardingTone(data.auditForwarding) === null ? {} : { tone: 'failed' as const })}
+          hint={forwardingHint(data.auditForwarding)}
+        />
       </dl>
+
+      {/*
+        The pipeline states an operator must not have to infer (issue #95).
+        Each renders only while true — a strip that is always present becomes
+        furniture, and these exist to be noticed.
+      */}
+      {data.auditForwarding.unconfirmableDelivery && (
+        <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+          <span className="font-medium">Syslog over UDP: unconfirmable delivery.</span> This
+          deployment cannot prove its audit records arrived at the collector.
+        </p>
+      )}
+
+      {data.auditForwarding.lastDelivery?.ok === false && (
+        <p className="border-t border-line px-3 py-2 text-[11px] text-state-failed">
+          <span className="font-medium">
+            Last delivery failed {relativeAge(data.auditForwarding.lastDelivery.at)}.
+          </span>{' '}
+          Records queue rather than being lost; they need the collector back.
+          {data.auditForwarding.lastDelivery.error !== null && (
+            <span className="mt-0.5 block truncate font-mono text-ink-faint">
+              {data.auditForwarding.lastDelivery.error}
+            </span>
+          )}
+        </p>
+      )}
+
+      {data.retention.undeliveredDropped.total > 0 && (
+        <p className="border-t border-line px-3 py-2 text-[11px] text-state-failed">
+          <span className="font-medium">
+            {data.retention.undeliveredDropped.total} undelivered audit record
+            {data.retention.undeliveredDropped.total === 1 ? '' : 's'} dropped by the row ceiling
+          </span>
+          {data.retention.undeliveredDropped.lastDroppedAt !== null &&
+            `, last ${relativeAge(data.retention.undeliveredDropped.lastDroppedAt)}`}
+          . The pending queue outgrew its bound — check the forwarding configuration and the
+          collector.
+        </p>
+      )}
+
+      <p className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
+        Audit retention: {data.retention.ageDays}d age window
+        {' · '}
+        {data.retention.maxRows === null
+          ? 'no row ceiling configured'
+          : `row ceiling ${data.retention.maxRows.toLocaleString()}`}
+      </p>
 
       {data.projection.factsNoNodeReports.length > 0 && (
         <FactWarning facts={data.projection.factsNoNodeReports} />
@@ -89,6 +133,25 @@ export function SystemStatusCard() {
       )}
     </Card>
   );
+}
+
+/**
+ * One line under the number, saying what the pipeline is doing — including the
+ * unlicensed case, in the same terms the Integrations screen uses.
+ */
+function forwardingHint(forwarding: SystemStatus['auditForwarding']): string {
+  if (!forwarding.available) return 'needs audit.export';
+  if (forwarding.active === 'none') return 'forwarding off';
+  if (!forwarding.configured) return `via ${forwarding.active} (cannot send)`;
+  if (forwarding.lastDelivery?.ok === true) {
+    return `via ${forwarding.active}, delivered ${relativeAge(forwarding.lastDelivery.at)}`;
+  }
+  return `via ${forwarding.active}`;
+}
+
+/** Red only for the unambiguous condition: an active transport whose last attempt failed. */
+function forwardingTone(forwarding: SystemStatus['auditForwarding']): 'failed' | null {
+  return forwarding.active !== 'none' && forwarding.lastDelivery?.ok === false ? 'failed' : null;
 }
 
 function Metric({
