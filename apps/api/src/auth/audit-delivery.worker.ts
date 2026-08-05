@@ -62,6 +62,23 @@ export const DEFAULT_AUDIT_PACING: AuditDeliveryPacing = {
 };
 
 /**
+ * Where the worker records its most recent delivery outcome, for
+ * `GET /system/status` (issue #95).
+ *
+ * Persisted because success leaves no other trace: a delivered job's row is
+ * deleted, so without this the one question an operator asks a working
+ * pipeline — "when did it last deliver?" — has no answer anywhere.
+ */
+export const LAST_DELIVERY_KEY = 'audit.delivery.lastOutcome';
+
+export type LastDeliveryOutcome = {
+  at: string;
+  ok: boolean;
+  delivered: number;
+  error: string | null;
+};
+
+/**
  * Drains the audit delivery outbox (ADR-0005).
  *
  * Lives in core because only core has database access — the enterprise layer
@@ -175,6 +192,12 @@ export class AuditDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       // not detectable through this interface, and re-sending a record the SIEM
       // already has is harmless — dropping one is not.
       await this.rescheduleAll(claimed, message);
+      await this.recordOutcome({
+        at: new Date().toISOString(),
+        ok: false,
+        delivered: 0,
+        error: message,
+      });
       this.logger.warn(
         `Audit delivery via "${this.transport.name}" failed for ${claimed.length} record(s): ${message}`,
       );
@@ -182,8 +205,29 @@ export class AuditDeliveryWorker implements OnModuleInit, OnModuleDestroy {
     }
 
     const removed = await this.outbox.complete(claimed.map((c) => c.auditLogId));
+    await this.recordOutcome({
+      at: new Date().toISOString(),
+      ok: true,
+      delivered: removed,
+      error: null,
+    });
     this.logger.debug(`Delivered ${removed} audit record(s) via "${this.transport.name}".`);
     return { delivered: removed, failed: 0, ranHere: true };
+  }
+
+  /** Status reporting must never break delivery, so a failed write only logs. */
+  private async recordOutcome(outcome: LastDeliveryOutcome): Promise<void> {
+    try {
+      await this.prisma.appSetting.upsert({
+        where: { key: LAST_DELIVERY_KEY },
+        create: { key: LAST_DELIVERY_KEY, value: outcome },
+        update: { value: outcome },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not record the delivery outcome: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async rescheduleAll(batch: readonly PendingDelivery[], error: string): Promise<void> {

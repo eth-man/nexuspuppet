@@ -61,9 +61,12 @@ test.describe('inventory', () => {
     // dashboard tile, and asserting it would be ambiguous rather than wrong.
     await expect(page.getByText('Queued', { exact: true })).toBeVisible();
     await expect(page.getByText('Nodes projected', { exact: true })).toBeVisible();
-    // No transport is configured in the E2E stack, and that is a complete
-    // product rather than a fault — it must say so rather than look broken.
-    await expect(page.getByText('no transport configured')).toBeVisible();
+    // The E2E stack is core: forwarding is unavailable, and that is a complete
+    // product rather than a fault — the card names the capability (issue #95)
+    // instead of looking broken.
+    await expect(page.getByText('needs audit.export')).toBeVisible();
+    // The retention summary is the card's one always-present strip.
+    await expect(page.getByText(/age window/)).toBeVisible();
   });
 
   test('narrows the estate by certname', async ({ page }) => {

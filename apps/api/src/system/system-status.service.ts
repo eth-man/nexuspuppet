@@ -3,6 +3,13 @@ import { AUDIT_TRANSPORT } from '@nexuspuppet/contracts';
 import type { FailureDetail, IAuditTransport, SystemStatus } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditDeliveryOutbox } from '../auth/audit-delivery.outbox';
+import { LAST_DELIVERY_KEY, type LastDeliveryOutcome } from '../auth/audit-delivery.worker';
+import {
+  UNDELIVERED_DROPS_KEY,
+  type AuditRetentionPolicy,
+  type UndeliveredDrops,
+} from '../auth/audit-retention.sweeper';
+import { AuditForwardingService } from '../settings/audit-forwarding.service';
 import { NodeProjectionService } from '../puppetdb/node-projection.service';
 
 /**
@@ -30,6 +37,11 @@ export class SystemStatusService {
     private readonly outbox: AuditDeliveryOutbox,
     private readonly projection: NodeProjectionService,
     @Inject(AUDIT_TRANSPORT) private readonly transport: IAuditTransport,
+    private readonly forwarding: AuditForwardingService,
+    /** Whether this deployment holds `audit.export` — forwarding can exist at all. */
+    private readonly forwardingAvailable: () => boolean,
+    /** The same policy object the sweeper runs with; two copies would drift. */
+    private readonly retention: AuditRetentionPolicy,
   ) {}
 
   /**
@@ -41,17 +53,82 @@ export class SystemStatusService {
    * counts are for everyone; the strings are for an administrator.
    */
   async status(includeDetail: boolean): Promise<SystemStatus> {
-    const [materialization, auditDelivery, projection] = await Promise.all([
-      this.materialization(includeDetail),
-      this.auditDelivery(includeDetail),
-      this.projectionStatus(),
-    ]);
+    const [materialization, auditDelivery, auditForwarding, retention, projection] =
+      await Promise.all([
+        this.materialization(includeDetail),
+        this.auditDelivery(includeDetail),
+        this.auditForwarding(includeDetail),
+        this.retentionStatus(),
+        this.projectionStatus(),
+      ]);
 
     return {
       materialization,
       ...(auditDelivery === null ? {} : { auditDelivery }),
+      auditForwarding,
+      retention,
       projection,
       includesDetail: includeDetail,
+    };
+  }
+
+  /**
+   * The forwarding pipeline as one report, in EVERY edition (issue #95).
+   *
+   * Unlike `auditDelivery` below, the unlicensed case is a state, not an
+   * omission: "forwarding unavailable" is what the Integrations screen grays
+   * out, and the status surface should say the same thing in the same terms.
+   */
+  private async auditForwarding(includeDetail: boolean): Promise<SystemStatus['auditForwarding']> {
+    const [view, pending, oldest, last] = await Promise.all([
+      this.forwarding.describe(),
+      this.outbox.depth(),
+      this.prisma.auditDeliveryJob.findFirst({
+        orderBy: { nextAttemptAt: 'asc' },
+        select: { nextAttemptAt: true },
+      }),
+      this.prisma.appSetting.findUnique({ where: { key: LAST_DELIVERY_KEY } }),
+    ]);
+
+    const outcome = isOutcome(last?.value) ? last.value : null;
+
+    return {
+      available: this.forwardingAvailable(),
+      active: view.active,
+      configured: this.transport.configured,
+      // The flag rides the ACTIVE mode, not the stored one: a saved UDP
+      // configuration that is not delivering proves nothing either way.
+      unconfirmableDelivery: view.active === 'syslog' && view.syslog.config?.protocol === 'udp',
+      pending,
+      oldestDueAt: oldest?.nextAttemptAt.toISOString() ?? null,
+      lastDelivery:
+        outcome === null
+          ? null
+          : {
+              at: outcome.at,
+              ok: outcome.ok,
+              delivered: outcome.delivered,
+              // The error names the collector; same audience rule as every
+              // other failure string here.
+              error: includeDetail ? outcome.error : null,
+            },
+    };
+  }
+
+  /** The retention bounds in force, and what the ceiling has cost (ADR-0016 §6). */
+  private async retentionStatus(): Promise<SystemStatus['retention']> {
+    const row = await this.prisma.appSetting.findUnique({
+      where: { key: UNDELIVERED_DROPS_KEY },
+    });
+    const drops = isDrops(row?.value) ? row.value : null;
+
+    return {
+      ageDays: this.retention.retentionDays,
+      maxRows: this.retention.maxRows,
+      undeliveredDropped: {
+        total: drops?.total ?? 0,
+        lastDroppedAt: drops?.lastDroppedAt ?? null,
+      },
     };
   }
 
@@ -166,4 +243,21 @@ export class SystemStatusService {
       factsNoNodeReports: [...this.projection.factsNoNodeReports()],
     };
   }
+}
+
+function isOutcome(value: unknown): value is LastDeliveryOutcome {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as LastDeliveryOutcome).at === 'string' &&
+    typeof (value as LastDeliveryOutcome).ok === 'boolean'
+  );
+}
+
+function isDrops(value: unknown): value is UndeliveredDrops {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as UndeliveredDrops).total === 'number'
+  );
 }
