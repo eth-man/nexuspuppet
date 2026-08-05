@@ -12,15 +12,15 @@ import { useAuthProvider } from '@/lib/queries';
  * the same mappings, one screenful apart, one of them editable. The editable
  * card wins.
  */
-const HAS_EDITABLE_CARD = new Set(['ldap']);
+const HAS_EDITABLE_CARD = new Set(['ldap', 'oidc']);
 
 /**
  * Who gets which role, according to the directory.
  *
  * Read-only, and the fallback rather than the norm. It exists for a provider
- * core cannot offer a form for — OIDC today — whose mappings still come from
- * the environment and are still worth seeing without reading a container's
- * environment over someone's shoulder.
+ * core cannot offer a form for — none of the shipped ones now that OIDC has a
+ * card (#106) — whose mappings still come from the environment and are worth
+ * seeing without reading a container's environment over someone's shoulder.
  *
  * Rendered without interpretation: core does not know what LDAP is, and the
  * provider decides what is safe to show (ADR-0002).

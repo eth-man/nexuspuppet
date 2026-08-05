@@ -9,6 +9,7 @@ import type {
   AuditTransportKind,
   ChangePassword,
   LdapSettings,
+  OidcSettings,
   SyslogSettings,
   WebhookSettings,
   ProviderVerification,
@@ -312,6 +313,41 @@ export function useTestLdapSettings(): UseMutationResult<
 > {
   return useMutation({
     mutationFn: (input) => api.post<ProviderVerification>('/settings/auth/ldap/test', input),
+  });
+}
+
+export function useSaveOidcSettings(): UseMutationResult<
+  SettingsView<OidcSettings>,
+  Error,
+  OidcSettings
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.put<SettingsView<OidcSettings>>('/settings/auth/oidc', input),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.oidc'] }),
+  });
+}
+
+/** Discard the stored configuration and fall back to the environment. */
+export function useClearOidcSettings(): UseMutationResult<void, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>('/settings/auth/oidc'),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.oidc'] }),
+  });
+}
+
+/**
+ * Check a candidate against the identity provider. Invalidates nothing — a
+ * test changes no state, and refetching after one would imply it had.
+ */
+export function useTestOidcSettings(): UseMutationResult<
+  ProviderVerification,
+  Error,
+  OidcSettings
+> {
+  return useMutation({
+    mutationFn: (input) => api.post<ProviderVerification>('/settings/auth/oidc/test', input),
   });
 }
 
