@@ -153,6 +153,14 @@ export function LdapSettingsPanel() {
    * and cannot carry forward. Saving would store a configuration that binds
    * anonymously, and the first person to notice would be whoever could no
    * longer sign in.
+   *
+   * PRESENTED AS AN ERROR ONLY WHILE EDITING. On a locked card it is not a
+   * fault at all: the environment configuration is in force and working, and
+   * the missing password matters only to somebody about to adopt it into the
+   * database. Rendered red at rest, it read as "your directory is broken" —
+   * reported from a deployment whose directory was fine. At rest it is a hint
+   * instead, which the disabled Test button needs anyway: a control that
+   * refuses with no stated reason is its own confusion.
    */
   const needsPasswordToAdopt =
     view?.source === 'environment' &&
@@ -306,9 +314,15 @@ export function LdapSettingsPanel() {
 
               <Field
                 className="min-w-64 flex-1"
-                hint={holdsPassword ? 'A password is stored. Leave blank to keep it.' : undefined}
+                hint={
+                  holdsPassword
+                    ? 'A password is stored. Leave blank to keep it.'
+                    : needsPasswordToAdopt
+                      ? 'The environment supplies this account but not its password, so adopting these settings into the database will require it.'
+                      : undefined
+                }
                 error={
-                  needsPasswordToAdopt
+                  editing && needsPasswordToAdopt
                     ? 'Required: the environment supplied this account but not its password, which cannot be carried forward.'
                     : null
                 }
@@ -330,7 +344,7 @@ export function LdapSettingsPanel() {
                       setResult(null);
                     }}
                     placeholder={holdsPassword ? '•••••••• (unchanged)' : ''}
-                    aria-invalid={needsPasswordToAdopt}
+                    aria-invalid={editing && needsPasswordToAdopt}
                   />
                 )}
               </Field>
