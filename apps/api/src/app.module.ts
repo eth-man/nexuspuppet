@@ -4,7 +4,9 @@ import { ConfigModule } from '@nestjs/config';
 import {
   AUDIT_SINK,
   AUDIT_DELIVERY_OUTBOX,
+  AUDIT_FORWARDING_SETTINGS,
   AUDIT_TRANSPORT,
+  CAPABILITIES,
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
   AUTH_PROVIDER,
@@ -55,6 +57,8 @@ import { UsersService } from './auth/users.service';
 import { AuthProviderResolver } from './auth/auth-provider.resolver';
 import { SettingsController } from './settings/settings.controller';
 import { ldapEnvBaseline } from './settings/provider-baseline';
+import { AuditForwardingController } from './settings/audit-forwarding.controller';
+import { AuditForwardingService } from './settings/audit-forwarding.service';
 import { SettingsService } from './settings/settings.service';
 import { SettingsStore } from './settings/settings.store';
 import { LocalAuthProvider, LocalUserDirectory } from './auth/local-auth.provider';
@@ -283,6 +287,7 @@ export class AppModule {
         AccountController,
         SystemController,
         SettingsController,
+        AuditForwardingController,
       ],
       providers: [
         // RbacPolicy reads the roles table through this. A dependency of the
@@ -305,6 +310,28 @@ export class AppModule {
         ...coreServices,
         ...providers,
         { provide: CapabilityRegistry, useValue: registry },
+        {
+          provide: AuditForwardingService,
+          inject: [SettingsStore, AUDIT_SINK, AUDIT_TRANSPORT],
+          useFactory: (
+            store: SettingsStore,
+            audit: IAuditSink,
+            transport: IAuditTransport,
+          ): AuditForwardingService =>
+            new AuditForwardingService(
+              store,
+              audit,
+              transport,
+              // "Registered" is the capability, not the transport instance —
+              // core's noop holds the token in every deployment, and what the
+              // console needs to know is whether edits can reach a real sender.
+              () => registry.has(CAPABILITIES.AUDIT_EXPORT),
+            ),
+        },
+        // Aliased under a contracts token so the forwarding capability can ask
+        // which transport is active and with what configuration (ADR-0016 §4).
+        // Same arrangement as AUDIT_DELIVERY_OUTBOX above it.
+        { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingService },
         Reflector,
 
         // --- Auth (ADR-0006) ------------------------------------------------

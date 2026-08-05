@@ -130,11 +130,26 @@ npm run db:generate          # after any schema.prisma change
 npm run enterprise:fetch     # no-op without NEXUSPUPPET_ENTERPRISE_REPO
 ```
 
+## Environments
+
+Two long-lived environments exist, deployed per `DEPLOYMENT.md`. Host
+specifics are deliberately not in this repo.
+
+- **Staging tracks `main`.** After a runtime-affecting merge (api, web,
+  packages, compose), staging is redeployed and verified: containers healthy,
+  API answering, console loading, login working, plus a targeted check of
+  what just merged. Docs-only merges don't trigger a deploy.
+- **Production runs tagged releases only**, against real Puppet
+  infrastructure. It is deployed only after the release was verified on
+  staging, and only with the operator's explicit go-ahead — never
+  automatically. Reading it (logs, health, status) for diagnosis is fine.
+
 ## Definition of done
 
 Reviewed PR · unit tests for new logic · `npm run typecheck` clean ·
 `npm run lint` clean · `prisma generate` run if the schema changed · new
-architectural decisions captured as an ADR.
+architectural decisions captured as an ADR · runtime changes verified on
+staging once merged.
 
 ## Agent skills
 
