@@ -43,7 +43,11 @@ function udpView(): AuditForwardingView {
 }
 
 /** Only what the service touches; anything else is a wrong turn worth crashing on. */
-function fakePrisma(appSettings: Record<string, unknown> = {}): PrismaService {
+function fakePrisma(
+  appSettings: Record<string, unknown> = {},
+  peers: unknown[] = [],
+  lastMaterializedAt: Date | null = null,
+): PrismaService {
   return {
     encMaterializationJob: {
       count: async () => 0,
@@ -57,6 +61,13 @@ function fakePrisma(appSettings: Record<string, unknown> = {}): PrismaService {
     managedNode: {
       count: async () => 0,
       findFirst: async () => null,
+    },
+    encReplicationPeer: {
+      findMany: async () => peers,
+    },
+    encMaterialization: {
+      findFirst: async () =>
+        lastMaterializedAt === null ? null : { writtenAt: lastMaterializedAt },
     },
     appSetting: {
       findUnique: async ({ where }: { where: { key: string } }) =>
@@ -82,6 +93,9 @@ function build(options?: {
   configured?: boolean;
   appSettings?: Record<string, unknown>;
   policy?: Partial<AuditRetentionPolicy>;
+  replication?: { enabled: boolean; allowedCertnames: readonly string[] };
+  peers?: unknown[];
+  lastMaterializedAt?: Date | null;
 }): SystemStatusService {
   const transport = {
     name: 'none',
@@ -94,13 +108,14 @@ function build(options?: {
   } as unknown as AuditForwardingService;
 
   return new SystemStatusService(
-    fakePrisma(options?.appSettings),
+    fakePrisma(options?.appSettings, options?.peers ?? [], options?.lastMaterializedAt ?? null),
     OUTBOX,
     PROJECTION,
     transport,
     forwarding,
     () => options?.available ?? false,
     { ...POLICY, ...options?.policy },
+    options?.replication ?? { enabled: false, allowedCertnames: [] },
   );
 }
 
@@ -180,5 +195,87 @@ describe('SystemStatusService audit forwarding and retention', () => {
 
     const admin = await build({ appSettings }).status(true);
     expect(admin.auditForwarding.lastDelivery?.error).toContain('ECONNREFUSED');
+  });
+});
+
+describe('SystemStatusService replication (ADR-0019 §6)', () => {
+  const AT = new Date('2026-08-06T22:00:00.000Z');
+  const EARLIER = new Date('2026-08-06T21:00:00.000Z');
+
+  const peer = (over: Record<string, unknown> = {}) => ({
+    certname: 'puppet.corp.local',
+    lastFetchAt: AT,
+    lastStatus: 304,
+    lastChangedAt: AT,
+    fetchCount: 7,
+    ...over,
+  });
+
+  it('reports "not replicating" as a state rather than an omission', async () => {
+    const status = await build().status(false);
+
+    expect(status.replication).toMatchObject({ enabled: false, peers: [] });
+  });
+
+  /*
+   * Enabled with an allowlist and nothing has ever asked: the listener is open
+   * and the puller is absent or cannot reach it. Every other surface looks
+   * healthy, which is exactly why this has to be visible.
+   */
+  it('names who it is waiting for when no peer has ever fetched', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      lastMaterializedAt: AT,
+    }).status(false);
+
+    expect(status.replication).toMatchObject({
+      enabled: true,
+      allowedCertnames: ['puppet.corp.local'],
+      peers: [],
+    });
+  });
+
+  it('is not behind when it received the tree after the last write', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      peers: [peer({ lastChangedAt: AT })],
+      lastMaterializedAt: EARLIER,
+    }).status(false);
+
+    expect(status.replication?.peers[0]?.behind).toBe(false);
+  });
+
+  it('is behind when classification was written after it last received', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      peers: [peer({ lastChangedAt: EARLIER })],
+      lastMaterializedAt: AT,
+    }).status(false);
+
+    expect(status.replication?.peers[0]?.behind).toBe(true);
+  });
+
+  /*
+   * The worst state and the easiest to miss: reachable, polling happily, and
+   * holding nothing. Only 304s means it has never been sent a tree.
+   */
+  it('counts a peer that has never received anything as behind', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      peers: [peer({ lastChangedAt: null })],
+      lastMaterializedAt: AT,
+    }).status(false);
+
+    expect(status.replication?.peers[0]?.behind).toBe(true);
+  });
+
+  it('is not behind when nothing has been materialized at all', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      peers: [peer({ lastChangedAt: null })],
+      lastMaterializedAt: null,
+    }).status(false);
+
+    expect(status.replication?.peers[0]?.behind).toBe(false);
   });
 });

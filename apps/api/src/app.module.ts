@@ -436,6 +436,13 @@ export class AppModule {
               forwarding,
               () => registry.has(CAPABILITIES.AUDIT_EXPORT),
               retentionPolicy,
+              // The SAME values main.ts opens the listener from. Reading the
+              // environment twice would let the console report a listener that
+              // was never opened, or stay silent about one that was.
+              {
+                enabled: env.ENC_REPLICATION_ENABLED,
+                allowedCertnames: env.ENC_REPLICATION_ALLOWED_CERTNAMES,
+              },
             ),
         },
         {

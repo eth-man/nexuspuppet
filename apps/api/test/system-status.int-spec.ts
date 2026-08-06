@@ -106,6 +106,7 @@ describe('system status (integration)', () => {
       forwardingOff(),
       () => false,
       RETENTION,
+      { enabled: false, allowedCertnames: [] },
     );
 
   const queueJob = (dedupeKey: string, over: Record<string, unknown> = {}) =>

@@ -75,6 +75,19 @@ export function SystemStatusCard() {
           {...(forwardingTone(data.auditForwarding) === null ? {} : { tone: 'failed' as const })}
           hint={forwardingHint(data.auditForwarding)}
         />
+        {/*
+          Materialized is not the end of the sentence; replicated is (ADR-0019
+          §6). Without this the console reports a change as materialized —
+          true, and useless, because it only means the file was written HERE.
+        */}
+        {data.replication !== undefined && (
+          <Metric
+            label="Replicated"
+            value={replicationValue(data.replication)}
+            {...(replicationTone(data.replication) === null ? {} : { tone: 'failed' as const })}
+            hint={replicationHint(data.replication)}
+          />
+        )}
       </dl>
 
       {/*
@@ -82,6 +95,47 @@ export function SystemStatusCard() {
         Each renders only while true — a strip that is always present becomes
         furniture, and these exist to be noticed.
       */}
+      {data.replication !== undefined &&
+        data.replication.enabled &&
+        data.replication.peers.some((peer) => peer.behind) && (
+          <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+            <span className="font-medium">A Puppet server is behind.</span> Classification has been
+            materialized since it last received the tree, so it is compiling catalogs from an older
+            copy:{' '}
+            {data.replication.peers
+              .filter((peer) => peer.behind)
+              .map((peer) =>
+                peer.lastChangedAt === null
+                  ? `${peer.certname} (has never received one)`
+                  : `${peer.certname} (last received ${relativeAge(peer.lastChangedAt)})`,
+              )
+              .join(', ')}
+            .
+          </p>
+        )}
+
+      {/*
+        Enabled, allowlisted, and yet nothing has ever asked. The listener is
+        open and the puller is not installed or cannot reach it — which looks
+        identical to "working" on every other surface.
+      */}
+      {data.replication !== undefined &&
+        data.replication.enabled &&
+        data.replication.peers.length === 0 && (
+          <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+            <span className="font-medium">Replication is on, but nothing has fetched.</span> No
+            Puppet server has ever asked for the tree
+            {data.replication.allowedCertnames.length > 0 && (
+              <>
+                {' '}
+                — expecting{' '}
+                <span className="font-mono">{data.replication.allowedCertnames.join(', ')}</span>
+              </>
+            )}
+            .
+          </p>
+        )}
+
       {data.auditForwarding.unconfirmableDelivery && (
         <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
           <span className="font-medium">Syslog over UDP: unconfirmable delivery.</span> This
@@ -150,6 +204,38 @@ function forwardingHint(forwarding: SystemStatus['auditForwarding']): string {
 }
 
 /** Red only for the unambiguous condition: an active transport whose last attempt failed. */
+/**
+ * The number that answers "is my estate running what the console shows?".
+ *
+ * Peers up to date, out of peers seen. Not a percentage: with one Puppet
+ * server — the common case — a percentage reads 0% or 100% and hides which.
+ */
+function replicationValue(replication: NonNullable<SystemStatus['replication']>): string | number {
+  if (!replication.enabled) return '—';
+  if (replication.peers.length === 0) return 0;
+  return `${String(replication.peers.filter((peer) => !peer.behind).length)}/${String(replication.peers.length)}`;
+}
+
+function replicationHint(replication: NonNullable<SystemStatus['replication']>): string {
+  if (!replication.enabled) return 'not replicating';
+  if (replication.peers.length === 0) return 'no server has fetched';
+
+  const behind = replication.peers.filter((peer) => peer.behind).length;
+  if (behind > 0) return `${String(behind)} behind`;
+
+  // Newest fetch, because "when did this last work" is the question a green
+  // number provokes.
+  const newest = replication.peers.reduce((a, b) => (a.lastFetchAt > b.lastFetchAt ? a : b));
+  return `checked ${relativeAge(newest.lastFetchAt)}`;
+}
+
+function replicationTone(replication: NonNullable<SystemStatus['replication']>): 'failed' | null {
+  if (!replication.enabled) return null;
+  // Behind is amber, and stated in the strip below. Nothing having EVER
+  // fetched is the one that reads as failure: the tree is not leaving the box.
+  return replication.peers.length === 0 ? 'failed' : null;
+}
+
 function forwardingTone(forwarding: SystemStatus['auditForwarding']): 'failed' | null {
   return forwarding.active !== 'none' && forwarding.lastDelivery?.ok === false ? 'failed' : null;
 }
