@@ -33,21 +33,46 @@ function openssl(args: string[]): void {
 function pki(root: string, certnames: readonly string[]): void {
   openssl(['genrsa', '-out', join(root, 'ca.key'), '2048']);
   openssl([
-    'req', '-x509', '-new', '-key', join(root, 'ca.key'), '-days', '1',
-    '-subj', '/CN=Test CA', '-out', join(root, 'ca.pem'),
+    'req',
+    '-x509',
+    '-new',
+    '-key',
+    join(root, 'ca.key'),
+    '-days',
+    '1',
+    '-subj',
+    '/CN=Test CA',
+    '-out',
+    join(root, 'ca.pem'),
   ]);
 
   for (const name of ['server', ...certnames]) {
     const cn = name === 'server' ? 'nexuspuppet.internal' : name;
     openssl(['genrsa', '-out', join(root, `${name}.key`), '2048']);
     openssl([
-      'req', '-new', '-key', join(root, `${name}.key`),
-      '-subj', `/CN=${cn}`, '-out', join(root, `${name}.csr`),
+      'req',
+      '-new',
+      '-key',
+      join(root, `${name}.key`),
+      '-subj',
+      `/CN=${cn}`,
+      '-out',
+      join(root, `${name}.csr`),
     ]);
     openssl([
-      'x509', '-req', '-in', join(root, `${name}.csr`),
-      '-CA', join(root, 'ca.pem'), '-CAkey', join(root, 'ca.key'), '-CAcreateserial',
-      '-days', '1', '-out', join(root, `${name}.pem`),
+      'x509',
+      '-req',
+      '-in',
+      join(root, `${name}.csr`),
+      '-CA',
+      join(root, 'ca.pem'),
+      '-CAkey',
+      join(root, 'ca.key'),
+      '-CAcreateserial',
+      '-days',
+      '1',
+      '-out',
+      join(root, `${name}.pem`),
     ]);
   }
 }
@@ -171,8 +196,8 @@ describe('the ENC replication endpoint', () => {
     const first = await fetchTree(ALLOWED);
     await fetchTree(ALLOWED, { 'if-none-match': String(first.headers['etag']) });
 
-    const statuses = upsert.mock.calls.map((call: unknown[]) =>
-      (call[0] as { update: { lastStatus: number } }).update.lastStatus,
+    const statuses = upsert.mock.calls.map(
+      (call: unknown[]) => (call[0] as { update: { lastStatus: number } }).update.lastStatus,
     );
     expect(statuses).toContain(200);
     expect(statuses).toContain(304);

@@ -87,7 +87,9 @@ describe('EncReplicationService.recordFetch', () => {
     await svc.recordFetch('puppet.corp.local', 'abc', 200);
     await svc.recordFetch('puppet.corp.local', 'abc', 304);
 
-    expect((upsert.mock.calls[0]?.[0] as { update: object }).update).toHaveProperty('lastChangedAt');
+    expect((upsert.mock.calls[0]?.[0] as { update: object }).update).toHaveProperty(
+      'lastChangedAt',
+    );
     expect((upsert.mock.calls[1]?.[0] as { update: object }).update).not.toHaveProperty(
       'lastChangedAt',
     );
