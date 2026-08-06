@@ -1,0 +1,44 @@
+[Unit]
+Description=Sync the NexusPuppet ENC tree
+Documentation=https://github.com/eth-man/nexuspuppet/blob/main/DEPLOYMENT.md
+
+# NOT ordered before puppetserver, and puppetserver does NOT require this.
+#
+# That is the whole architecture in a dependency line: puppetserver reads the
+# tree already on disk and must start, and keep compiling, whether or not this
+# unit has ever run or has ever succeeded (ADR-0003, ADR-0019).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nexuspuppet-sync.sh
+EnvironmentFile=-/etc/default/nexuspuppet-sync
+
+# Root, because it writes /etc/puppetlabs/nexuspuppet and reads the Puppet
+# server's private key. Everything below narrows that back down.
+User=root
+
+# The private key is readable here and nowhere else this unit needs to reach.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nexuspuppet-sync /etc/puppetlabs
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+
+# A failed sync is a real event and should be visible in `systemctl status`
+# rather than retried into silence. The timer brings the next attempt.
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
