@@ -38,14 +38,21 @@ test.describe('integrations tab', () => {
     await expect(page.getByText('Audit forwarding is off')).toBeVisible();
   });
 
-  test('the resting state is read-only', async ({ page }) => {
+  test('the resting state is read-only', async ({ page, request }) => {
+    /*
+     * Only meaningful where the form exists. Without `audit.export` there are
+     * no inputs to be disabled — the cards render as a header alone, which the
+     * "renders no unusable form" test below asserts directly.
+     */
+    test.skip(!(await forwardingIsEditable(request)), 'core renders no form to disable');
+
     await login(page);
     await page.goto('/settings/integrations');
 
-    // Every input sits in a disabled fieldset until somebody presses Edit —
-    // and in core, permanently. Either way, landing here can change nothing.
-    await expect(page.getByLabel('Collector host')).toBeDisabled();
-    await expect(page.getByLabel('Endpoint URL')).toBeDisabled();
+    // Every input sits in a disabled fieldset until somebody presses Edit, so
+    // landing on this page can change nothing.
+    await expect(page.getByRole('textbox', { name: 'Collector host' })).toBeDisabled();
+    await expect(page.getByRole('textbox', { name: 'Endpoint URL' })).toBeDisabled();
   });
 
   test('the API refuses forwarding writes without touching the UI', async ({ request }) => {
@@ -75,8 +82,8 @@ test.describe('integrations tab', () => {
 
     // The feature is still NAMED and still says which capability unlocks it —
     // the same name the API's 501 carries.
-    await expect(page.getByText('Syslog')).toBeVisible();
-    await expect(page.getByText('Webhook')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Syslog' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Webhook' })).toBeVisible();
     await expect(page.getByText('audit.export')).toBeVisible();
     await expect(page.getByText('Enterprise').first()).toBeVisible();
 
