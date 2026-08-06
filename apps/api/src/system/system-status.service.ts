@@ -42,6 +42,14 @@ export class SystemStatusService {
     private readonly forwardingAvailable: () => boolean,
     /** The same policy object the sweeper runs with; two copies would drift. */
     private readonly retention: AuditRetentionPolicy,
+    /**
+     * Replication config, passed in rather than read from the environment here.
+     *
+     * The listener is opened by main.ts from the same values, so a single
+     * source keeps the console from reporting a listener that was never opened
+     * — or staying silent about one that was.
+     */
+    private readonly replicationConfig: { enabled: boolean; allowedCertnames: readonly string[] },
   ) {}
 
   /**
@@ -53,13 +61,14 @@ export class SystemStatusService {
    * counts are for everyone; the strings are for an administrator.
    */
   async status(includeDetail: boolean): Promise<SystemStatus> {
-    const [materialization, auditDelivery, auditForwarding, retention, projection] =
+    const [materialization, auditDelivery, auditForwarding, retention, projection, replication] =
       await Promise.all([
         this.materialization(includeDetail),
         this.auditDelivery(includeDetail),
         this.auditForwarding(includeDetail),
         this.retentionStatus(),
         this.projectionStatus(),
+        this.replicationStatus(),
       ]);
 
     return {
@@ -68,7 +77,53 @@ export class SystemStatusService {
       auditForwarding,
       retention,
       projection,
+      replication,
       includesDetail: includeDetail,
+    };
+  }
+
+  /**
+   * Whether classification is reaching a puppetserver (ADR-0019 §6).
+   *
+   * `behind` is computed HERE rather than left to the console, so one
+   * definition of "the Puppet server is serving something older than what you
+   * are looking at" exists rather than two.
+   *
+   * It compares against the newest ENC write, not against the current tree
+   * hash. Hashing the tree would mean reading every node file on every status
+   * poll — and the materializer already refuses to write when content is
+   * unchanged, so its newest `writtenAt` only advances on a real change.
+   */
+  private async replicationStatus(): Promise<SystemStatus['replication']> {
+    const [peers, newest] = await Promise.all([
+      this.prisma.encReplicationPeer.findMany({ orderBy: { lastFetchAt: 'desc' }, take: 50 }),
+      this.prisma.encMaterialization.findFirst({
+        orderBy: { writtenAt: 'desc' },
+        select: { writtenAt: true },
+      }),
+    ]);
+
+    const lastMaterializedAt = newest?.writtenAt ?? null;
+
+    return {
+      enabled: this.replicationConfig.enabled,
+      allowedCertnames: [...this.replicationConfig.allowedCertnames],
+      lastMaterializedAt: lastMaterializedAt?.toISOString() ?? null,
+      peers: peers.map((peer) => ({
+        certname: peer.certname,
+        lastFetchAt: peer.lastFetchAt.toISOString(),
+        lastStatus: peer.lastStatus,
+        lastChangedAt: peer.lastChangedAt?.toISOString() ?? null,
+        fetchCount: peer.fetchCount,
+        /*
+         * A peer that has NEVER received a tree is behind as soon as anything
+         * has been materialized — it is reachable and holds nothing, which is
+         * the worst state and the easiest to miss.
+         */
+        behind:
+          lastMaterializedAt !== null &&
+          (peer.lastChangedAt === null || peer.lastChangedAt < lastMaterializedAt),
+      })),
     };
   }
 

@@ -134,6 +134,54 @@ export const projectionHealthSchema = z.object({
   factsNoNodeReports: z.array(z.string()),
 });
 
+/**
+ * Whether classification is actually reaching a puppetserver (ADR-0019 §6).
+ *
+ * Without this the console can report a change as materialized — true, and
+ * useless, because materialized only means it was written here. A stopped timer
+ * on the Puppet server leaves every machine on its old classification with
+ * nothing saying so. Materialized is not the end of the sentence; replicated
+ * is.
+ */
+export const encReplicationPeerSchema = z.object({
+  /** From the client certificate the fetch was made with, never from a header. */
+  certname: z.string(),
+  lastFetchAt: z.string(),
+  /** 200 when a tree was transferred, 304 when the peer was already current. */
+  lastStatus: z.number().int(),
+  /**
+   * When this peer last actually RECEIVED a tree.
+   *
+   * Null means it has only ever been told "unchanged" — it is reachable and has
+   * never held anything. A peer sitting on 304s with a recent `lastChangedAt`
+   * is healthy; the two are indistinguishable without this field.
+   */
+  lastChangedAt: z.string().nullable(),
+  fetchCount: z.number().int(),
+  /**
+   * True when classification has been materialized since this peer last
+   * received a tree — so the Puppet server is serving something older than
+   * what the console shows.
+   */
+  behind: z.boolean(),
+});
+
+export const encReplicationHealthSchema = z.object({
+  /** False when the deployment does not replicate. A state, not a fault. */
+  enabled: z.boolean(),
+  /**
+   * Certnames permitted to fetch.
+   *
+   * Reported so "nobody has fetched" can be told apart from "nobody may" —
+   * an empty allowlist opens no listener at all, and looks identical from the
+   * console to a puller that was never installed.
+   */
+  allowedCertnames: z.array(z.string()),
+  /** The most recent write to the ENC tree. Null when nothing is materialized. */
+  lastMaterializedAt: z.string().nullable(),
+  peers: z.array(encReplicationPeerSchema),
+});
+
 export const systemStatusSchema = z.object({
   materialization: materializationHealthSchema,
   /** Absent when the deployment has no audit transport installed. */
@@ -141,6 +189,11 @@ export const systemStatusSchema = z.object({
   auditForwarding: auditForwardingHealthSchema,
   retention: auditRetentionHealthSchema,
   projection: projectionHealthSchema,
+  /**
+   * Absent on a deployment built before replication existed, so an older
+   * console and a newer API still agree (ADR-0002).
+   */
+  replication: encReplicationHealthSchema.optional(),
   /** Whether this response includes error detail, so the UI need not guess. */
   includesDetail: z.boolean(),
 });
@@ -150,6 +203,8 @@ export type AuditDeliveryHealth = z.infer<typeof auditDeliveryHealthSchema>;
 export type AuditForwardingHealth = z.infer<typeof auditForwardingHealthSchema>;
 export type AuditRetentionHealth = z.infer<typeof auditRetentionHealthSchema>;
 export type ProjectionHealth = z.infer<typeof projectionHealthSchema>;
+export type EncReplicationPeer = z.infer<typeof encReplicationPeerSchema>;
+export type EncReplicationHealth = z.infer<typeof encReplicationHealthSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;
 
 /**
