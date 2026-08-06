@@ -59,6 +59,34 @@ for f in "$CLIENT_CERT" "$CLIENT_KEY" "$CA_CERT"; do
     [ -r "$f" ] || die "cannot read $f — check NEXUSPUPPET_SYNC_* in ${CONFIG}"
 done
 
+# A real directory where the symlink goes — every deployment that predates
+# replication, because that is where the tree was mounted or copied.
+#
+# Checked HERE rather than discovered at the swap. `mv -T` refuses to replace a
+# directory with a symlink and says so in its own terms:
+#
+#   mv: cannot overwrite directory '/etc/puppetlabs/nexuspuppet' with non-directory
+#
+# which reads like a bug in this script rather than a one-time migration the
+# operator has to approve. Failing before the fetch also means an operator who
+# has not done it yet does not repeatedly download a tree that cannot be
+# installed.
+#
+# NOT migrated automatically. Moving it aside is destructive to a tree somebody
+# may have assembled by hand, and the window where the path does not exist
+# fails EVERY compile (the ENC script exits non-zero with no tree) — that is
+# the operator's call to make, at a moment of their choosing.
+if [ -d "$LINK" ] && [ ! -L "$LINK" ]; then
+    die "${LINK} is a directory, not a symlink — this deployment predates replication.
+Move it aside once, then this will install the synced tree in its place:
+
+    sudo mv ${LINK} ${LINK}.pre-sync
+
+Its contents stay there; nothing is deleted. Doing it by hand is deliberate:
+between the move and the next successful sync there is no tree, and every
+catalog compile fails until one lands."
+fi
+
 mkdir -p "${STATE_DIR}/trees"
 etag_file="${STATE_DIR}/etag"
 previous_etag=''
