@@ -107,3 +107,80 @@ test.describe('settings tabs', () => {
     expect(accent).not.toBe(changed);
   });
 });
+
+/**
+ * The update check reports the version that is RUNNING.
+ *
+ * Untested until now, which is how a deployment on 1.3.0 came to display
+ * "Up to date (v1.2.0)" — the newest PUBLISHED release, rendered where an
+ * operator reads the installed version. Running ahead of the newest release is
+ * a normal state (a tag never published, a build from main, a fork), so the
+ * number shown must come from the deployment rather than from GitHub.
+ *
+ * THE RESPONSE IS STUBBED, deliberately. A first version of this test called
+ * the real endpoint and passed against the broken code, because neither CI nor
+ * an air-gapped estate can reach the release list — so the branch under test
+ * never ran and the test asserted nothing. Stubbing is what makes it able to
+ * fail.
+ */
+test.describe('the update check', () => {
+  test.beforeEach(async ({ request }) => {
+    await assertStackReachable(request);
+  });
+
+  test('shows the running version when ahead of the newest release', async ({ page }) => {
+    await login(page);
+
+    // Exactly the shape that produced the bug: running 1.3.0, newest published
+    // release v1.2.0, so no update is available and the deployment is ahead.
+    await page.route('**/api/system/update-check', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          current: '1.3.0',
+          latest: 'v1.2.0',
+          updateAvailable: false,
+          releaseUrl: null,
+          reachable: true,
+          message: null,
+        }),
+      }),
+    );
+
+    await page.goto('/settings/general');
+    await page.getByRole('button', { name: /Check for updates/ }).click();
+
+    const status = page.getByRole('status');
+    await expect(status).toContainText('Up to date (1.3.0)');
+    // And it says why the two differ, rather than hiding it.
+    await expect(status).toContainText('ahead of the newest published release');
+  });
+
+  test('says up to date once, when the running version is the newest', async ({ page }) => {
+    await login(page);
+
+    await page.route('**/api/system/update-check', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          current: '1.3.0',
+          latest: 'v1.3.0',
+          updateAvailable: false,
+          releaseUrl: null,
+          reachable: true,
+          message: null,
+        }),
+      }),
+    );
+
+    await page.goto('/settings/general');
+    await page.getByRole('button', { name: /Check for updates/ }).click();
+
+    const status = page.getByRole('status');
+    await expect(status).toContainText('Up to date (1.3.0)');
+    // The `v` prefix is the only difference, so this must NOT read as ahead.
+    await expect(status).not.toContainText('ahead of');
+  });
+});

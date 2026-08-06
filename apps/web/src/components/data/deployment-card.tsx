@@ -117,6 +117,17 @@ export function DeploymentCard() {
   );
 }
 
+/**
+ * Release tags carry a leading `v`; the running version does not.
+ *
+ * So `v1.3.0` and `1.3.0` are the same release and must compare equal — without
+ * this, a perfectly current deployment reports itself as ahead of the release
+ * it is actually running.
+ */
+function strip(version: string): string {
+  return version.replace(/^v/, '');
+}
+
 /** The outcome, including "this host has no internet", which is not a fault. */
 function Result({ result }: { result: UpdateCheck }) {
   if (!result.reachable) {
@@ -128,10 +139,30 @@ function Result({ result }: { result: UpdateCheck }) {
   }
 
   if (!result.updateAvailable) {
+    /*
+     * The version shown is the one RUNNING, not the newest published.
+     *
+     * Those are usually the same, and when they are not, showing the published
+     * one is actively wrong: a deployment on 1.3.0 whose newest published
+     * release is v1.2.0 read "Up to date (v1.2.0)", which looks like a claim
+     * about what is installed. An operator checking their version came away
+     * with the wrong number.
+     *
+     * Running ahead is a normal state — a tag that was never published as a
+     * release, a build from main, a private fork — so it is reported plainly
+     * rather than treated as a fault.
+     */
+    const ahead = result.latest !== null && strip(result.latest) !== strip(result.current);
+
     return (
-      <p role="status" className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+      <p role="status" className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
         <CheckCircle2 className="size-3.5 shrink-0 text-state-unchanged" aria-hidden />
-        Up to date{result.latest !== null && ` (${result.latest})`}
+        Up to date ({result.current})
+        {ahead && (
+          <span className="text-ink-faint">
+            — ahead of the newest published release ({result.latest})
+          </span>
+        )}
       </p>
     );
   }
