@@ -84,7 +84,9 @@ test.describe('integrations tab', () => {
     // the same name the API's 501 carries.
     await expect(page.getByRole('heading', { name: 'Syslog' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Webhook' })).toBeVisible();
-    await expect(page.getByText('audit.export')).toBeVisible();
+    // .first(): both cards name the capability now, which is the point — each
+    // one explains itself rather than relying on a shared footnote.
+    await expect(page.getByText('audit.export').first()).toBeVisible();
     await expect(page.getByText('Enterprise').first()).toBeVisible();
 
     /*
