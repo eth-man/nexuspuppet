@@ -16,9 +16,9 @@ import { useCapabilities, useOidcSettings, useRoles } from '@/lib/queries';
 import { useClearOidcSettings, useSaveOidcSettings, useTestOidcSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
-import { cn } from '@/lib/utils';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
+import { CapabilityCard } from '@/components/ui/capability-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -118,12 +118,29 @@ export function OidcSettingsPanel() {
   const blocked = form.issuer === '' || form.clientId === '' || form.redirectUri === '';
   const changes = describeChanges(view?.config ?? null, form, secret !== '');
 
+  /*
+   * Header only without the capability. Every field below is unreachable — the
+   * API answers 501 whatever is typed — so a full form of disabled inputs is
+   * screen space spent on something this deployment cannot do.
+   *
+   * After the hooks, never before them: the hook order is identical in both
+   * editions.
+   */
+  if (!licensed) {
+    return (
+      <CapabilityCard
+        title="Single sign-on (OIDC)"
+        description="Authenticate against an OpenID Connect provider."
+        capability="sso.oidc"
+        note="Local accounts keep working either way."
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <fieldset
-        disabled={!licensed || !editing}
-        className={cn('min-w-0 space-y-4', !licensed && 'opacity-60')}
-      >
+      {/* Licensed past this point — the unlicensed case returned above. */}
+      <fieldset disabled={!editing} className="min-w-0 space-y-4">
         <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
 
         {error !== null && (
@@ -467,13 +484,6 @@ export function OidcSettingsPanel() {
                 )}
               </div>
             </div>
-          )}
-
-          {!licensed && (
-            <p className="text-center text-[11px] text-ink-faint">
-              Single sign-on requires the <span className="font-mono">sso.oidc</span> capability
-              (NexusPuppet Enterprise). Local accounts keep working either way.
-            </p>
           )}
         </CardContent>
       </Card>

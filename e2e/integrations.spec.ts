@@ -67,17 +67,32 @@ test.describe('integrations tab', () => {
     }
   });
 
-  test('core names the capability instead of hiding the feature', async ({ page, request }) => {
-    test.skip(await forwardingIsEditable(request), 'entitled deployment — nothing is grayed out');
+  test('core names the capability and renders no unusable form', async ({ page, request }) => {
+    test.skip(await forwardingIsEditable(request), 'entitled deployment — the form is real');
 
     await login(page);
     await page.goto('/settings/integrations');
 
-    // Disabled, not hidden, and it says which capability — the same name the
-    // API's 501 carries. No Edit button anywhere: a row of live buttons under
-    // a form nobody can use is the "configure a dead form" trap.
+    // The feature is still NAMED and still says which capability unlocks it —
+    // the same name the API's 501 carries.
+    await expect(page.getByText('Syslog')).toBeVisible();
+    await expect(page.getByText('Webhook')).toBeVisible();
     await expect(page.getByText('audit.export')).toBeVisible();
+    await expect(page.getByText('Enterprise').first()).toBeVisible();
+
+    /*
+     * And the form itself is GONE, not merely disabled. This is the assertion
+     * that can actually fail: the previous version rendered every input with
+     * `disabled`, and `toBeDisabled()` would have passed just as happily
+     * against a screen full of dead fields.
+     *
+     * By role, not by label — a required Field renders an aria-hidden marker
+     * inside its <label>, so getByLabel does not match these inputs.
+     */
+    await expect(page.getByRole('textbox', { name: 'Collector host' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Endpoint URL' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit settings' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Test connection' })).toHaveCount(0);
   });
 
   test.describe('editing (needs audit.export)', () => {

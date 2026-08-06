@@ -16,9 +16,9 @@ import { useCapabilities, useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
-import { cn } from '@/lib/utils';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
+import { CapabilityCard } from '@/components/ui/capability-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -200,31 +200,40 @@ export function LdapSettingsPanel() {
   const before = view?.config ?? null;
   const changes = describeChanges(before, form, password !== '');
 
+  /*
+   * Header only without the capability.
+   *
+   * This used to render the whole form inert, so an open-core evaluator saw
+   * the real thing rather than a description of it. That argument was sound
+   * and it is not what changed: what changed is the judgement that thirty
+   * unfillable controls cost more screen than the demonstration was worth. The
+   * feature is still named and still says which capability unlocks it.
+   *
+   * The original hazard stays fixed either way — nobody can fill six fields,
+   * press Save, and find out later that none of it ran, because there are no
+   * fields to fill.
+   */
+  if (!licensed) {
+    return (
+      <CapabilityCard
+        title="Directory (LDAP)"
+        description="Authenticate against an LDAP or Active Directory server."
+        capability="directory.ldap"
+        note="Local accounts keep working either way."
+      />
+    );
+  }
+
   return (
     /*
-     * A DISABLED form, not a hidden one and not a sales pitch (open-core).
-     *
-     * Core renders exactly what enterprise renders, inert. Somebody evaluating
-     * the product sees the real thing rather than a description of it, and
-     * nobody can fill in six fields, press Save, and discover later that none
-     * of it ran — which is what the previous version allowed and what makes a
-     * product look broken rather than unlicensed.
-     *
      * `<fieldset disabled>` rather than a `disabled` prop threaded through
      * thirty controls: the browser disables every form control inside it,
      * including ones added later, so this cannot drift out of step with the
      * form the way a hand-maintained list would.
      */
     <div className="space-y-4">
-      <fieldset
-        disabled={!licensed || !editing}
-        /*
-         * Dimmed only when the feature is unavailable. A locked-but-available
-         * form is being READ — greying it would say "you cannot have this", when
-         * what it means is "you have not asked to change it yet".
-         */
-        className={cn('min-w-0 space-y-4', !licensed && 'opacity-60')}
-      >
+      {/* Licensed past this point — the unlicensed case returned above. */}
+      <fieldset disabled={!editing} className="min-w-0 space-y-4">
         <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
 
         {error !== null && (
@@ -552,17 +561,6 @@ export function LdapSettingsPanel() {
               updatedAt={view?.updatedAt ?? null}
               updatedByEmail={view?.updatedByEmail ?? null}
             />
-          )}
-
-          {/*
-            Humble, and inside the card it explains. Stated once, in the body
-            text style, with no button — an upsell in the middle of a feature
-            somebody cannot use reads as a toll booth.
-          */}
-          {!licensed && (
-            <p className="text-center text-[11px] text-ink-faint">
-              This feature requires NexusPuppet Enterprise.
-            </p>
           )}
         </CardContent>
       </Card>

@@ -67,15 +67,19 @@ test.describe('OIDC settings card', () => {
     expect([200, 400, 403, 501]).toContain(response.status());
   });
 
-  test('core names the capability rather than hiding the feature', async ({ page, request }) => {
-    test.skip(await ssoAvailable(request), 'entitled deployment — nothing is grayed out');
+  test('core names the capability and renders no unusable form', async ({ page, request }) => {
+    test.skip(await ssoAvailable(request), 'entitled deployment — the form is real');
 
     await login(page);
     await page.goto('/settings/auth');
 
     await expect(page.getByText('sso.oidc')).toBeVisible();
-    // No action bar at all: a row of live buttons under a form nobody can use
-    // is the "configure a dead form" trap this panel was written to avoid.
+    await expect(page.getByText('Enterprise').first()).toBeVisible();
+
+    // Gone, not disabled — see integrations.spec.ts for why that distinction
+    // is what makes this assertion able to fail. By role: `Issuer` also
+    // matches the InfoHint button "About the issuer" under substring matching.
+    await expect(page.getByRole('textbox', { name: 'Issuer' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit settings' })).toHaveCount(0);
   });
 
