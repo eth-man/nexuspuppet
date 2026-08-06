@@ -129,6 +129,32 @@ Tests create node groups prefixed `e2e-` and sweep them before and after, so run
 
 In CI, [`scripts/ci/e2e-stack.sh`](scripts/ci/e2e-stack.sh) boots the stack from **built** artifacts — `next start`, not `next dev` — waits for the first projection to land, then runs the suite. On failure it dumps service logs and uploads traces and screenshots.
 
+#### CI only runs core. Run both editions yourself.
+
+ADR-0002 requires the public pipeline to need no secrets, so CI cannot fetch
+the private layer and **has never run the enterprise edition**. Every
+capability-gated test skips there.
+
+The reverse gap is just as real: if you have the private layer installed, you
+run enterprise every time and never see what an open-core user sees. Both
+directions have shipped bugs — two capability-gated tests sat broken from #98
+and #99 until somebody happened to run the suite the other way.
+
+```bash
+npm run test:e2e:core          # hides the enterprise workspace link
+npm run test:e2e:enterprise    # requires the layer to be installed
+```
+
+Core works by hiding `node_modules/@nexuspuppet/enterprise`, because the API
+resolves that specifier at **runtime** (ADR-0002). No rebuild, and no
+`npm install` — which must never run at the root while the private workspace is
+present. The link is restored on every exit path, including Ctrl-C and a
+failing suite; leaving it hidden would quietly turn your whole checkout into a
+core one.
+
+**Run both before pushing anything that touches a capability-gated surface** —
+settings panels, the `501` routes, anything reading `GET /capabilities`.
+
 ### Installs from the documentation
 
 The job most likely to catch a change you did not expect to break anything.
