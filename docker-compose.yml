@@ -72,6 +72,13 @@ services:
       NEXUSPUPPET_VERSION: ${NEXUSPUPPET_VERSION:-}
       CONSOLE_TLS_CERT_PATH: ${CONSOLE_TLS_CERT_PATH:-}
       CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
+      # ENC tree replication (ADR-0019). Mount points, not host paths — the
+      # same certificate material the PuppetDB client uses, which is issued by
+      # the Puppet CA and carries serverAuth as well as clientAuth. Reusing it
+      # is why this feature creates no new secret.
+      ENC_REPLICATION_CERT_PATH: /etc/nexuspuppet/certs/client.pem
+      ENC_REPLICATION_KEY_PATH: /etc/nexuspuppet/certs/client.key
+      ENC_REPLICATION_CA_PATH: /etc/nexuspuppet/certs/ca.pem
     volumes:
       # Certificates as mounted files, never baked into the image (ADR-0004).
       - ${PUPPETDB_CERT_DIR:-./certs}:/etc/nexuspuppet/certs:ro
@@ -93,6 +100,14 @@ services:
       # out of the box puts login credentials on the network in cleartext.
       # Exposing it is now a deliberate act: API_BIND=0.0.0.0.
       - '${API_BIND:-127.0.0.1}:${API_PORT:-3001}:3001'
+      # ENC replication (ADR-0019), when ENC_REPLICATION_ENABLED=true.
+      #
+      # Binds every interface, unlike the API above, and for the opposite
+      # reason: this listener terminates mTLS itself and admits only
+      # allowlisted certnames, so there is no cleartext to protect and the
+      # puller is on another host by definition. Publishing it while the
+      # feature is disabled is harmless — nothing listens inside the container.
+      - '${ENC_REPLICATION_BIND:-0.0.0.0}:${ENC_REPLICATION_PORT:-8443}:${ENC_REPLICATION_PORT:-8443}'
     healthcheck:
       test:
         [

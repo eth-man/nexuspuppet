@@ -38,10 +38,10 @@ datasource db {
 /// while the console displays the name. Anything that writes one and not the
 /// other makes those two disagree, and the disagreement is silent.
 model Role {
-  id          String  @id @default(uuid()) @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   /// Matches the UserRole enum for the seeded rows, so a mapping or a runbook
   /// naming "ADMIN" keeps meaning the same thing after the enum goes away.
-  name        String  @unique @db.VarChar(64)
+  name        String   @unique @db.VarChar(64)
   description String?
   /// Permission strings from `permissionSchema` in @nexuspuppet/contracts.
   /// Not an enum: a Postgres enum would need a migration per permission added,
@@ -50,7 +50,7 @@ model Role {
   /// Seeded by the product rather than created by an operator. Not deletable
   /// and not renamable — the names appear in directory role mappings, in audit
   /// history, and in other people's runbooks.
-  builtIn     Boolean @default(false)
+  builtIn     Boolean  @default(false)
 
   users User[]
 
@@ -497,4 +497,30 @@ model SavedQuery {
 
   @@unique([userId, name])
   @@map("saved_queries")
+}
+
+/// A puppetserver that pulls the ENC tree for replication (ADR-0019 §6).
+///
+/// One row per puller, updated in place rather than appended per fetch. Most
+/// polls are unchanged 304s, so an append-only log would grow without bound to
+/// record that nothing happened. What the console needs is "did classification
+/// reach the server, and when" — which is the LAST fetch, not every fetch.
+model EncReplicationPeer {
+  /// The certname from the client certificate, verified against the Puppet CA.
+  /// Never taken from a header or a query parameter.
+  certname      String    @id @db.VarChar(255)
+  firstSeenAt   DateTime  @default(now())
+  lastFetchAt   DateTime
+  /// The tree revision this peer last received. Matches the ETag served.
+  lastEtag      String    @db.VarChar(64)
+  /// 200 when a tree was transferred, 304 when the peer was already current.
+  /// Both prove reachability; only 200 proves data moved.
+  lastStatus    Int
+  /// Last 200 specifically. A peer stuck on 304 with an old lastChangedAt is
+  /// healthy; one that has never had a 200 has never received anything.
+  lastChangedAt DateTime?
+  fetchCount    Int       @default(0)
+
+  @@index([lastFetchAt])
+  @@map("enc_replication_peers")
 }

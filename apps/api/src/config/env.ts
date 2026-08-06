@@ -189,6 +189,58 @@ export const envSchema = z.object({
   // ADR-0003
   ENC_OUTPUT_DIR: z.string().min(1),
 
+  /*
+   * ENC tree replication (ADR-0019).
+   *
+   * Off by default. A deployment whose puppetserver shares the host reads the
+   * tree from a mount and needs none of this; switching it on should be a
+   * decision, not something that happens because a default said so.
+   */
+  ENC_REPLICATION_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  ENC_REPLICATION_PORT: z.coerce.number().int().min(1).max(65535).default(8443),
+  /**
+   * Binds every interface by default, unlike the API.
+   *
+   * That is the point of it: the puller is on another host. It is safe to
+   * expose because it terminates mTLS itself and admits only allowlisted
+   * certnames — the same reasoning docker-compose.yml gives for the proxy.
+   */
+  ENC_REPLICATION_BIND: z.string().min(1).default('0.0.0.0'),
+  /**
+   * Certnames permitted to replicate, comma separated.
+   *
+   * NO DEFAULT, and an empty list serves nobody. The estate-wide Puppet CA
+   * signs every agent, so a valid certificate proves only that the caller is
+   * part of the estate; this list is what stops any node reading the whole
+   * estate's classification. A permissive default here would be a
+   * confused-deputy hole switched on by an operator who never saw it.
+   */
+  ENC_REPLICATION_ALLOWED_CERTNAMES: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  /**
+   * The certificate this endpoint is SERVED with, and the CA that client
+   * certificates are verified against.
+   *
+   * Defaults to the PuppetDB client material, which is not a shortcut: that
+   * certificate is issued by the Puppet CA and carries both serverAuth and
+   * clientAuth, and the CA file is the same Puppet CA the pullers are signed
+   * by. Reusing it is what makes ADR-0019 §5's "no new secret is created,
+   * distributed, rotated or leaked" literally true.
+   */
+  ENC_REPLICATION_CERT_PATH: z.string().min(1).default('/etc/nexuspuppet/certs/client.pem'),
+  ENC_REPLICATION_KEY_PATH: z.string().min(1).default('/etc/nexuspuppet/certs/client.key'),
+  ENC_REPLICATION_CA_PATH: z.string().min(1).default('/etc/nexuspuppet/certs/ca.pem'),
+
   /**
    * The PUBLIC certificate the console is served with (ADR-0013), for reporting
    * its expiry in Settings.

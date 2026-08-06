@@ -604,7 +604,8 @@ puppetserver runs on this same Docker host.** It usually does not. Pick one:
 |---|---|---|
 | Same host, **puppetserver in Docker** | The `enc-data` named volume, mounted `:ro` | Simplest. Uncomment the reference block in `docker-compose.yml` |
 | Same host, **puppetserver native** | Bind-mount a host path, e.g. `/srv/nexuspuppet/enc`, owned by uid 100 | The named volume does **not** work here — see below |
-| Separate puppetserver VM | Bind-mount `ENC_OUTPUT_DIR` to a host path exported over **NFS**, mounted read-only on puppetserver | Most common on-prem |
+| Separate puppetserver VM | **Replication** — NexusPuppet serves the tree, a timer on puppetserver pulls it (ADR-0019) | Recommended. See below |
+| Separate puppetserver VM | Bind-mount `ENC_OUTPUT_DIR` to a host path exported over **NFS**, mounted read-only on puppetserver | Works, but puts another host's availability into catalog compilation — if this host goes down the mount hangs and every compile blocks, which is the failure ADR-0003 exists to prevent |
 | Separate VM, no shared FS | `rsync` the tree on a timer | Adds propagation delay. The directory is self-consistent — files are written atomically via tmp+fsync+rename — but rsync mid-write can still ship a partial *set*. Use `--delay-updates` |
 
 **Why a native puppetserver cannot use the named volume.** Docker keeps volume
@@ -639,6 +640,66 @@ of which won).
 Whichever you choose, the mount on puppetserver is **read-only**. The API is the
 only writer. A second writer breaks the content-hash change detection that keeps
 a no-op from becoming estate-wide file churn.
+
+### Replicating the tree to a separate puppetserver (ADR-0019)
+
+The NexusPuppet side. The puller is documented with the sync script it ships
+with.
+
+**This is not an ENC endpoint.** The compile path is unchanged — the ENC script
+still reads a local file, with no process, network, or interpreter beyond
+`/bin/sh` in it. What is added is an out-of-band fetch on its own schedule. Stop
+NexusPuppet and the last synced tree is still on disk; catalogs still compile.
+The test any future change must pass is *can catalog compilation fail because
+NexusPuppet is unavailable?* — and the answer must stay no.
+
+In `.env`:
+
+```ini
+ENC_REPLICATION_ENABLED=true
+ENC_REPLICATION_ALLOWED_CERTNAMES=puppet.corp.local
+```
+
+That is the whole configuration. The endpoint is served with the **PuppetDB
+client certificate you already mounted** in §3, and verifies pullers against the
+**same Puppet CA**. Nothing new is issued, distributed or rotated: a Puppet
+agent certificate carries both `serverAuth` and `clientAuth`, so the certificate
+NexusPuppet uses to *call* PuppetDB is equally able to *serve* this.
+
+> **The allowlist is the security control, not the certificate.** The Puppet CA
+> signs every agent in your estate, so a valid client certificate proves only
+> that the caller is one of your nodes. The tree contains how the entire estate
+> is classified. Without the allowlist, any node holding an agent certificate
+> could read all of it — the same confused-deputy shape as the PuppetDB
+> certificate in §3, and it is bounded the same way, by naming who may ask.
+>
+> An empty list serves nobody, and the API refuses to open the listener at all
+> rather than presenting a port that rejects every caller.
+
+Verify from the Puppet server, using its own certificates:
+
+```bash
+curl -sv --cert /etc/puppetlabs/puppet/ssl/certs/$(puppet config print certname).pem \
+        --key  /etc/puppetlabs/puppet/ssl/private_keys/$(puppet config print certname).pem \
+        --cacert /etc/puppetlabs/puppet/ssl/certs/ca.pem \
+        https://nexuspuppet.internal:8443/enc-tree.tar -o /tmp/tree.tar
+tar -tf /tmp/tree.tar
+```
+
+| What you see | What it means |
+|---|---|
+| `200`, an `ETag`, a readable tar | Working |
+| Connection closed during handshake | The client certificate was missing, expired, or signed by a different CA |
+| `403` | The chain verified, but this certname is not in `ENC_REPLICATION_ALLOWED_CERTNAMES` |
+| `404` | Reached the listener at the wrong path — the tree is at `/enc-tree.tar` |
+| Connection refused | `ENC_REPLICATION_ENABLED` is not `true`, or the allowlist is empty so no listener was opened. Check the API log, which says which |
+
+Send the `ETag` back as `If-None-Match` on the next poll and an unchanged tree
+answers `304` with no body — which is what most polls will be.
+
+Every fetch is recorded against the certname that made it, so the console can
+say whether classification is actually reaching the Puppet server. Materialized
+is not the end of the sentence; replicated is.
 
 ### On the puppetserver host
 
@@ -1068,6 +1129,8 @@ SQL
 - [ ] **No inbound network path from puppetserver to NexusPuppet** (ADR-0003)
 - [ ] Postgres not published to the network
 - [ ] Backups verified by restoring one, not by observing that the job ran
+- [ ] `ENC_REPLICATION_ALLOWED_CERTNAMES` names only the puppetserver(s) that
+      must replicate — a valid Puppet certificate is not entitlement (§6)
 - [ ] No automation account left active, and none holding `users:manage`,
       `settings:manage` or `pql:raw` (§12, ADR-0020)
 

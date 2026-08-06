@@ -41,6 +41,62 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(env.API_PORT, '0.0.0.0');
   logger.log(`NexusPuppet API listening on :${env.API_PORT}`);
+
+  if (env.ENC_REPLICATION_ENABLED) {
+    /*
+     * A SECOND listener, with its own TLS and its own authentication (ADR-0019).
+     * Started after the API so a failure here cannot stop the console from
+     * coming up — a deployment that cannot replicate is degraded; one that
+     * cannot be administered is down.
+     *
+     * The allowlist is checked here rather than left to the request path
+     * because an empty list means the endpoint can serve nobody, and opening a
+     * port that will refuse every caller is worse than not opening it: it looks
+     * configured.
+     */
+    if (env.ENC_REPLICATION_ALLOWED_CERTNAMES.length === 0) {
+      logger.error(
+        'ENC_REPLICATION_ENABLED is true but ENC_REPLICATION_ALLOWED_CERTNAMES is empty. ' +
+          'No certname could fetch the tree, so the listener has not been opened. ' +
+          'Set it to your puppetserver certname(s).',
+      );
+    } else {
+      const { createReplicationServer } = await import('./replication/replication.server');
+      const { EncReplicationService } = await import('./replication/enc-replication.service');
+
+      try {
+        const server = createReplicationServer(
+          {
+            port: env.ENC_REPLICATION_PORT,
+            bind: env.ENC_REPLICATION_BIND,
+            certPath: env.ENC_REPLICATION_CERT_PATH,
+            keyPath: env.ENC_REPLICATION_KEY_PATH,
+            caPath: env.ENC_REPLICATION_CA_PATH,
+            allowedCertnames: env.ENC_REPLICATION_ALLOWED_CERTNAMES,
+          },
+          app.get(EncReplicationService),
+        );
+
+        server.listen(env.ENC_REPLICATION_PORT, env.ENC_REPLICATION_BIND, () => {
+          logger.log(
+            `ENC replication listening on ${env.ENC_REPLICATION_BIND}:${String(env.ENC_REPLICATION_PORT)} ` +
+              `for ${String(env.ENC_REPLICATION_ALLOWED_CERTNAMES.length)} allowed certname(s)`,
+          );
+        });
+
+        app.enableShutdownHooks();
+        process.on('beforeExit', () => server.close());
+      } catch (error: unknown) {
+        // Almost always an unreadable certificate or key. Named explicitly,
+        // because the alternative is a silent absence of replication that
+        // nobody notices until classification has been stale for a week.
+        logger.error(
+          `ENC replication could not start: ${error instanceof Error ? error.message : String(error)}. ` +
+            'The console is unaffected; the Puppet server will keep serving its last synced tree.',
+        );
+      }
+    }
+  }
 }
 
 bootstrap().catch((error: unknown) => {

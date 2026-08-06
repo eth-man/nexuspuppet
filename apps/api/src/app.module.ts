@@ -31,6 +31,7 @@ import { ClassificationService } from './classification/classification.service';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
 import { NodeProjectionService } from './puppetdb/node-projection.service';
 import { PosixEncStorage } from './materialization/posix-enc-storage';
+import { EncReplicationService } from './replication/enc-replication.service';
 import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
 import { ReconcilerService } from './materialization/reconciler.service';
@@ -302,6 +303,10 @@ export class AppModule {
         AuditForwardingController,
       ],
       providers: [
+        // Read-only view of the ENC tree for pullers (ADR-0019). Registered
+        // unconditionally so the service is testable and injectable; whether a
+        // listener is actually opened is main.ts's decision, from config.
+        encReplicationProvider(env),
         // RbacPolicy reads the roles table through this. A dependency of the
         // policy, not a seam: the enterprise layer replaces the POLICY, not
         // where roles live (ADR-0018 §2).
@@ -632,5 +637,21 @@ function encWriterProvider(env: Env): Provider {
       await storage.ensureLayout();
       return storage;
     },
+  };
+}
+
+/**
+ * Reads the same directory the writer owns, and only reads it (ADR-0019).
+ *
+ * Constructed with the path rather than with the writer: replication serves
+ * the bytes on disk, and routing it through the writer would put a component
+ * that can mutate the tree on a read-only path for no benefit.
+ */
+function encReplicationProvider(env: Env): Provider {
+  return {
+    provide: EncReplicationService,
+    useFactory: (prisma: PrismaService): EncReplicationService =>
+      new EncReplicationService(prisma, env.ENC_OUTPUT_DIR),
+    inject: [PrismaService],
   };
 }
