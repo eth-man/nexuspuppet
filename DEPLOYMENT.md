@@ -722,6 +722,13 @@ It needs `sh`, `curl`, `tar` and GNU `mv -T` — all already on a puppetserver
 host. Nothing is installed, and no interpreter is added to a box that is often
 tightly controlled.
 
+> **On Puppet Enterprise, change `SupplementaryGroups=puppet` to `pe-puppet`.**
+> The unit drops every capability, including `CAP_DAC_OVERRIDE` — the only
+> reason root can normally read a file it does not own. The Puppet server's
+> private key is `0640 puppet:puppet`, so the unit joins that group instead of
+> being handed a capability that would let it read every file on the host. Get
+> the group wrong and it fails with `cannot read …/private_keys/<certname>.pem`.
+
 **If `/etc/puppetlabs/nexuspuppet` is currently a real directory**, the first
 run replaces it with a symlink. Move it aside first if you want the old copy:
 

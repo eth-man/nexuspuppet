@@ -15,13 +15,34 @@ Type=oneshot
 ExecStart=/usr/local/bin/nexuspuppet-sync.sh
 EnvironmentFile=-/etc/default/nexuspuppet-sync
 
-# Root, because it writes /etc/puppetlabs/nexuspuppet and reads the Puppet
-# server's private key. Everything below narrows that back down.
+# Root, because it writes /etc/puppetlabs/nexuspuppet. Everything below narrows
+# that back down.
 User=root
+
+# The Puppet server's private key is 0640 puppet:puppet, and this unit drops
+# every capability below — including CAP_DAC_OVERRIDE, which is the only reason
+# root can normally read a file it does not own. So root here is subject to
+# ordinary permission checks and cannot read the key.
+#
+# Joining the group is the narrow fix: it grants exactly the group-read the
+# file already offers, rather than handing back a capability that would let this
+# unit read every file on the host.
+#
+# On Puppet Enterprise the group is `pe-puppet`. Change it here if the unit
+# fails with "cannot read .../private_keys/<certname>.pem".
+SupplementaryGroups=puppet
+
+# systemd creates and owns /var/lib/nexuspuppet-sync, rather than the script.
+#
+# NOT ReadWritePaths. The namespace is built BEFORE ExecStart runs, so naming a
+# directory that does not exist yet fails the unit at step NAMESPACE — with
+# "No such file or directory" pointing at the SCRIPT, which is present and
+# executable. That message sends you to check the wrong file entirely.
+StateDirectory=nexuspuppet-sync
 
 # The private key is readable here and nowhere else this unit needs to reach.
 ProtectSystem=strict
-ReadWritePaths=/var/lib/nexuspuppet-sync /etc/puppetlabs
+ReadWritePaths=/etc/puppetlabs
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
