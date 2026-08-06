@@ -81,8 +81,17 @@ test.describe('primitives', () => {
    * fieldset is what actually prevents that, and this is the assertion that
    * notices if somebody replaces it with styling.
    */
-  test('core cannot type into the disabled form', async ({ page }) => {
-    test.skip(directory, 'this deployment can run a directory');
+  test('a locked directory form cannot be typed into', async ({ page }) => {
+    /*
+     * INVERTED from core to entitled.
+     *
+     * This guarded against somebody replacing the `<fieldset disabled>` with
+     * styling that only looks inert while a keyboard user tabs in and types.
+     * Core no longer renders a form at all, so the risk moved: it now lives in
+     * an entitled deployment's resting state, before Edit is pressed. That is
+     * where the assertion belongs.
+     */
+    test.skip(!directory, 'core renders no directory form; see the header-only test above');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -90,7 +99,6 @@ test.describe('primitives', () => {
     const url = page.getByRole('textbox', { name: /^Server URL/ });
     await expect(url).toBeVisible();
     await expect(url).not.toBeEditable();
-    await expect(url).toHaveValue('');
   });
 
   /**

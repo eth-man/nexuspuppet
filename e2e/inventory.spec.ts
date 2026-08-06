@@ -54,17 +54,30 @@ test.describe('inventory', () => {
    * cleared, so the node keeps its previous classification indefinitely — this
    * asserts the surface that makes that discoverable actually renders.
    */
-  test('shows deployment status on the dashboard', async ({ page }) => {
+  test('shows deployment status on the dashboard', async ({ page, request }) => {
     await page.goto('/');
 
     // Matched on labels unique to this card. "Failed" alone also appears as a
     // dashboard tile, and asserting it would be ambiguous rather than wrong.
     await expect(page.getByText('Queued', { exact: true })).toBeVisible();
     await expect(page.getByText('Nodes projected', { exact: true })).toBeVisible();
-    // The E2E stack is core: forwarding is unavailable, and that is a complete
-    // product rather than a fault — the card names the capability (issue #95)
-    // instead of looking broken.
-    await expect(page.getByText('needs audit.export')).toBeVisible();
+
+    /*
+     * Forwarding unavailable is a complete product rather than a fault — the
+     * card names the capability (issue #95) instead of looking broken.
+     *
+     * Asserted only where it IS unavailable. This used to assume the stack was
+     * core, which is true in CI and false on any entitled deployment, so the
+     * suite failed against enterprise for a reason that had nothing to do with
+     * the code under test.
+     */
+    const capabilities = (await (await request.get('/api/capabilities')).json()) as {
+      capabilities?: string[];
+    };
+    if (capabilities.capabilities?.includes('audit.export') !== true) {
+      await expect(page.getByText('needs audit.export')).toBeVisible();
+    }
+
     // The retention summary is the card's one always-present strip.
     await expect(page.getByText(/age window/)).toBeVisible();
   });

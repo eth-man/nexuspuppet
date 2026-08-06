@@ -23,7 +23,9 @@ test.describe('OIDC settings card', () => {
     await assertStackReachable(request);
   });
 
-  test('renders on the Directory tab', async ({ page }) => {
+  test('renders on the Directory tab', async ({ page, request }) => {
+    test.skip(!(await ssoAvailable(request)), 'without sso.oidc the card is a header alone');
+
     await login(page);
     await page.goto('/settings/auth');
 
@@ -31,7 +33,11 @@ test.describe('OIDC settings card', () => {
     await expect(page.getByRole('heading', { name: 'Claims' })).toBeVisible();
   });
 
-  test('the resting state is read-only', async ({ page }) => {
+  test('the resting state is read-only', async ({ page, request }) => {
+    // Only meaningful where the form exists; the header-only case is asserted
+    // by 'core names the capability and renders no unusable form' below.
+    test.skip(!(await ssoAvailable(request)), 'without sso.oidc there is no form to disable');
+
     await login(page);
     await page.goto('/settings/auth');
 
@@ -45,7 +51,9 @@ test.describe('OIDC settings card', () => {
     await expect(page.getByRole('textbox', { name: 'Client ID' })).toBeDisabled();
   });
 
-  test('the secret field is empty and never carries a stored value', async ({ page }) => {
+  test('the secret field is empty and never carries a stored value', async ({ page, request }) => {
+    test.skip(!(await ssoAvailable(request)), 'without sso.oidc there is no field to inspect');
+
     await login(page);
     await page.goto('/settings/auth');
 

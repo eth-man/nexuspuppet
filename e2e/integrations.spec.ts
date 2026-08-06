@@ -118,7 +118,7 @@ test.describe('integrations tab', () => {
 
       const before = await host.inputValue();
       await host.fill('changed.example.test');
-      await page.getByLabel('Port').fill('6514');
+      await page.getByRole('textbox', { name: 'Port' }).fill('6514');
 
       // Nothing commits without stating what it changes (ADR-0016 §7).
       await expect(page.getByText('Pending changes')).toBeVisible();
