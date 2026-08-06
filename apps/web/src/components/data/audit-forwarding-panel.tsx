@@ -18,9 +18,9 @@ import {
 } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
-import { cn } from '@/lib/utils';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
+import { CapabilityCard } from '@/components/ui/capability-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -61,9 +61,12 @@ export function AuditForwardingPanel() {
 
   /*
    * Entitlement is the capability, not a licence flag. `audit.export` is
-   * advertised only when a transport that can actually send is registered —
-   * same reasoning as the directory card, and the same disabled-not-hidden
-   * rendering in core (open-core: the real thing, inert).
+   * advertised only when a transport that can actually send is registered.
+   *
+   * Without it each card renders as a header alone (see CapabilityCard). This
+   * used to render the whole form with every input disabled, so an open-core
+   * operator could see what the enterprise layer offers — the discoverability
+   * survives in the header; the screen of unfillable fields does not.
    */
   const capabilities = useCapabilities();
   const licensed = capabilities.data?.capabilities.includes('audit.export') === true;
@@ -134,16 +137,10 @@ export function AuditForwardingPanel() {
       )}
 
       {/*
-        Humble, at the bottom, and it NAMES the capability — "enterprise"
-        answers "why not", the capability name answers "which line on the
-        licence" (the API's 501 carries the same name).
+        No trailing explanation here any more. Each card carries its own now,
+        and repeating it a third time under two cards that both already say it
+        was the clutter this change is about.
       */}
-      {!licensed && (
-        <p className="text-center text-[11px] text-ink-faint">
-          Forwarding requires the <span className="font-mono">audit.export</span> capability
-          (NexusPuppet Enterprise). Audit records are still written and retained locally.
-        </p>
-      )}
     </div>
   );
 }
@@ -284,12 +281,30 @@ function SyslogCard({
   const fail = (caught: unknown) =>
     onError(caught instanceof ApiError ? caught.message : String(caught));
 
+  /*
+   * Without the capability, the header and nothing else. Every field below is
+   * unreachable — the API answers 501 whatever is typed into them — so drawing
+   * a dozen greyed-out inputs only pushes the settings this deployment CAN use
+   * off the screen.
+   *
+   * Returned before the hooks' work is used, never before the hooks themselves:
+   * they all run above this line, so the order is identical in both editions.
+   */
+  if (!licensed) {
+    return (
+      <CapabilityCard
+        title="Syslog"
+        description="Forward audit records to a syslog collector (RFC 5424)."
+        capability="audit.export"
+        note="Audit records are still written and retained locally."
+      />
+    );
+  }
+
   return (
     <div className="space-y-3">
-      <fieldset
-        disabled={!licensed || !editing}
-        className={cn('min-w-0', !licensed && 'opacity-60')}
-      >
+      {/* Licensed past this point — the unlicensed case returned above. */}
+      <fieldset disabled={!editing} className="min-w-0">
         <Card>
           <CardHeader>
             <CardHeading>
@@ -568,12 +583,21 @@ function WebhookCard({
   const fail = (caught: unknown) =>
     onError(caught instanceof ApiError ? caught.message : String(caught));
 
+  // See SyslogCard: header only, no unreachable form.
+  if (!licensed) {
+    return (
+      <CapabilityCard
+        title="Webhook"
+        description="POST audit records to an HTTP endpoint."
+        capability="audit.export"
+        note="Audit records are still written and retained locally."
+      />
+    );
+  }
+
   return (
     <div className="space-y-3">
-      <fieldset
-        disabled={!licensed || !editing}
-        className={cn('min-w-0', !licensed && 'opacity-60')}
-      >
+      <fieldset disabled={!editing} className="min-w-0">
         <Card>
           <CardHeader>
             <CardHeading>

@@ -38,14 +38,21 @@ test.describe('integrations tab', () => {
     await expect(page.getByText('Audit forwarding is off')).toBeVisible();
   });
 
-  test('the resting state is read-only', async ({ page }) => {
+  test('the resting state is read-only', async ({ page, request }) => {
+    /*
+     * Only meaningful where the form exists. Without `audit.export` there are
+     * no inputs to be disabled — the cards render as a header alone, which the
+     * "renders no unusable form" test below asserts directly.
+     */
+    test.skip(!(await forwardingIsEditable(request)), 'core renders no form to disable');
+
     await login(page);
     await page.goto('/settings/integrations');
 
-    // Every input sits in a disabled fieldset until somebody presses Edit —
-    // and in core, permanently. Either way, landing here can change nothing.
-    await expect(page.getByLabel('Collector host')).toBeDisabled();
-    await expect(page.getByLabel('Endpoint URL')).toBeDisabled();
+    // Every input sits in a disabled fieldset until somebody presses Edit, so
+    // landing on this page can change nothing.
+    await expect(page.getByRole('textbox', { name: 'Collector host' })).toBeDisabled();
+    await expect(page.getByRole('textbox', { name: 'Endpoint URL' })).toBeDisabled();
   });
 
   test('the API refuses forwarding writes without touching the UI', async ({ request }) => {
@@ -67,17 +74,34 @@ test.describe('integrations tab', () => {
     }
   });
 
-  test('core names the capability instead of hiding the feature', async ({ page, request }) => {
-    test.skip(await forwardingIsEditable(request), 'entitled deployment — nothing is grayed out');
+  test('core names the capability and renders no unusable form', async ({ page, request }) => {
+    test.skip(await forwardingIsEditable(request), 'entitled deployment — the form is real');
 
     await login(page);
     await page.goto('/settings/integrations');
 
-    // Disabled, not hidden, and it says which capability — the same name the
-    // API's 501 carries. No Edit button anywhere: a row of live buttons under
-    // a form nobody can use is the "configure a dead form" trap.
-    await expect(page.getByText('audit.export')).toBeVisible();
+    // The feature is still NAMED and still says which capability unlocks it —
+    // the same name the API's 501 carries.
+    await expect(page.getByRole('heading', { name: 'Syslog' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Webhook' })).toBeVisible();
+    // .first(): both cards name the capability now, which is the point — each
+    // one explains itself rather than relying on a shared footnote.
+    await expect(page.getByText('audit.export').first()).toBeVisible();
+    await expect(page.getByText('Enterprise').first()).toBeVisible();
+
+    /*
+     * And the form itself is GONE, not merely disabled. This is the assertion
+     * that can actually fail: the previous version rendered every input with
+     * `disabled`, and `toBeDisabled()` would have passed just as happily
+     * against a screen full of dead fields.
+     *
+     * By role, not by label — a required Field renders an aria-hidden marker
+     * inside its <label>, so getByLabel does not match these inputs.
+     */
+    await expect(page.getByRole('textbox', { name: 'Collector host' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Endpoint URL' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit settings' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Test connection' })).toHaveCount(0);
   });
 
   test.describe('editing (needs audit.export)', () => {
@@ -96,7 +120,7 @@ test.describe('integrations tab', () => {
 
       const before = await host.inputValue();
       await host.fill('changed.example.test');
-      await page.getByLabel('Port').fill('6514');
+      await page.getByRole('textbox', { name: 'Port' }).fill('6514');
 
       // Nothing commits without stating what it changes (ADR-0016 §7).
       await expect(page.getByText('Pending changes')).toBeVisible();

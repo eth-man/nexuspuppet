@@ -23,7 +23,9 @@ test.describe('OIDC settings card', () => {
     await assertStackReachable(request);
   });
 
-  test('renders on the Directory tab', async ({ page }) => {
+  test('renders on the Directory tab', async ({ page, request }) => {
+    test.skip(!(await ssoAvailable(request)), 'without sso.oidc the card is a header alone');
+
     await login(page);
     await page.goto('/settings/auth');
 
@@ -31,7 +33,11 @@ test.describe('OIDC settings card', () => {
     await expect(page.getByRole('heading', { name: 'Claims' })).toBeVisible();
   });
 
-  test('the resting state is read-only', async ({ page }) => {
+  test('the resting state is read-only', async ({ page, request }) => {
+    // Only meaningful where the form exists; the header-only case is asserted
+    // by 'core names the capability and renders no unusable form' below.
+    test.skip(!(await ssoAvailable(request)), 'without sso.oidc there is no form to disable');
+
     await login(page);
     await page.goto('/settings/auth');
 
@@ -45,7 +51,9 @@ test.describe('OIDC settings card', () => {
     await expect(page.getByRole('textbox', { name: 'Client ID' })).toBeDisabled();
   });
 
-  test('the secret field is empty and never carries a stored value', async ({ page }) => {
+  test('the secret field is empty and never carries a stored value', async ({ page, request }) => {
+    test.skip(!(await ssoAvailable(request)), 'without sso.oidc there is no field to inspect');
+
     await login(page);
     await page.goto('/settings/auth');
 
@@ -67,15 +75,19 @@ test.describe('OIDC settings card', () => {
     expect([200, 400, 403, 501]).toContain(response.status());
   });
 
-  test('core names the capability rather than hiding the feature', async ({ page, request }) => {
-    test.skip(await ssoAvailable(request), 'entitled deployment — nothing is grayed out');
+  test('core names the capability and renders no unusable form', async ({ page, request }) => {
+    test.skip(await ssoAvailable(request), 'entitled deployment — the form is real');
 
     await login(page);
     await page.goto('/settings/auth');
 
     await expect(page.getByText('sso.oidc')).toBeVisible();
-    // No action bar at all: a row of live buttons under a form nobody can use
-    // is the "configure a dead form" trap this panel was written to avoid.
+    await expect(page.getByText('Enterprise').first()).toBeVisible();
+
+    // Gone, not disabled — see integrations.spec.ts for why that distinction
+    // is what makes this assertion able to fail. By role: `Issuer` also
+    // matches the InfoHint button "About the issuer" under substring matching.
+    await expect(page.getByRole('textbox', { name: 'Issuer' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit settings' })).toHaveCount(0);
   });
 

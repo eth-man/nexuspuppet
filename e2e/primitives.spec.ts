@@ -36,43 +36,41 @@ test.describe('primitives', () => {
   /**
    * Core must not be able to configure something that cannot run.
    *
-   * It used to render the whole form, accept a save, and explain in a warning
-   * box that nothing would take effect. However honestly worded, an
+   * It first rendered the whole form, accepted a save, and explained in a
+   * warning box that nothing would take effect — however honestly worded, an
    * open-source user fills in six fields, gets a success, finds nobody can
    * sign in, and concludes the product is broken.
+   *
+   * It then rendered the form inert, so the feature could still be SEEN. That
+   * was better, and it was still thirty controls nobody could fill, pushing
+   * the settings this deployment can actually use below the fold.
+   *
+   * Now: named, explained, and not drawn. The feature is still discoverable —
+   * the header was the part anyone read — and there is nothing to operate.
    */
-  test('core sees the real form, and can operate none of it', async ({ page }) => {
+  test('core names the directory feature and draws no form', async ({ page }) => {
     test.skip(directory, 'this deployment can run a directory');
 
     await login(page);
     await page.goto('/settings/auth');
 
-    /*
-     * VISIBLE and INERT, which is the whole pattern. Hiding the form means
-     * nobody can see what the feature is; leaving it usable means somebody
-     * fills it in, saves, and finds later that nothing ran.
-     */
-    const url = page.getByRole('textbox', { name: /^Server URL/ });
-    await expect(url).toBeVisible();
-    await expect(url).toBeDisabled();
+    // Still NAMED, and it still says which capability unlocks it — the same
+    // string the API's 501 carries.
+    await expect(page.getByRole('heading', { name: /Directory/ })).toBeVisible();
+    await expect(page.getByText('directory.ldap')).toBeVisible();
+    await expect(page.getByText('Enterprise').first()).toBeVisible();
 
     /*
-     * ABSENT, not merely disabled.
-     *
-     * The action bar sits outside the fieldset now — it has to, or the Edit
-     * button disables itself — so a disabled bar in core would depend on props
-     * rather than on the browser. Not rendering it is the stronger guarantee
-     * and the simpler one: there is nothing to act on, so there are no
-     * actions.
+     * ABSENT, not merely disabled — and that distinction is the point of this
+     * test. `toBeDisabled()` passed happily against the previous version, so
+     * only an absence assertion can tell the two apart.
      */
+    await expect(page.getByRole('textbox', { name: /^Server URL/ })).toHaveCount(0);
+    await expect(page.getByRole('switch', { name: /Verify the directory/i })).toHaveCount(0);
+
     for (const name of ['Save', 'Test connection', 'Edit settings']) {
       await expect(page.getByRole('button', { name: new RegExp(`^${name}`) })).toHaveCount(0);
     }
-
-    await expect(page.getByRole('switch', { name: /Verify the directory/i })).toBeDisabled();
-
-    // Said once, quietly, at the bottom.
-    await expect(page.getByText('This feature requires NexusPuppet Enterprise.')).toBeVisible();
   });
 
   /**
@@ -83,8 +81,17 @@ test.describe('primitives', () => {
    * fieldset is what actually prevents that, and this is the assertion that
    * notices if somebody replaces it with styling.
    */
-  test('core cannot type into the disabled form', async ({ page }) => {
-    test.skip(directory, 'this deployment can run a directory');
+  test('a locked directory form cannot be typed into', async ({ page }) => {
+    /*
+     * INVERTED from core to entitled.
+     *
+     * This guarded against somebody replacing the `<fieldset disabled>` with
+     * styling that only looks inert while a keyboard user tabs in and types.
+     * Core no longer renders a form at all, so the risk moved: it now lives in
+     * an entitled deployment's resting state, before Edit is pressed. That is
+     * where the assertion belongs.
+     */
+    test.skip(!directory, 'core renders no directory form; see the header-only test above');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -92,7 +99,6 @@ test.describe('primitives', () => {
     const url = page.getByRole('textbox', { name: /^Server URL/ });
     await expect(url).toBeVisible();
     await expect(url).not.toBeEditable();
-    await expect(url).toHaveValue('');
   });
 
   /**
