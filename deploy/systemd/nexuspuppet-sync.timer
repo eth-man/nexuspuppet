@@ -1,0 +1,23 @@
+[Unit]
+Description=Sync the NexusPuppet ENC tree periodically
+Documentation=https://github.com/eth-man/nexuspuppet/blob/main/DEPLOYMENT.md
+
+[Timer]
+# Five minutes, against an agent run interval of thirty.
+#
+# Chasing a lower number optimises an invisible gap: classification is consumed
+# by agents on their own schedule, so shaving replication delay below theirs
+# changes nothing an operator can observe. Most of these runs cost one 304.
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+# Spread across a fleet of pullers, and off the round minute. Without it every
+# Puppet server in a multi-master estate fetches simultaneously.
+RandomizedDelaySec=60
+
+# Catch up after the machine was off, rather than waiting a full interval to
+# discover classification moved on while it was down.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

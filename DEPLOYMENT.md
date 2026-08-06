@@ -701,6 +701,80 @@ Every fetch is recorded against the certname that made it, so the console can
 say whether classification is actually reaching the Puppet server. Materialized
 is not the end of the sentence; replicated is.
 
+#### Installing the puller, on the Puppet server
+
+Three files and one `systemctl`. Nothing long-lived runs: a timer starts a
+short script, which exits.
+
+```bash
+sudo install -m 0755 scripts/nexuspuppet-sync.sh /usr/local/bin/
+sudo install -m 0644 deploy/systemd/nexuspuppet-sync.service /etc/systemd/system/
+sudo install -m 0644 deploy/systemd/nexuspuppet-sync.timer   /etc/systemd/system/
+sudo install -m 0644 deploy/systemd/nexuspuppet-sync.env.example /etc/default/nexuspuppet-sync
+sudoedit /etc/default/nexuspuppet-sync      # set NEXUSPUPPET_SYNC_URL
+
+sudo systemctl daemon-reload
+sudo systemctl start nexuspuppet-sync.service   # run it once, watch it work
+sudo systemctl enable --now nexuspuppet-sync.timer
+```
+
+It needs `sh`, `curl`, `tar` and GNU `mv -T` — all already on a puppetserver
+host. Nothing is installed, and no interpreter is added to a box that is often
+tightly controlled.
+
+**If `/etc/puppetlabs/nexuspuppet` is currently a real directory**, the first
+run replaces it with a symlink. Move it aside first if you want the old copy:
+
+```bash
+sudo mv /etc/puppetlabs/nexuspuppet /etc/puppetlabs/nexuspuppet.pre-sync
+```
+
+**What it does.** Fetches, extracts to a staging directory, and swaps a symlink:
+
+```
+/etc/puppetlabs/nexuspuppet -> /var/lib/nexuspuppet-sync/trees/<etag>
+```
+
+The swap is a single `rename(2)`, so a compile running at that instant sees
+either the whole old tree or the whole new one — never a mixture. That is
+stronger than `rsync --delay-updates`, which narrows the partial-set window
+rather than closing it.
+
+**It fails to stale, never to broken.** Every error path leaves the current
+tree exactly where it is and exits non-zero so `systemctl status` shows it:
+
+| Situation | What happens |
+|---|---|
+| Nothing changed | `304`, exits 0, silent. Most runs |
+| NexusPuppet unreachable | Logged, exits 1, **tree untouched** — nodes keep their classification |
+| Certificate refused | Exits 1 naming `ENC_REPLICATION_ALLOWED_CERTNAMES` |
+| Archive has no `default.yaml` | Refused. Without it every unknown node becomes a failed compile rather than a default classification |
+| Tree lost more than half its nodes | Refused, and says so. See below |
+
+> **The shrink guard.** A truncated fetch and a genuinely emptied estate look
+> identical from the Puppet server, and installing the wrong one drops every
+> node to `default.yaml` — an estate-wide declassification with no single log
+> line to explain it. This is the same reasoning that stops
+> `NodeProjectionService` pruning on a small PuppetDB response. Raise or
+> disable it with `NEXUSPUPPET_SYNC_MAX_SHRINK_PERCENT` only when the estate
+> really is shrinking that fast.
+
+**Rolling back** is one command, because the previous trees are kept:
+
+```bash
+ls -1dt /var/lib/nexuspuppet-sync/trees/*/          # newest first
+sudo ln -sfn /var/lib/nexuspuppet-sync/trees/<etag> /etc/puppetlabs/nexuspuppet
+```
+
+**The timer is not ordered before puppetserver, and puppetserver does not
+require it.** That dependency line is the architecture: puppetserver reads the
+tree already on disk and must start, and keep compiling, whether or not this
+unit has ever run or ever succeeded.
+
+Five minutes, jittered by up to a minute, against an agent run interval of
+thirty. A shorter interval optimises a gap nobody can observe — classification
+is consumed on the agents' schedule, not this one.
+
 ### On the puppetserver host
 
 ```bash
