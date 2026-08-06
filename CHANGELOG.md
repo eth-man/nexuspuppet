@@ -2,6 +2,32 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-08-06
+
+Classification learns to reach a puppetserver on another host (ADR-0019), and the first real ENC round-trip is done: a class assigned from the console reached a live agent's catalog. One migration, `enc_replication_peers`.
+
+### Added
+
+**Replicating the ENC tree (ADR-0019).** NexusPuppet serves the materialized tree over mTLS on its own listener, and a short-lived POSIX `sh` script on a `systemd` timer pulls it. `ETag`/`If-None-Match` makes an unchanged poll a cheap 304, and the whole tree is swapped by a single `rename(2)` of a symlink, so a compile in flight sees the old tree or the new one and never a mixture — stronger than `rsync --delay-updates`, which narrows that window rather than closing it.
+
+**This is not the ENC endpoint ADR-0003 forbids.** The compile path is unchanged: the ENC script still reads a local file, with no process, network or interpreter beyond `/bin/sh` in it. The fetch runs out of band on its own schedule. Proven on real infrastructure — with NexusPuppet unable to serve at all, the sync failed and was recorded, the tree stayed, and a real agent compiled a catalog carrying its console-assigned classification.
+
+**The allowlist is the control, not the certificate.** The endpoint is served with the certificate NexusPuppet already holds for PuppetDB — issued by the Puppet CA and carrying `serverAuth`, so nothing new is issued, distributed or rotated. Because that CA signs every agent in the estate, a valid client certificate proves membership and nothing more; `ENC_REPLICATION_ALLOWED_CERTNAMES` decides who may read how the estate is classified, and an empty list opens no listener at all.
+
+**Every fetch is recorded** against the certname that made it, distinguishing a peer that is current from one that has never received anything. Materialized is not the end of the sentence; replicated is.
+
+**Writing to production as a program (ADR-0020).** A dedicated automation account, resting deactivated with a dead credential and granted one task at a time, so a program's writes stay distinguishable from a person's in the audit trail. The revocation levers do not reach the same things, and the ADR states which is which — including that on the core edition none of them reaches a session already running.
+
+### Changed
+
+**Unavailable features render as a header, not a dead form.** Syslog, webhook, LDAP and OIDC previously drew their complete forms in core with every input disabled. The feature is still named, still explains itself, and still shows the capability token the API's 501 carries — without thirty controls nobody can fill pushing usable settings below the fold.
+
+### Fixed
+
+**The console can be reached by IP.** Browsers send no SNI for an IP-address URL (RFC 6066 permits DNS names only), so the bundled proxy had no site to match and answered TLS alert 80 — which surfaces as a handshake failure and reads like a broken certificate.
+
+**The update check reports the version you are running**, not the newest published release. A deployment ahead of the newest release now says so, rather than displaying an older number where the installed one belongs.
+
 ## [1.3.0] — 2026-08-05
 
 The audit trail learns to leave the box, and to stop growing (ADR-0016). No ENC contract changes; one new database expectation — none — the release runs no migrations.
