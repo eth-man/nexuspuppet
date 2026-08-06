@@ -68,20 +68,44 @@ is the *role's permission set*, not the *user's role assignment*. Demoting an
 account and believing it disarmed is therefore wrong for up to a token lifetime.
 
 **Emptying the role's permissions is the only lever that reaches a session
-already running.** That is why §4 gives the account a role of its own.
+already running.** That is why §4 gives the account a role of its own — and why
+an edition without `rbac.custom` cannot have that lever at all.
 
-Production sets `ACCESS_TOKEN_TTL=15m`, which bounds every case above.
+Production sets `ACCESS_TOKEN_TTL=15m`, which bounds every case above. On core,
+where the first row of that table is unavailable, it does not merely bound them
+— it *is* the guarantee.
 
-### 4. Its own role, so the kill switch exists
+### 4. Its own role where the edition allows one
 
-Role `AUTOMATION`, holding `inventory:read`, `classification:read`,
-`classification:write` and `materialization:trigger` — `OPERATOR` minus
-`reports:read`. Custom roles require the `rbac.custom` capability
-([ADR-0018](./0018-custom-roles.md)); Production runs the enterprise edition.
+Where `rbac.custom` is available, role `AUTOMATION` holds `inventory:read`,
+`classification:read`, `classification:write` and `materialization:trigger` —
+`OPERATOR` minus `reports:read`.
 
 A dedicated role is not tidiness. Emptying `VIEWER` to revoke one program would
 revoke every viewer, so without its own role the instant lever from §3 does not
 exist at all.
+
+**On the core edition it does not exist.** Custom roles require the
+`rbac.custom` capability ([ADR-0018](./0018-custom-roles.md)), and core has no
+capabilities at all. This is not a footnote — it was checked against the
+deployment rather than inferred:
+
+```
+POST /roles → 501 {"error":"CAPABILITY_UNAVAILABLE","capability":"rbac.custom"}
+```
+
+So on core the account holds built-in **`OPERATOR`**, which costs one extra
+permission (`reports:read`) and, far more importantly, **removes the only
+revocation that reaches a running session**. Revocation there is deactivate plus
+password reset, and both leave a live access token working until it expires.
+`ACCESS_TOKEN_TTL` stops being a backstop and becomes the actual bound.
+
+An earlier draft of this ADR asserted that Production ran the enterprise
+edition. It does not, and the claim was never verified before being written
+down. The guarantee this section describes is therefore **unavailable on the
+deployment the ADR was written for** — recorded here rather than quietly
+corrected, because an ADR that overstates a security property is worse than one
+that admits a gap.
 
 ### 5. The credential is dead between tasks
 
@@ -137,6 +161,10 @@ way to be half-done. It would also make automation depend on AD being reachable.
   remembers granting.
 - Production-only. Staging is not covered here and should not silently inherit
   this.
+- **On core, no revocation reaches a running session.** The strongest statement
+  available there is "within `ACCESS_TOKEN_TTL`". Anyone reading §3's first row
+  and assuming it applies to their deployment will be wrong; check
+  `GET /capabilities` before relying on it.
 
 ## Alternatives considered
 
