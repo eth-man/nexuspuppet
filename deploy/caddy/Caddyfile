@@ -24,6 +24,17 @@
 	# behaviour for a public name and would fail confusingly on an internal one.
 	auto_https disable_certs
 
+	# A console reached by IP arrives with NO SNI, because RFC 6066 permits only
+	# DNS names there — every browser omits it for an IP-address URL. With no SNI
+	# there is no site to match, and Caddy answers TLS alert 80. The browser then
+	# reports a handshake failure, which reads as a certificate problem and sends
+	# the operator to inspect a certificate that is perfectly correct.
+	#
+	# This makes a connection without SNI use the configured name, so a
+	# deployment whose CONSOLE_HOSTNAME is an IP works. A deployment using a DNS
+	# name is unaffected: its clients send SNI and never reach this fallback.
+	default_sni {$CONSOLE_HOSTNAME}
+
 	# Caddy's own log, not the access log below.
 	log {
 		output stderr

@@ -755,6 +755,27 @@ The proxy publishes 443 and 80 on **all interfaces** — deliberately, because i
 is the one service here that terminates TLS. Port 80 only redirects to HTTPS; no
 content is served on it. `WEB_BIND` and `API_BIND` stay on loopback.
 
+> **`CONSOLE_HOSTNAME` may be an IP address**, and the certificate then needs an
+> IP SAN rather than a DNS one:
+>
+> ```bash
+> openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+>   -keyout console.key -out console.pem -subj "/CN=192.0.2.10" \
+>   -addext "subjectAltName=IP:192.0.2.10" \
+>   -addext "keyUsage=digitalSignature,keyEncipherment" \
+>   -addext "extendedKeyUsage=serverAuth"
+> ```
+>
+> A DNS name is still better — it survives the host moving, and it is what a
+> certificate from your own CA will carry. Use an IP only to get going.
+
+Reaching the console **by IP** works because the Caddyfile sets `default_sni`.
+Browsers send no SNI for an IP-address URL (RFC 6066 permits DNS names only), so
+without that fallback Caddy has no site to match and answers TLS alert 80 — which
+surfaces as a handshake failure and reads like a broken certificate. If you see
+that against a certificate you have just checked and believe is correct, the
+`default_sni` line is what to look at.
+
 > **Browsers will not trust a private CA.** Everyone gets a warning page until
 > your CA's certificate is installed on the machines that use the console. This
 > is not something NexusPuppet can fix. On a Puppet estate you already have a way
