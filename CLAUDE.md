@@ -143,6 +143,11 @@ specifics are deliberately not in this repo.
   infrastructure. It is deployed only after the release was verified on
   staging, and only with the operator's explicit go-ahead — never
   automatically. Reading it (logs, health, status) for diagnosis is fine.
+- **Never act on production as a person.** Writing to production is done as the
+  automation account, granted for one task and **revoked when it is done** —
+  leaving it active is the one failure mode of ADR-0020, and nothing detects it.
+  Never borrow the operator's login: it makes the `AuditLog` actor wrong on
+  every row it touches. Procedure in `DEPLOYMENT.md` §12.
 
 ## Definition of done
 

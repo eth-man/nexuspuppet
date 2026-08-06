@@ -939,6 +939,83 @@ architecture exists to provide.
 
 ---
 
+## 12. Letting a program act on Production
+
+Sometimes a script, a CI job or an agent session has to make a real change —
+create a group, assign a class, trigger materialization. Do **not** lend it your
+admin login: `AuditLog` records `actorUserId` and `actorEmail` in the same
+transaction as every change, and one credential shared between a person and a
+program makes both columns wrong on every row either of them touches.
+
+Use an **automation account** instead, per [ADR-0020](docs/architecture/adr/0020-automation-account.md).
+It rests deactivated with a dead password, and is granted one task at a time.
+
+### One-time setup
+
+Requires `settings:manage` (for the role) and `users:manage` (for the account).
+
+1. Create role `AUTOMATION` with exactly `inventory:read`, `classification:read`,
+   `classification:write`, `materialization:trigger`. Never `users:manage`,
+   `settings:manage` or `pql:raw` — any of those lets it widen itself.
+2. Create user `automation@nexuspuppet.invalid`, display name naming whoever
+   drives it, role `AUTOMATION`, `authSource` local.
+3. Deactivate it, and reset its password to a discarded random value.
+4. Confirm `ACCESS_TOKEN_TTL=15m` in `.env`. It bounds every revocation below.
+
+### Granting, for one task
+
+```bash
+# 1. Rotate to a fresh password and store it 0600 — never echo it, never paste
+#    it into an issue, a commit or a chat transcript.
+umask 077
+openssl rand -base64 32 > ~/.nexuspuppet/prod-automation-password
+
+# 2. Set that password on the account, and activate it.
+#    Both through the console or the API as an admin.
+```
+
+### Revoking, after the task
+
+Reverse it, and understand what each step actually reaches — they are not
+equivalent, and the differences are counter-intuitive:
+
+1. **Empty the `AUTOMATION` role's permissions.** The only step that stops a
+   session already running, on its next request.
+2. **Deactivate the account.** Stops new logins and refreshes. Does **not** stop
+   a live access token.
+3. **Reset the password** to a discarded random value. Also revokes every
+   refresh token.
+
+Do not rely on demoting the account to another role. A user's role is a claim in
+the access token, so a demotion changes nothing until the token is refreshed —
+up to `ACCESS_TOKEN_TTL`.
+
+Restore the role's permissions at the next grant.
+
+### The failure mode
+
+An account left active. Nothing detects it, and nothing here prevents it. If you
+suspect a grant was never revoked, check it directly:
+
+```bash
+# active automation accounts, and any live sessions they hold.
+# Columns are camelCase and must stay quoted — Prisma maps the table name
+# but not the fields.
+docker compose exec -T db psql -U nexuspuppet -d nexuspuppet <<'SQL'
+select u.email,
+       u."isActive",
+       count(r.id) filter (
+         where r."revokedAt" is null and r."expiresAt" > now()
+       ) as live_sessions
+from users u
+left join refresh_tokens r on r."userId" = u.id
+where u.email like 'automation@%'
+group by u.email, u."isActive";
+SQL
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -970,6 +1047,8 @@ architecture exists to provide.
 - [ ] **No inbound network path from puppetserver to NexusPuppet** (ADR-0003)
 - [ ] Postgres not published to the network
 - [ ] Backups verified by restoring one, not by observing that the job ran
+- [ ] No automation account left active, and none holding `users:manage`,
+      `settings:manage` or `pql:raw` (§12, ADR-0020)
 
 ---
 
