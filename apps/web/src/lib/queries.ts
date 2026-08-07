@@ -10,6 +10,7 @@ import type {
   LdapSettings,
   ManagedUser,
   OidcSettings,
+  NotificationEmailSettings,
   NotificationWebhookSettings,
   OperationalCondition,
   ManagedUserDetail,
@@ -376,6 +377,17 @@ export function useNotificationWebhook(
     queryKey: ['settings', 'notifications.webhook'],
     queryFn: ({ signal }) =>
       api.get<SettingsView<NotificationWebhookSettings>>('/settings/notifications/webhook', signal),
+    enabled,
+  });
+}
+
+export function useNotificationEmail(
+  enabled: boolean,
+): UseQueryResult<SettingsView<NotificationEmailSettings>> {
+  return useQuery({
+    queryKey: ['settings', 'notifications.email'],
+    queryFn: ({ signal }) =>
+      api.get<SettingsView<NotificationEmailSettings>>('/settings/notifications/email', signal),
     enabled,
   });
 }

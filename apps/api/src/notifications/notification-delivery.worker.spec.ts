@@ -7,6 +7,7 @@ import {
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SettingsStore } from '../settings/settings.store';
 import type { NotificationWebhookTransport } from './notification-webhook.transport';
+import type { NotificationEmailTransport } from './notification-email.transport';
 
 const NOW = new Date('2026-08-07T12:00:00.000Z');
 
@@ -28,6 +29,16 @@ const JOB = {
   createdAt: NOW,
 };
 
+const EMAIL = {
+  host: 'relay.example.test',
+  port: 587,
+  encryption: 'starttls',
+  from: 'nexuspuppet@example.test',
+  to: 'noc@example.test',
+  rejectUnauthorized: true,
+  timeoutMs: 10_000,
+};
+
 const SETTINGS: NotificationWebhookSettings = {
   url: 'https://collector.example.test/hook',
   timeoutMs: 10_000,
@@ -37,6 +48,8 @@ function build(options: {
   jobs?: unknown[];
   configured?: boolean;
   deliver?: jest.Mock;
+  sendMail?: jest.Mock;
+  emailConfigured?: boolean;
   pacing?: Partial<DeliveryPacing>;
 }) {
   const findMany = jest.fn().mockResolvedValue(options.jobs ?? []);
@@ -48,24 +61,36 @@ function build(options: {
   } as unknown as PrismaService;
 
   const store = {
-    resolve: jest
-      .fn()
-      .mockResolvedValue(
+    resolve: jest.fn((kind: string) => {
+      if (kind === 'notifications.email') {
+        return Promise.resolve(
+          options.emailConfigured === true
+            ? { source: 'database', config: EMAIL }
+            : { source: 'unset', config: null },
+        );
+      }
+      return Promise.resolve(
         options.configured === false
           ? { source: 'unset', config: null }
           : { source: 'database', config: SETTINGS },
-      ),
+      );
+    }),
   } as unknown as SettingsStore;
 
   const deliver = options.deliver ?? jest.fn().mockResolvedValue({ ok: true, error: null });
-  const transport = { deliver } as unknown as NotificationWebhookTransport;
+  const webhook = { deliver } as unknown as NotificationWebhookTransport;
 
-  const worker = new NotificationDeliveryWorker(prisma, store, transport, {
+  // Email unconfigured in most cases, so these assertions stay about the
+  // webhook path; the fan-out has its own describe block below.
+  const sendMail = options.sendMail ?? jest.fn().mockResolvedValue({ ok: true, error: null });
+  const email = { deliver: sendMail } as unknown as NotificationEmailTransport;
+
+  const worker = new NotificationDeliveryWorker(prisma, store, webhook, email, {
     ...DEFAULT_DELIVERY_PACING,
     ...options.pacing,
   });
 
-  return { worker, findMany, del, update, deliver };
+  return { worker, findMany, del, update, deliver, sendMail };
 }
 
 describe('NotificationDeliveryWorker', () => {
@@ -156,5 +181,57 @@ describe('NotificationDeliveryWorker', () => {
     await worker.drain(NOW);
 
     expect(deliver).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('NotificationDeliveryWorker fan-out (ADR-0021 §4)', () => {
+  it('delivers to every configured channel from ONE job', async () => {
+    const { worker, deliver, sendMail, del } = build({ jobs: [JOB], emailConfigured: true });
+
+    await worker.drain(NOW);
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    // One job, one deletion — not one job per channel.
+    expect(del).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers by email alone when no webhook is configured', async () => {
+    const { worker, deliver, sendMail, del } = build({
+      jobs: [JOB],
+      configured: false,
+      emailConfigured: true,
+    });
+
+    await worker.drain(NOW);
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * The consequence of one job for both channels, asserted rather than left to
+   * be discovered: a failing channel retries the job, so a working one can see
+   * the same notification twice. For an alert that is the right trade — a
+   * repeated warning is noise, a missing one is an outage nobody heard about.
+   */
+  it('retries the whole job when one channel fails, and says which', async () => {
+    const sendMail = jest.fn().mockResolvedValue({ ok: false, error: 'relay refused' });
+    const { worker, update, del } = build({ jobs: [JOB], emailConfigured: true, sendMail });
+
+    await worker.drain(NOW);
+
+    expect(del).not.toHaveBeenCalled();
+    const data = update.mock.calls[0]?.[0] as { data: { lastError: string } };
+    expect(data.data.lastError).toContain('email: relay refused');
+  });
+
+  it('leaves the queue alone when neither channel is configured', async () => {
+    const { worker, findMany } = build({ jobs: [JOB], configured: false });
+
+    await worker.drain(NOW);
+
+    expect(findMany).not.toHaveBeenCalled();
   });
 });

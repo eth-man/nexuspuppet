@@ -227,6 +227,38 @@ export const notificationWebhookSettingsSchema = z.object({
 export type NotificationWebhookSettings = z.infer<typeof notificationWebhookSettingsSchema>;
 
 /**
+ * Where operational notifications are mailed (ADR-0021 §4, §5).
+ *
+ * ONE global recipient — a NOC or team distribution list, not per user.
+ * Estates already solve routing, and per-user subscriptions produce the
+ * bystander effect: everybody assumes somebody else is subscribed.
+ */
+export const notificationEmailSettingsSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  /**
+   * `tls` is implicit TLS from the first byte (465); `starttls` upgrades a
+   * plaintext connection (587). Named separately because "secure: true" means
+   * only the first of those, and conflating them is the classic misconfiguration.
+   */
+  encryption: z.enum(['none', 'starttls', 'tls']),
+  /** Relay auth is optional: many internal relays accept by network instead. */
+  username: z.string().min(1).optional(),
+  /** Write-only. Stored encrypted and never returned to the browser. */
+  password: z.string().min(1).optional(),
+  from: z.string().email(),
+  /** The team address. Routing beyond this is the estate's job. */
+  to: z.string().email(),
+  /**
+   * Accepting a self-signed relay certificate. Explicit, because the
+   * alternative an operator reaches for is `encryption: none`, which is worse.
+   */
+  rejectUnauthorized: z.boolean().default(true),
+  timeoutMs: z.number().int().min(1_000).max(60_000).default(10_000),
+});
+export type NotificationEmailSettings = z.infer<typeof notificationEmailSettingsSchema>;
+
+/**
  * The body POSTed on an edge.
  *
  * CONDITIONS ONLY (ADR-0021 binding constraint 1). No person, no action,

@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
+  NotificationEmailSettings,
   NotificationWebhookSettings,
   UpdateCheck,
   AssignClass,
@@ -421,6 +422,37 @@ export function useTestNotificationWebhook(): UseMutationResult<
         '/settings/notifications/webhook/test',
         config,
       ),
+  });
+}
+
+export function useSaveNotificationEmail(): UseMutationResult<
+  void,
+  Error,
+  NotificationEmailSettings
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (config) => api.put<void>('/settings/notifications/email', config),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'notifications.email'] }),
+  });
+}
+
+export function useClearNotificationEmail(): UseMutationResult<void, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>('/settings/notifications/email'),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'notifications.email'] }),
+  });
+}
+
+export function useTestNotificationEmail(): UseMutationResult<
+  { ok: boolean; error: string | null },
+  Error,
+  NotificationEmailSettings
+> {
+  return useMutation({
+    mutationFn: (config) =>
+      api.post<{ ok: boolean; error: string | null }>('/settings/notifications/email/test', config),
   });
 }
 

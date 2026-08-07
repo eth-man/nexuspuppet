@@ -1,8 +1,13 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import type { NotificationPayload, NotificationWebhookSettings } from '@nexuspuppet/contracts';
+import type {
+  NotificationEmailSettings,
+  NotificationPayload,
+  NotificationWebhookSettings,
+} from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsStore } from '../settings/settings.store';
 import { NotificationWebhookTransport } from './notification-webhook.transport';
+import { NotificationEmailTransport } from './notification-email.transport';
 
 /**
  * Drains the notification outbox (ADR-0021 §7).
@@ -45,7 +50,8 @@ export class NotificationDeliveryWorker implements OnModuleInit, OnModuleDestroy
   constructor(
     private readonly prisma: PrismaService,
     private readonly store: SettingsStore,
-    private readonly transport: NotificationWebhookTransport,
+    private readonly webhook: NotificationWebhookTransport,
+    private readonly email: NotificationEmailTransport,
     private readonly pacing: DeliveryPacing = DEFAULT_DELIVERY_PACING,
   ) {}
 
@@ -75,17 +81,17 @@ export class NotificationDeliveryWorker implements OnModuleInit, OnModuleDestroy
   }
 
   async drain(now: Date = new Date()): Promise<void> {
-    const settings = await this.webhookSettings();
+    const [webhook, email] = await Promise.all([this.webhookSettings(), this.emailSettings()]);
 
     /*
-     * No destination configured: leave the queue alone.
+     * No destination configured at all: leave the queue alone.
      *
-     * NOT drained-and-discarded. An operator who configures a webhook after a
+     * NOT drained-and-discarded. An operator who configures a channel after a
      * bad night should receive what they missed, and a queue quietly emptied
      * by the absence of configuration is indistinguishable from one that was
      * delivered.
      */
-    if (settings === null) return;
+    if (webhook === null && email === null) return;
 
     const due = await this.prisma.notificationDeliveryJob.findMany({
       where: { nextAttemptAt: { lte: now } },
@@ -95,7 +101,7 @@ export class NotificationDeliveryWorker implements OnModuleInit, OnModuleDestroy
 
     for (const job of due) {
       const payload = job.payload as unknown as NotificationPayload;
-      const outcome = await this.transport.deliver(settings, payload);
+      const outcome = await this.deliverToAll(webhook, email, payload);
 
       if (outcome.ok) {
         await this.prisma.notificationDeliveryJob.delete({ where: { id: job.id } });
@@ -129,6 +135,49 @@ export class NotificationDeliveryWorker implements OnModuleInit, OnModuleDestroy
         },
       });
     }
+  }
+
+  /**
+   * Every configured channel gets the notification.
+   *
+   * ONE JOB, NOT ONE PER CHANNEL. A job is "this condition changed and somebody
+   * should know", and splitting it per channel would mean a webhook outage
+   * retrying the email too — or worse, an operator seeing one delivered and
+   * one failed for the same event and having to work out whether that mattered.
+   *
+   * The consequence is stated rather than hidden: if either channel fails the
+   * job is retried, so a working channel can receive a duplicate while a
+   * broken one catches up. For an alert that is the right trade — a repeated
+   * warning is noise, a missing one is an outage nobody heard about.
+   */
+  private async deliverToAll(
+    webhook: NotificationWebhookSettings | null,
+    email: NotificationEmailSettings | null,
+    payload: NotificationPayload,
+  ): Promise<{ ok: boolean; error: string | null }> {
+    const errors: string[] = [];
+
+    if (webhook !== null) {
+      const outcome = await this.webhook.deliver(webhook, payload);
+      if (!outcome.ok) errors.push(`webhook: ${outcome.error ?? 'failed'}`);
+    }
+
+    if (email !== null) {
+      const outcome = await this.email.deliver(email, payload);
+      if (!outcome.ok) errors.push(`email: ${outcome.error ?? 'failed'}`);
+    }
+
+    return errors.length === 0
+      ? { ok: true, error: null }
+      : { ok: false, error: errors.join('; ') };
+  }
+
+  private async emailSettings(): Promise<NotificationEmailSettings | null> {
+    const resolved = await this.store.resolve<NotificationEmailSettings>(
+      'notifications.email',
+      () => null,
+    );
+    return resolved.source === 'unset' ? null : (resolved.config ?? null);
   }
 
   private async webhookSettings(): Promise<NotificationWebhookSettings | null> {
