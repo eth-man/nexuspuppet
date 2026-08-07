@@ -21,6 +21,8 @@
     "format:check": "prettier --check .",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
+    "test:e2e:core": "./scripts/dev/e2e-edition.sh core",
+    "test:e2e:enterprise": "./scripts/dev/e2e-edition.sh enterprise",
     "db:generate": "npm run db:generate --workspace @nexuspuppet/api",
     "db:migrate": "npm run db:migrate --workspace @nexuspuppet/api",
     "db:deploy": "npm run db:deploy --workspace @nexuspuppet/api",
