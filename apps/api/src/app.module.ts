@@ -32,6 +32,10 @@ import { PuppetDbClient } from './puppetdb/puppetdb.client';
 import { NodeProjectionService } from './puppetdb/node-projection.service';
 import { PosixEncStorage } from './materialization/posix-enc-storage';
 import { EncReplicationService } from './replication/enc-replication.service';
+import {
+  DEFAULT_EVALUATOR_PACING,
+  NotificationEvaluatorService,
+} from './notifications/notification-evaluator.service';
 import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
 import { ReconcilerService } from './materialization/reconciler.service';
@@ -307,6 +311,44 @@ export class AppModule {
         // unconditionally so the service is testable and injectable; whether a
         // listener is actually opened is main.ts's decision, from config.
         encReplicationProvider(env),
+        {
+          /*
+           * The thing that looks when nobody is (ADR-0021).
+           *
+           * Explicit factory because SystemStatusService and
+           * NodeProjectionService are themselves factory-built from plain
+           * config, so Nest cannot construct this by metadata.
+           */
+          provide: NotificationEvaluatorService,
+          inject: [
+            PrismaService,
+            SystemStatusService,
+            ConsoleTlsService,
+            NodeProjectionService,
+            PUPPETDB_CLIENT,
+          ],
+          useFactory: (
+            prisma: PrismaService,
+            status: SystemStatusService,
+            tls: ConsoleTlsService,
+            projection: NodeProjectionService,
+            puppetdb: IPuppetDbClient,
+          ): NotificationEvaluatorService =>
+            new NotificationEvaluatorService(
+              prisma,
+              status,
+              tls,
+              projection,
+              async () => {
+                const health = await puppetdb.health();
+                return { reachable: health.reachable, lastSuccessAt: health.lastSuccessAt };
+              },
+              {
+                intervalMs:
+                  env.NOTIFICATION_EVALUATION_INTERVAL_MS ?? DEFAULT_EVALUATOR_PACING.intervalMs,
+              },
+            ),
+        },
         // RbacPolicy reads the roles table through this. A dependency of the
         // policy, not a seam: the enterprise layer replaces the POLICY, not
         // where roles live (ADR-0018 §2).

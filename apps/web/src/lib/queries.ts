@@ -10,6 +10,7 @@ import type {
   LdapSettings,
   ManagedUser,
   OidcSettings,
+  OperationalCondition,
   ManagedUserDetail,
   SettingsView,
   NodeClassificationExplanation,
@@ -360,6 +361,22 @@ export function useRoles(enabled: boolean): UseQueryResult<Role[]> {
  * Polled gently: a version does not change while somebody is looking at it,
  * and the database round trip should not be a load source of its own.
  */
+/**
+ * The operational conditions currently open (ADR-0021).
+ *
+ * Polled, because the value of this is being told when you are not looking —
+ * a panel that only refreshes on navigation would report a healthy deployment
+ * for as long as the tab sat open.
+ */
+export function useOpenConditions(): UseQueryResult<OperationalCondition[]> {
+  return useQuery({
+    queryKey: ['system', 'conditions'],
+    queryFn: ({ signal }) => api.get<OperationalCondition[]>('/system/conditions', signal),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+}
+
 export function useDeployment(): UseQueryResult<DeploymentInfo> {
   return useQuery({
     queryKey: ['deployment'],

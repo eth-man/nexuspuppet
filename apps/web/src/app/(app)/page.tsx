@@ -10,6 +10,7 @@ import { StateBadge } from '@/components/ui/badge';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError } from '@/components/states';
 import { SystemStatusCard } from '@/components/data/system-status-card';
+import { OpenConditionsPanel } from '@/components/data/open-conditions-panel';
 
 /**
  * Estate overview.
@@ -39,6 +40,15 @@ export default function DashboardPage() {
         <h1 className="text-sm font-semibold tracking-tight">Dashboard</h1>
         <p className="text-xs text-ink-muted">Estate health at a glance</p>
       </header>
+
+      {/*
+        Above the status card, deliberately. The status card says how things
+        are; this says what is WRONG, and something wrong should not sit below
+        a screen of numbers that are fine.
+      */}
+      <div className="mb-3">
+        <OpenConditionsPanel />
+      </div>
 
       <div className="mb-3">
         <SystemStatusCard />

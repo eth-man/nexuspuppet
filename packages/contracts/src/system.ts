@@ -208,6 +208,24 @@ export type EncReplicationHealth = z.infer<typeof encReplicationHealthSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;
 
 /**
+ * An operational condition that is currently open (ADR-0021).
+ *
+ * Describes the DEPLOYMENT'S HEALTH and never a person or an action they took.
+ * That boundary is what lets notifications live in core while audit forwarding
+ * requires `audit.export` — the test being: does the message name somebody?
+ */
+export const operationalConditionSchema = z.object({
+  /** Stable, including the instance for per-peer conditions. */
+  key: z.string(),
+  /** The catalogue entry, without the instance suffix. */
+  kind: z.string(),
+  severity: z.enum(['critical', 'warning']),
+  summary: z.string(),
+  openedAt: z.string(),
+});
+export type OperationalCondition = z.infer<typeof operationalConditionSchema>;
+
+/**
  * The certificate the console is served with (ADR-0013).
  *
  * Read from the PUBLIC certificate only. The API is given a single `.pem` file

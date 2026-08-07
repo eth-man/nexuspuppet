@@ -74,6 +74,7 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private running = false;
+  private lastResult: ProjectionResult | null = null;
   private stopping = false;
   /**
    * Warn once per process about projected facts no node reports.
@@ -271,6 +272,16 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
       this.projectLocked(),
     );
 
+    /*
+     * Retained ONLY when this replica actually ran it.
+     *
+     * A run another replica won returns ranHere: false with zeroed counts, and
+     * storing that would erase a real result — including a pruneSkippedReason
+     * that something is watching for. Losing the reason is how the
+     * implausibly-small-response guard goes back to being invisible.
+     */
+    if (result !== null && result.ranHere) this.lastResult = result;
+
     return (
       result ?? {
         ranHere: false,
@@ -282,6 +293,17 @@ export class NodeProjectionService implements OnModuleInit, OnModuleDestroy {
         error: null,
       }
     );
+  }
+
+  /**
+   * The last projection THIS replica ran, or null if it has not run one.
+   *
+   * Read by anything that needs to notice a state the projector only logs —
+   * a refused prune, in particular, which means the estate looked
+   * implausibly small and we deliberately did nothing.
+   */
+  lastProjection(): ProjectionResult | null {
+    return this.lastResult;
   }
 
   private async projectLocked(): Promise<ProjectionResult> {
