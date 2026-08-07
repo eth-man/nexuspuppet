@@ -36,6 +36,9 @@ import {
   DEFAULT_EVALUATOR_PACING,
   NotificationEvaluatorService,
 } from './notifications/notification-evaluator.service';
+import { NotificationDeliveryWorker } from './notifications/notification-delivery.worker';
+import { NotificationWebhookTransport } from './notifications/notification-webhook.transport';
+import { NotificationsController } from './notifications/notifications.controller';
 import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
 import { ReconcilerService } from './materialization/reconciler.service';
@@ -303,6 +306,7 @@ export class AppModule {
         UsersController,
         AccountController,
         SystemController,
+        NotificationsController,
         SettingsController,
         AuditForwardingController,
       ],
@@ -311,6 +315,27 @@ export class AppModule {
         // unconditionally so the service is testable and injectable; whether a
         // listener is actually opened is main.ts's decision, from config.
         encReplicationProvider(env),
+        // Core, not capability-gated: what keeps ADR-0021 §1 honest is the
+        // content constraint, not a licence check.
+        NotificationWebhookTransport,
+        {
+          /*
+           * Explicit factory, because the pacing is a plain object.
+           *
+           * Nest resolves constructor parameters from design-time metadata, so
+           * a defaulted config argument arrives as `Object` and it tries to
+           * inject a provider for it — which fails at boot with a dependency
+           * error naming a type nobody registered. Same reason
+           * SystemStatusService and NodeProjectionService are built this way.
+           */
+          provide: NotificationDeliveryWorker,
+          inject: [PrismaService, SettingsStore, NotificationWebhookTransport],
+          useFactory: (
+            prisma: PrismaService,
+            store: SettingsStore,
+            transport: NotificationWebhookTransport,
+          ): NotificationDeliveryWorker => new NotificationDeliveryWorker(prisma, store, transport),
+        },
         {
           /*
            * The thing that looks when nobody is (ADR-0021).

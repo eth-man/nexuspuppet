@@ -170,17 +170,48 @@ export class NotificationEvaluatorService implements OnModuleInit, OnModuleDestr
       lastEvaluatedAt: now,
     };
 
-    await this.prisma.notificationCondition.upsert({
-      where: { key: reading.key },
-      create: { key: reading.key, ...data },
-      update: data,
+    /*
+     * ONE TRANSACTION, condition and delivery together (ADR-0021 §7).
+     *
+     * Splitting them lets a condition open with no delivery owed — the
+     * console would show it and nobody would be told, which is precisely the
+     * silence this feature exists to end. Same reasoning as the audit outbox,
+     * and as every classification write.
+     *
+     * Only the EDGES enqueue. A condition that is merely still-open produces
+     * nothing, which is the entire point of the model.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.notificationCondition.upsert({
+        where: { key: reading.key },
+        create: { key: reading.key, ...data },
+        update: data,
+      });
+
+      if (decision.transition === null) return;
+
+      await tx.notificationDeliveryJob.create({
+        data: {
+          conditionKey: reading.key,
+          transition: decision.transition,
+          /*
+           * The message AS IT IS NOW, not a reference to be resolved later.
+           * By delivery time the condition may have resolved or its summary
+           * changed, and a delivery describing a state that never existed is
+           * worse than a late one.
+           */
+          payload: {
+            transition: decision.transition,
+            key: reading.key,
+            kind: reading.kind,
+            severity: reading.severity,
+            summary: reading.summary,
+            at: now.toISOString(),
+          },
+        },
+      });
     });
 
-    /*
-     * Only the EDGES are announced. A condition that is merely still-open
-     * produces nothing — that is the entire point of the model, and the reason
-     * this is logged here rather than in the loop above.
-     */
     if (decision.transition === 'opened') {
       this.logger.warn(`Condition opened: ${reading.key} — ${reading.summary}`);
     } else if (decision.transition === 'resolved') {

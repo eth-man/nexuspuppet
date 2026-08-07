@@ -23,6 +23,15 @@ export const SETTING_KINDS = [
   'audit.webhook',
   /** The operator's transport choice — which of the two audit kinds delivers. */
   'audit.forwarding',
+  /**
+   * Where operational notifications are POSTed (ADR-0021).
+   *
+   * SEPARATE from `audit.webhook`, which is not an accident of naming. That one
+   * exists under `audit.export` and carries audit records; this one is core and
+   * carries conditions only. Sharing a destination would make the boundary a
+   * convention rather than something the transports enforce.
+   */
+  'notifications.webhook',
 ] as const;
 export type SettingKind = (typeof SETTING_KINDS)[number];
 

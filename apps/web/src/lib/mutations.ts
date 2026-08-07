@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
+  NotificationWebhookSettings,
   UpdateCheck,
   AssignClass,
   AuditForwardingSelection,
@@ -388,6 +389,41 @@ export function useSetActiveAuditTransport(): UseMutationResult<
 }
 
 /** Try a candidate transport configuration without saving it. Invalidates nothing. */
+/** ADR-0021 §4. A separate destination from the audit webhook, deliberately. */
+export function useSaveNotificationWebhook(): UseMutationResult<
+  void,
+  Error,
+  NotificationWebhookSettings
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (config) => api.put<void>('/settings/notifications/webhook', config),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'notifications.webhook'] }),
+  });
+}
+
+export function useClearNotificationWebhook(): UseMutationResult<void, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>('/settings/notifications/webhook'),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'notifications.webhook'] }),
+  });
+}
+
+export function useTestNotificationWebhook(): UseMutationResult<
+  { ok: boolean; error: string | null },
+  Error,
+  NotificationWebhookSettings
+> {
+  return useMutation({
+    mutationFn: (config) =>
+      api.post<{ ok: boolean; error: string | null }>(
+        '/settings/notifications/webhook/test',
+        config,
+      ),
+  });
+}
+
 export function useTestAuditTransport(): UseMutationResult<
   ProviderVerification,
   Error,
