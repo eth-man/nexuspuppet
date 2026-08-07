@@ -32,6 +32,8 @@ export const SETTING_KINDS = [
    * convention rather than something the transports enforce.
    */
   'notifications.webhook',
+  /** The mail relay operational notifications go through (ADR-0021 §4). */
+  'notifications.email',
 ] as const;
 export type SettingKind = (typeof SETTING_KINDS)[number];
 

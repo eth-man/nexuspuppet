@@ -38,6 +38,7 @@ import {
 } from './notifications/notification-evaluator.service';
 import { NotificationDeliveryWorker } from './notifications/notification-delivery.worker';
 import { NotificationWebhookTransport } from './notifications/notification-webhook.transport';
+import { NotificationEmailTransport } from './notifications/notification-email.transport';
 import { NotificationsController } from './notifications/notifications.controller';
 import { MaterializerService } from './materialization/materializer.service';
 import { MaterializationService } from './materialization/materialization.service';
@@ -318,6 +319,7 @@ export class AppModule {
         // Core, not capability-gated: what keeps ADR-0021 §1 honest is the
         // content constraint, not a licence check.
         NotificationWebhookTransport,
+        NotificationEmailTransport,
         {
           /*
            * Explicit factory, because the pacing is a plain object.
@@ -329,12 +331,19 @@ export class AppModule {
            * SystemStatusService and NodeProjectionService are built this way.
            */
           provide: NotificationDeliveryWorker,
-          inject: [PrismaService, SettingsStore, NotificationWebhookTransport],
+          inject: [
+            PrismaService,
+            SettingsStore,
+            NotificationWebhookTransport,
+            NotificationEmailTransport,
+          ],
           useFactory: (
             prisma: PrismaService,
             store: SettingsStore,
-            transport: NotificationWebhookTransport,
-          ): NotificationDeliveryWorker => new NotificationDeliveryWorker(prisma, store, transport),
+            webhook: NotificationWebhookTransport,
+            email: NotificationEmailTransport,
+          ): NotificationDeliveryWorker =>
+            new NotificationDeliveryWorker(prisma, store, webhook, email),
         },
         {
           /*

@@ -10,13 +10,16 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  notificationEmailSettingsSchema,
   notificationWebhookSettingsSchema,
+  type NotificationEmailSettings,
   type NotificationWebhookSettings,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SettingsStore, type ResolvedSetting } from '../settings/settings.store';
 import { NotificationWebhookTransport } from './notification-webhook.transport';
+import { NotificationEmailTransport } from './notification-email.transport';
 
 /**
  * Where operational notifications go (ADR-0021 §4, §5).
@@ -37,6 +40,7 @@ export class NotificationsController {
   constructor(
     private readonly store: SettingsStore,
     private readonly transport: NotificationWebhookTransport,
+    private readonly email: NotificationEmailTransport,
   ) {}
 
   @Get('webhook')
@@ -85,6 +89,56 @@ export class NotificationsController {
     body: NotificationWebhookSettings,
   ): Promise<{ ok: boolean; error: string | null }> {
     return this.transport.deliver(body, {
+      transition: 'resolved',
+      key: 'test.notification',
+      kind: 'test.notification',
+      severity: 'warning',
+      summary: 'Test notification from NexusPuppet. Nothing is wrong.',
+      at: new Date().toISOString(),
+    });
+  }
+
+  @Get('email')
+  async describeEmail(): Promise<ResolvedSetting<NotificationEmailSettings>> {
+    return this.store.describe<NotificationEmailSettings>('notifications.email', () => null);
+  }
+
+  @Put('email')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async saveEmail(
+    @Body(new ZodValidationPipe(notificationEmailSettingsSchema)) body: NotificationEmailSettings,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<void> {
+    await this.store.save(
+      'notifications.email',
+      body,
+      ['password'],
+      request.principal?.email ?? 'unknown',
+    );
+  }
+
+  @Delete('email')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async clearEmail(): Promise<void> {
+    await this.store.clear('notifications.email');
+  }
+
+  /**
+   * Send a real message through the relay.
+   *
+   * Worth more here than for the webhook: an SMTP misconfiguration is
+   * invisible until something is already wrong, and half of them are a
+   * STARTTLS-versus-implicit-TLS mix-up that only a real connection reveals.
+   *
+   * Success means THE RELAY ACCEPTED IT — not that it arrived. A bounce
+   * happens minutes later, somewhere this process cannot see.
+   */
+  @Post('email/test')
+  @HttpCode(HttpStatus.OK)
+  async testEmail(
+    @Body(new ZodValidationPipe(notificationEmailSettingsSchema)) body: NotificationEmailSettings,
+  ): Promise<{ ok: boolean; error: string | null }> {
+    return this.email.deliver(body, {
       transition: 'resolved',
       key: 'test.notification',
       kind: 'test.notification',

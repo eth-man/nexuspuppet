@@ -120,7 +120,7 @@ test.describe('integrations tab', () => {
 
       const before = await host.inputValue();
       await host.fill('changed.example.test');
-      await page.getByRole('textbox', { name: 'Port' }).fill('6514');
+      await page.getByRole('textbox', { name: 'Port', exact: true }).fill('6514');
 
       // Nothing commits without stating what it changes (ADR-0016 §7).
       await expect(page.getByText('Pending changes')).toBeVisible();
@@ -157,5 +157,29 @@ test.describe('the notification webhook', () => {
 
     const url = page.getByRole('textbox', { name: 'Notification endpoint' });
     await expect(url).toBeDisabled();
+  });
+});
+
+/**
+ * The notification email relay (ADR-0021 §4).
+ *
+ * Core, like the webhook — so it must render on a deployment without
+ * `audit.export`, where the audit cards are a header alone.
+ */
+test.describe('the notification email relay', () => {
+  test('is offered in every edition, with one team recipient', async ({ page }) => {
+    await login(page);
+    await page.goto('/settings/integrations');
+
+    await expect(page.getByRole('heading', { name: 'Notification email' })).toBeVisible();
+    // One address, not per user — the bystander effect is why (ADR-0021 §5).
+    await expect(page.getByText('One team address')).toBeVisible();
+  });
+
+  test('the relay host is locked until Edit is pressed', async ({ page }) => {
+    await login(page);
+    await page.goto('/settings/integrations');
+
+    await expect(page.getByRole('textbox', { name: 'Relay host' })).toBeDisabled();
   });
 });
