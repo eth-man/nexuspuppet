@@ -17,6 +17,7 @@ import type {
   UpdateNodeGroup,
   NodeClassificationExplanation,
   ClassificationConflict,
+  MergeAttribution,
   FactPathIndex,
   IAuditSink,
 } from '@nexuspuppet/contracts';
@@ -143,6 +144,17 @@ export class ClassificationService {
       certname,
       appliedGroups: applied,
       conflicts: (materialization?.conflicts ?? []) as unknown as ClassificationConflict[],
+      /*
+       * Omitted rather than defaulted when the node was materialized before
+       * attribution existed. An empty object would read as "no group
+       * contributed anything", which is a different and wrong statement — the
+       * truth is that nobody recorded it.
+       *
+       * The next materialization fills it in.
+       */
+      ...(hasAttribution(materialization?.attribution)
+        ? { attribution: materialization.attribution as unknown as MergeAttribution }
+        : {}),
       materialization:
         materialization === null
           ? null
@@ -792,4 +804,16 @@ function shapeOf(group: GroupWithRelations): GroupShape {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
+}
+
+/**
+ * True when a materialization actually carries attribution.
+ *
+ * Prisma defaults the column to `{}`, so "materialized before #141" and
+ * "matched no groups" both arrive as an empty object. Only the presence of a
+ * key distinguishes them, and the console has to be able to tell — one is
+ * missing information, the other is information.
+ */
+function hasAttribution(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && Object.keys(value).length > 0;
 }

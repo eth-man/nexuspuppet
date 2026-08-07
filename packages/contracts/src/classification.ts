@@ -6,6 +6,7 @@ import {
   puppetClassNameSchema,
   puppetValueSchema,
   type ClassificationConflict,
+  type MergeAttribution,
 } from './enc';
 
 /**
@@ -141,6 +142,14 @@ export interface NodeClassificationExplanation {
   /** Groups in merge order (rank ASC, id ASC). */
   appliedGroups: Array<{ id: string; name: string; rank: number }>;
   conflicts: ClassificationConflict[];
+  /**
+   * Where each class, parameter and the environment came from (#141).
+   *
+   * Optional so a node materialized before this existed reads as "unknown"
+   * rather than as "nothing contributed" — the two are different, and the
+   * console must not present the second when it means the first.
+   */
+  attribution?: MergeAttribution;
   /** Null when the node has never been materialized. */
   materialization: {
     contentHash: string;

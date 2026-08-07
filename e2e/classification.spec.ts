@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  apiLogin,
   applyReviewed,
   assertStackReachable,
   deleteGroupsByPrefix,
@@ -440,3 +441,111 @@ test.describe('classification', () => {
     await expect(page.getByText(/node(s)? *$|of \d+ node/).first()).toBeVisible();
   });
 });
+
+/**
+ * Where each line of a node's classification came from (#141).
+ *
+ * Built against REAL state rather than a stub: two groups are created, both
+ * assigning the same class with different parameter values, and one node is
+ * pinned into both. That is the shape the card exists to explain — and it is
+ * the shape that previously required opening each group in turn and
+ * re-deriving the merge by hand.
+ */
+test.describe('classification provenance', () => {
+  test.beforeAll(async ({ request }) => {
+    await assertStackReachable(request);
+    await deleteGroupsByPrefix(request);
+  });
+
+  test.afterAll(async ({ request }) => {
+    await deleteGroupsByPrefix(request);
+  });
+
+  test('names the group that set each value, and the one it overrode', async ({
+    page,
+    request,
+  }) => {
+    await apiLogin(request);
+
+    const certname = await firstCertname(request);
+    test.skip(certname === null, 'the projection has produced no nodes to classify');
+
+    const low = uniqueGroupName('prov-low');
+    const high = uniqueGroupName('prov-high');
+
+    // Lower rank first, so the higher-ranked group is the one that wins.
+    const lowId = await createPinnedGroup(request, low, 100, certname as string, 5432);
+    const highId = await createPinnedGroup(request, high, 900, certname as string, 6543);
+    expect(lowId).not.toBe('');
+    expect(highId).not.toBe('');
+
+    await waitForMaterialization(request, certname as string);
+
+    await login(page);
+    await page.goto(`/nodes/${encodeURIComponent(certname as string)}`);
+
+    const card = page.getByText('Where it came from');
+    await expect(card).toBeVisible();
+
+    /*
+     * Matched on text ONLY the attribution card produces, which took two
+     * attempts to get right:
+     *
+     *   - the group names are vacuous — both already appear in the Applied
+     *     groups card, so the assertion passed with attribution removed;
+     *   - the class key is ambiguous — it appears in the Conflicts card too,
+     *     because these two groups set different values.
+     *
+     * "over <group> <value>" is rendered here and nowhere else. Conflicts says
+     * "overriding", which this pattern does not match: after `over` it needs
+     * whitespace, and there it is followed by `riding`.
+     *
+     * Verified by deleting the card and watching this fail.
+     */
+    await expect(page.getByText(new RegExp(`over\\s+${low}`))).toBeVisible();
+  });
+});
+
+async function firstCertname(request: import('@playwright/test').APIRequestContext) {
+  const response = await request.get('/api/nodes?limit=1');
+  if (!response.ok()) return null;
+  const body = (await response.json()) as
+    { items?: Array<{ certname: string }> } | Array<{ certname: string }>;
+  const items = Array.isArray(body) ? body : (body.items ?? []);
+  return items[0]?.certname ?? null;
+}
+
+async function createPinnedGroup(
+  request: import('@playwright/test').APIRequestContext,
+  name: string,
+  rank: number,
+  certname: string,
+  port: number,
+): Promise<string> {
+  const created = await request.post('/api/node-groups', {
+    data: { name, rank, strategy: 'PINNED' },
+  });
+  if (!created.ok()) return '';
+  const { group } = (await created.json()) as { group: { id: string } };
+
+  await request.post(`/api/node-groups/${group.id}/pins`, { data: { certnames: [certname] } });
+  await request.put(`/api/node-groups/${group.id}/classes`, {
+    data: { className: 'profile::provenance_demo', params: { port } },
+  });
+  return group.id;
+}
+
+/** The write answers 202; the file lands a moment later (ADR-0003). */
+async function waitForMaterialization(
+  request: import('@playwright/test').APIRequestContext,
+  certname: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await request.get(`/api/nodes/${encodeURIComponent(certname)}/classification`);
+    if (response.ok()) {
+      const body = (await response.json()) as { attribution?: unknown; pending?: boolean };
+      if (body.attribution !== undefined && body.pending !== true) return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError, Spinner } from '@/components/states';
 import { JsonView } from '@/components/data/json-view';
+import { AttributionCard } from '@/components/data/attribution-card';
 
 type Tab = 'facts' | 'classification' | 'runs';
 
@@ -140,7 +141,7 @@ function ClassificationTab({ certname }: { certname: string }) {
   if (query.isError) return <QueryError error={query.error} />;
   if (query.isPending) return <Spinner label="Loading classification…" />;
 
-  const { appliedGroups, conflicts, materialization, factsAsOf, pending } = query.data;
+  const { appliedGroups, conflicts, materialization, factsAsOf, pending, attribution } = query.data;
 
   return (
     <div className="grid gap-3 p-3 lg:grid-cols-2">
@@ -206,6 +207,8 @@ function ClassificationTab({ certname }: { certname: string }) {
             )}
           </CardContent>
         </Card>
+
+        <AttributionCard attribution={attribution} groups={appliedGroups} />
 
         {conflicts.length > 0 && (
           <Card>

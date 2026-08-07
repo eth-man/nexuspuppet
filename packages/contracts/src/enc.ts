@@ -83,6 +83,53 @@ export type EncDocument = z.infer<typeof encDocumentSchema>;
  * Conflicts are warnings, never errors — base-plus-override is a legitimate
  * pattern — but they must be visible rather than silent.
  */
+/**
+ * Which group put a value in the document, and which groups it beat (#141).
+ *
+ * GROUP IDS ONLY, never names. `explain()` already loads the applied groups to
+ * render them in merge order, so a name costs nothing to resolve at read time
+ * — and a stored name goes stale the moment somebody renames the group, which
+ * is exactly when an operator is most likely to be reading this.
+ *
+ * It also keeps the stored blob small: one id per contributor rather than an
+ * id and a name, on every key, on every node.
+ */
+export interface KeyAttribution {
+  /** The group whose value is in the document. */
+  groupId: string;
+  /**
+   * Earlier setters, in merge order, that this one overrode.
+   *
+   * Includes groups that set the SAME value. They were still overridden, and
+   * hiding them would answer "who set this?" with a half-truth — the console
+   * can say whether the value differed, because the value is here.
+   */
+  overridden: Array<{ groupId: string; value: PuppetValue }>;
+}
+
+/**
+ * Where every part of a node's classification came from (#141).
+ *
+ * The merge already computes this to detect conflicts and then discards it,
+ * keeping only the keys where values DIFFERED. Conflicts answer "what
+ * disagreed"; this answers "where is this line from", which is the question
+ * asked far more often.
+ */
+export interface MergeAttribution {
+  /**
+   * className -> the groups that included it, in merge order.
+   *
+   * A list rather than a winner: class inclusion is a UNION (ADR-0009), so
+   * every group named here contributed and none of them lost.
+   */
+  classes: Record<string, string[]>;
+  /** `className.paramName` -> who won, and who they beat. */
+  classParameters: Record<string, KeyAttribution>;
+  parameters: Record<string, KeyAttribution>;
+  /** Null when no group set an environment. */
+  environment: KeyAttribution | null;
+}
+
 export interface ClassificationConflict {
   kind: 'CLASS_PARAMETER' | 'TOP_SCOPE_PARAMETER' | 'ENVIRONMENT';
   /** e.g. `profile::base.ntp_servers`, or the bare parameter name. */
@@ -101,6 +148,8 @@ export interface MergeResult {
   conflicts: ClassificationConflict[];
   /** Matched groups in applied order (rank ASC, id ASC). */
   appliedGroupIds: string[];
+  /** Where each class, parameter and the environment came from (#141). */
+  attribution: MergeAttribution;
 }
 
 export const materializationStatusSchema = z.enum(['PENDING', 'IN_PROGRESS', 'DONE', 'FAILED']);
