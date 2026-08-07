@@ -10,6 +10,7 @@ import type {
   LdapSettings,
   ManagedUser,
   OidcSettings,
+  NotificationWebhookSettings,
   OperationalCondition,
   ManagedUserDetail,
   SettingsView,
@@ -368,6 +369,17 @@ export function useRoles(enabled: boolean): UseQueryResult<Role[]> {
  * a panel that only refreshes on navigation would report a healthy deployment
  * for as long as the tab sat open.
  */
+export function useNotificationWebhook(
+  enabled: boolean,
+): UseQueryResult<SettingsView<NotificationWebhookSettings>> {
+  return useQuery({
+    queryKey: ['settings', 'notifications.webhook'],
+    queryFn: ({ signal }) =>
+      api.get<SettingsView<NotificationWebhookSettings>>('/settings/notifications/webhook', signal),
+    enabled,
+  });
+}
+
 export function useOpenConditions(): UseQueryResult<OperationalCondition[]> {
   return useQuery({
     queryKey: ['system', 'conditions'],

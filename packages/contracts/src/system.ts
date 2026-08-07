@@ -208,6 +208,42 @@ export type EncReplicationHealth = z.infer<typeof encReplicationHealthSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;
 
 /**
+ * Where operational notifications are POSTed (ADR-0021 §4).
+ *
+ * Deliberately not the audit webhook. That one lives under `audit.export` and
+ * carries audit records; this is core and carries conditions only. Two
+ * destinations, so the boundary is enforced by which transport is used rather
+ * than by remembering.
+ */
+export const notificationWebhookSettingsSchema = z.object({
+  url: z.string().url(),
+  /**
+   * Sent as `Authorization: Bearer <token>`. Write-only: stored encrypted and
+   * never returned to the browser, like every other secret in the store.
+   */
+  token: z.string().min(1).optional(),
+  timeoutMs: z.number().int().min(1_000).max(60_000).default(10_000),
+});
+export type NotificationWebhookSettings = z.infer<typeof notificationWebhookSettingsSchema>;
+
+/**
+ * The body POSTed on an edge.
+ *
+ * CONDITIONS ONLY (ADR-0021 binding constraint 1). No person, no action,
+ * nothing from `AuditLog` — that is what keeps this feature in core rather
+ * than behind `audit.export`.
+ */
+export const notificationPayloadSchema = z.object({
+  transition: z.enum(['opened', 'resolved']),
+  key: z.string(),
+  kind: z.string(),
+  severity: z.enum(['critical', 'warning']),
+  summary: z.string(),
+  at: z.string(),
+});
+export type NotificationPayload = z.infer<typeof notificationPayloadSchema>;
+
+/**
  * An operational condition that is currently open (ADR-0021).
  *
  * Describes the DEPLOYMENT'S HEALTH and never a person or an action they took.

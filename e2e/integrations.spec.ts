@@ -31,7 +31,7 @@ test.describe('integrations tab', () => {
     await page.goto('/settings/integrations');
 
     await expect(page.getByRole('heading', { name: 'Syslog' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Webhook' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Webhook', exact: true })).toBeVisible();
 
     // The status strip answers "do my records leave this box?" before any
     // card is read. A fresh deployment forwards nowhere.
@@ -83,7 +83,7 @@ test.describe('integrations tab', () => {
     // The feature is still NAMED and still says which capability unlocks it —
     // the same name the API's 501 carries.
     await expect(page.getByRole('heading', { name: 'Syslog' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Webhook' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Webhook', exact: true })).toBeVisible();
     // .first(): both cards name the capability now, which is the point — each
     // one explains itself rather than relying on a shared footnote.
     await expect(page.getByText('audit.export').first()).toBeVisible();
@@ -131,5 +131,31 @@ test.describe('integrations tab', () => {
       await expect(host).toBeDisabled();
       await expect(host).toHaveValue(before);
     });
+  });
+});
+
+/**
+ * The notification webhook (ADR-0021 §4).
+ *
+ * A SEPARATE destination from the audit webhook above, and core rather than
+ * capability-gated — so it must render on a deployment without `audit.export`,
+ * where the audit cards are a header alone.
+ */
+test.describe('the notification webhook', () => {
+  test('is offered in every edition, unlike audit forwarding', async ({ page }) => {
+    await login(page);
+    await page.goto('/settings/integrations');
+
+    await expect(page.getByRole('heading', { name: 'Notification webhook' })).toBeVisible();
+    // The distinction that keeps the boundary legible on screen.
+    await expect(page.getByText('never audit records')).toBeVisible();
+  });
+
+  test('the endpoint field is locked until Edit is pressed', async ({ page }) => {
+    await login(page);
+    await page.goto('/settings/integrations');
+
+    const url = page.getByRole('textbox', { name: 'Notification endpoint' });
+    await expect(url).toBeDisabled();
   });
 });

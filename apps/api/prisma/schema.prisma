@@ -554,3 +554,35 @@ model NotificationCondition {
   @@index([kind])
   @@map("notification_conditions")
 }
+
+/// A pending notification delivery (ADR-0021 §7).
+///
+/// The outbox shape the audit trail already uses: written in the SAME
+/// transaction as the condition change, so a condition cannot open without a
+/// delivery being owed. A collector outage queues rather than loses.
+model NotificationDeliveryJob {
+  id           String @id @default(uuid()) @db.Uuid
+  conditionKey String @db.VarChar(255)
+  /// `opened` or `resolved`. Only edges are delivered — a condition that is
+  /// merely still-open enqueues nothing, which is the whole point of the model.
+  transition   String @db.VarChar(16)
+
+  /// The message AS IT WAS when the edge happened.
+  ///
+  /// Captured here rather than looked up at delivery time, deliberately: by
+  /// then the condition may have resolved or its summary changed, and the
+  /// delivery would describe a state that never existed. It also means the row
+  /// carries no reference that could later resolve to audit content.
+  payload Json
+
+  attempts      Int      @default(0)
+  /// A failed attempt backs off rather than spinning; a row is invisible to
+  /// the worker until this passes.
+  nextAttemptAt DateTime @default(now())
+  /// For the operator, not for the retry logic.
+  lastError     String?
+  createdAt     DateTime @default(now())
+
+  @@index([nextAttemptAt])
+  @@map("notification_delivery_jobs")
+}
