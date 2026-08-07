@@ -184,3 +184,71 @@ test.describe('the update check', () => {
     await expect(status).not.toContainText('ahead of');
   });
 });
+
+/**
+ * Open conditions on the dashboard (ADR-0021).
+ *
+ * The response is stubbed. Provoking a real condition would mean breaking the
+ * deployment and waiting three evaluation cycles — and a test that waits
+ * fifteen minutes is a test nobody runs. The lifecycle itself is covered
+ * exhaustively by the pure unit tests; what this asserts is that an open
+ * condition reaches the screen and a healthy deployment does not shout.
+ */
+test.describe('open conditions', () => {
+  test.beforeEach(async ({ request }) => {
+    await assertStackReachable(request);
+  });
+
+  test('a healthy deployment says so quietly, without a panel', async ({ page }) => {
+    await page.route('**/api/system/conditions', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+
+    await login(page);
+    await page.goto('/');
+
+    await expect(page.getByText('No open conditions.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Conditions' })).toHaveCount(0);
+  });
+
+  test('an open condition is shown, with how long it has been true', async ({ page }) => {
+    await page.route('**/api/system/conditions', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            key: 'replication.behind:puppet.corp.local',
+            kind: 'replication.behind',
+            severity: 'critical',
+            summary: 'puppet.corp.local has never received a classification tree.',
+            openedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+          },
+        ]),
+      }),
+    );
+
+    await login(page);
+    await page.goto('/');
+
+    await expect(page.getByRole('heading', { name: 'Conditions' })).toBeVisible();
+    await expect(page.getByText('has never received a classification tree')).toBeVisible();
+    await expect(page.getByText(/since/)).toBeVisible();
+  });
+
+  /*
+   * The one that matters most. Reporting "healthy" because the question could
+   * not be asked is the worst possible failure for this particular surface.
+   */
+  test('a failed query does not read as healthy', async ({ page }) => {
+    await page.route('**/api/system/conditions', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    );
+
+    await login(page);
+    await page.goto('/');
+
+    await expect(page.getByText(/should be taken as healthy/)).toBeVisible();
+    await expect(page.getByText('No open conditions.')).toHaveCount(0);
+  });
+});

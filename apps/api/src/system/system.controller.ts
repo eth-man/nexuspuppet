@@ -2,6 +2,7 @@ import { Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common
 import type {
   ConsoleTlsStatus,
   DeploymentInfo,
+  OperationalCondition,
   SystemStatus,
   UpdateCheck,
 } from '@nexuspuppet/contracts';
@@ -10,6 +11,8 @@ import { SystemStatusService } from './system-status.service';
 import { ConsoleTlsService } from './console-tls.service';
 import { ConsoleTlsGrantService } from './console-tls-grant.service';
 import { DeploymentService } from './deployment.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { openConditions } from '../notifications/notification-evaluator.service';
 
 /**
  * Operational status for the console.
@@ -27,6 +30,7 @@ export class SystemController {
     private readonly tls: ConsoleTlsService,
     private readonly grants: ConsoleTlsGrantService,
     private readonly deploymentService: DeploymentService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -65,6 +69,28 @@ export class SystemController {
   @Get('status')
   get(@Req() request: AuthenticatedRequest): Promise<SystemStatus> {
     return this.status.status(request.principal?.role === 'ADMIN');
+  }
+
+  /**
+   * The operational conditions currently open (ADR-0021).
+   *
+   * Same permission as `status`: these describe the deployment's health, which
+   * is what anyone who can read the inventory is already looking at. Nothing
+   * here names a person or an action, so nothing here needs a stricter gate —
+   * and if that ever stops being true, the constraint has been broken rather
+   * than the permission being wrong.
+   */
+  @RequirePermission('inventory:read')
+  @Get('conditions')
+  async conditions(): Promise<OperationalCondition[]> {
+    const rows = await openConditions(this.prisma);
+    return rows.map((row) => ({
+      key: row.key,
+      kind: row.kind,
+      severity: row.severity === 'critical' ? 'critical' : 'warning',
+      summary: row.summary,
+      openedAt: row.openedAt.toISOString(),
+    }));
   }
 
   /**

@@ -186,6 +186,18 @@ export const envSchema = z.object({
    */
   PUPPETDB_POLL_OVERLAP_MS: z.coerce.number().int().min(0).max(3_600_000).default(120_000),
 
+  /**
+   * How often operational conditions are evaluated (ADR-0021). 0 disables it
+   * in this process.
+   *
+   * COUPLED to the ENC sync timer, which lives on the Puppet server and cannot
+   * be seen from here. Three consecutive failures at this interval is the
+   * floor before "a Puppet server is behind" opens — five minutes gives
+   * fifteen, comfortably longer than a five-minute sync plus jitter. Shorten
+   * this and that condition starts firing on routine edits.
+   */
+  NOTIFICATION_EVALUATION_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
+
   // ADR-0003
   ENC_OUTPUT_DIR: z.string().min(1),
 

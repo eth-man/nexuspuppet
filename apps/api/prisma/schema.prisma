@@ -524,3 +524,33 @@ model EncReplicationPeer {
   @@index([lastFetchAt])
   @@map("enc_replication_peers")
 }
+
+/// An operational condition and its lifecycle (ADR-0021 §2).
+///
+/// One row per condition, updated in place — never a row per evaluation. The
+/// evaluator runs every few minutes forever; an append-only history would grow
+/// without bound to record that nothing changed, which is the same reasoning
+/// that made EncReplicationPeer a single row per puller.
+model NotificationCondition {
+  /// Stable identity, including the instance for per-peer conditions —
+  /// `replication.behind:puppet.corp.local`. Two peers behind are two
+  /// conditions, so fixing one resolves one.
+  key                 String    @id @db.VarChar(255)
+  /// The catalogue entry, without the instance suffix. Lets a caller ask "any
+  /// replication problem?" without parsing keys.
+  kind                String    @db.VarChar(64)
+  severity            String    @db.VarChar(16)
+  /// Human-readable, and NEVER naming a person or an action (ADR-0021 §1).
+  summary             String
+  /// Consecutive failing evaluations. Reset by any passing one, which is what
+  /// makes the open threshold mean CONSECUTIVE.
+  consecutiveFailures Int       @default(0)
+  /// Null until it has ever opened. Open is `openedAt != null && resolvedAt == null`.
+  openedAt            DateTime?
+  resolvedAt          DateTime?
+  lastEvaluatedAt     DateTime
+
+  @@index([openedAt])
+  @@index([kind])
+  @@map("notification_conditions")
+}
