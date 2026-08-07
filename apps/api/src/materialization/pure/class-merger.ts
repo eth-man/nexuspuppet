@@ -1,6 +1,8 @@
 import type {
   ClassificationConflict,
   EncDocument,
+  KeyAttribution,
+  MergeAttribution,
   MergeResult,
   PuppetValue,
 } from '@nexuspuppet/contracts';
@@ -50,6 +52,21 @@ export function mergeGroups(groups: readonly MergeableGroup[]): MergeResult {
   const parameters: Record<string, PuppetValue> = {};
   const conflicts: ClassificationConflict[] = [];
 
+  /*
+   * Attribution (#141). The provenance maps below already know who set what —
+   * this keeps it rather than discarding everything except the disagreements.
+   *
+   * Conflicts answer "what disagreed". This answers "where is this line from",
+   * which is the question asked far more often and previously needed opening
+   * every group in turn and re-deriving the merge by hand.
+   */
+  const attribution: MergeAttribution = {
+    classes: {},
+    classParameters: {},
+    parameters: {},
+    environment: null,
+  };
+
   // key -> who set it last
   const classParamProvenance = new Map<string, Provenance>();
   const paramProvenance = new Map<string, Provenance>();
@@ -62,6 +79,11 @@ export function mergeGroups(groups: readonly MergeableGroup[]): MergeResult {
       // parameters of its own.
       classes[className] ??= {};
       const target = classes[className];
+
+      // Union, so every group that names the class contributed and none lost.
+      // Guarded against a group listing the same class twice.
+      const includedBy = (attribution.classes[className] ??= []);
+      if (!includedBy.includes(group.id)) includedBy.push(group.id);
 
       for (const [paramKey, value] of Object.entries(params)) {
         const provenanceKey = `${className}.${paramKey}`;
@@ -81,6 +103,11 @@ export function mergeGroups(groups: readonly MergeableGroup[]): MergeResult {
         }
 
         target[paramKey] = value;
+        attribution.classParameters[provenanceKey] = beat(
+          attribution.classParameters[provenanceKey],
+          group.id,
+          previous,
+        );
         classParamProvenance.set(provenanceKey, {
           groupId: group.id,
           groupName: group.name,
@@ -106,6 +133,7 @@ export function mergeGroups(groups: readonly MergeableGroup[]): MergeResult {
       }
 
       parameters[key] = value;
+      attribution.parameters[key] = beat(attribution.parameters[key], group.id, previous);
       paramProvenance.set(key, { groupId: group.id, groupName: group.name, value });
     }
 
@@ -127,6 +155,7 @@ export function mergeGroups(groups: readonly MergeableGroup[]): MergeResult {
         });
       }
       environment = group.environment;
+      attribution.environment = beat(attribution.environment, group.id, environmentProvenance);
       environmentProvenance = {
         groupId: group.id,
         groupName: group.name,
@@ -144,6 +173,33 @@ export function mergeGroups(groups: readonly MergeableGroup[]): MergeResult {
     document,
     conflicts,
     appliedGroupIds: groups.map((g) => g.id),
+    attribution,
+  };
+}
+
+/**
+ * Record that `groupId` now owns a key, and that `previous` was overridden.
+ *
+ * Accumulates across the whole merge rather than keeping only the last loser,
+ * so a key set by four groups names all four — and it records an override even
+ * when the values were EQUAL. Those are not conflicts, but the earlier group
+ * did still set it, and answering "who set this?" with only the winner would be
+ * a half-truth. The value travels with the entry so the console can say whether
+ * it actually differed.
+ */
+function beat(
+  existing: KeyAttribution | null | undefined,
+  groupId: string,
+  previous: Provenance | undefined,
+): KeyAttribution {
+  const overridden = existing?.overridden ?? [];
+
+  return {
+    groupId,
+    overridden:
+      previous === undefined
+        ? overridden
+        : [...overridden, { groupId: previous.groupId, value: previous.value }],
   };
 }
 

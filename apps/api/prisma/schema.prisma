@@ -371,6 +371,13 @@ model EncMaterialization {
   appliedGroupIds String[]    @db.Uuid
   /// Conflicts detected during merge. Warnings, not errors — surfaced in the UI (ADR-0009).
   conflicts       Json        @default("[]")
+  /// Where every class, parameter and the environment came from (#141).
+  ///
+  /// Group IDS only, never names: `explain()` already loads the applied groups
+  /// to render them in merge order, so a name costs nothing at read time — and
+  /// a stored name goes stale the moment a group is renamed, which is exactly
+  /// when somebody is most likely to be reading this.
+  attribution     Json        @default("{}")
   writtenAt       DateTime    @default(now())
 
   @@index([writtenAt])

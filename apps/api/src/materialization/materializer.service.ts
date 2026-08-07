@@ -1,3 +1,4 @@
+import type { Prisma } from '../generated/prisma';
 import { Injectable, Logger } from '@nestjs/common';
 import type { ClassificationConflict, PuppetValue } from '@nexuspuppet/contracts';
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
@@ -318,12 +319,14 @@ export class MaterializerService {
           relativePath: `nodes/${certname}.yaml`,
           appliedGroupIds: merged.appliedGroupIds,
           conflicts: merged.conflicts as unknown as PuppetValue[],
+          attribution: merged.attribution as unknown as Prisma.InputJsonObject,
         },
         update: {
           contentHash: rendered.contentHash,
           revision,
           appliedGroupIds: merged.appliedGroupIds,
           conflicts: merged.conflicts as unknown as PuppetValue[],
+          attribution: merged.attribution as unknown as Prisma.InputJsonObject,
           writtenAt: new Date(),
         },
       });
