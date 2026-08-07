@@ -1,4 +1,9 @@
-import type { MatchStrategy, NodeRule, RuleOperator } from '@nexuspuppet/contracts';
+import type {
+  GroupMatchExplanation,
+  MatchStrategy,
+  NodeRule,
+  RuleOperator,
+} from '@nexuspuppet/contracts';
 
 /**
  * Pure rule evaluation: (facts, groups) -> matched groups, in merge order.
@@ -177,4 +182,43 @@ export function matchGroups(
   return groups
     .filter((group) => groupMatches(node, group))
     .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.id.localeCompare(b.id)));
+}
+
+/**
+ * WHY a group applied, rather than whether (#142).
+ *
+ * A companion to `groupMatches` that reports the reasoning instead of the
+ * verdict. Deliberately does NOT re-decide the match: it re-evaluates each
+ * rule to describe it, and the caller only asks about groups that already
+ * matched. Two functions computing "did this match" would be two answers
+ * waiting to disagree, and the one on disk would win silently.
+ *
+ * Reports EVERY rule, not only the satisfied ones. Under ANY_RULE a group
+ * applies on one rule out of five, and knowing which four did not is most of
+ * the explanation — it is the difference between "this is why" and "one of
+ * these is why".
+ */
+export function explainMatch(node: EvaluableNode, group: EvaluableGroup): GroupMatchExplanation {
+  if (group.strategy === 'PINNED') {
+    // Pinned is the whole answer. There is no rule to inspect, and saying so
+    // plainly beats an empty rule list the reader has to interpret.
+    return { groupId: group.id, strategy: group.strategy, rules: [] };
+  }
+
+  return {
+    groupId: group.id,
+    strategy: group.strategy,
+    rules: group.rules.map((rule) => {
+      const actual = resolveFactPath(node.facts, rule.factPath);
+
+      return {
+        factPath: rule.factPath,
+        operator: rule.operator,
+        ...(rule.value === undefined ? {} : { expected: rule.value }),
+        ...(actual === undefined ? {} : { actual }),
+        factMissing: actual === undefined,
+        matched: evaluateRule(node.facts, rule),
+      };
+    }),
+  };
 }

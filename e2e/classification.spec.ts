@@ -504,48 +504,82 @@ test.describe('classification provenance', () => {
      */
     await expect(page.getByText(new RegExp(`over\\s+${low}`))).toBeVisible();
   });
-});
 
-async function firstCertname(request: import('@playwright/test').APIRequestContext) {
-  const response = await request.get('/api/nodes?limit=1');
-  if (!response.ok()) return null;
-  const body = (await response.json()) as
-    { items?: Array<{ certname: string }> } | Array<{ certname: string }>;
-  const items = Array.isArray(body) ? body : (body.items ?? []);
-  return items[0]?.certname ?? null;
-}
-
-async function createPinnedGroup(
-  request: import('@playwright/test').APIRequestContext,
-  name: string,
-  rank: number,
-  certname: string,
-  port: number,
-): Promise<string> {
-  const created = await request.post('/api/node-groups', {
-    data: { name, rank, strategy: 'PINNED' },
-  });
-  if (!created.ok()) return '';
-  const { group } = (await created.json()) as { group: { id: string } };
-
-  await request.post(`/api/node-groups/${group.id}/pins`, { data: { certnames: [certname] } });
-  await request.put(`/api/node-groups/${group.id}/classes`, {
-    data: { className: 'profile::provenance_demo', params: { port } },
-  });
-  return group.id;
-}
-
-/** The write answers 202; the file lands a moment later (ADR-0003). */
-async function waitForMaterialization(
-  request: import('@playwright/test').APIRequestContext,
-  certname: string,
-): Promise<void> {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const response = await request.get(`/api/nodes/${encodeURIComponent(certname)}/classification`);
-    if (response.ok()) {
-      const body = (await response.json()) as { attribution?: unknown; pending?: boolean };
-      if (body.attribution !== undefined && body.pending !== true) return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  async function firstCertname(request: import('@playwright/test').APIRequestContext) {
+    const response = await request.get('/api/nodes?limit=1');
+    if (!response.ok()) return null;
+    const body = (await response.json()) as
+      { items?: Array<{ certname: string }> } | Array<{ certname: string }>;
+    const items = Array.isArray(body) ? body : (body.items ?? []);
+    return items[0]?.certname ?? null;
   }
-}
+
+  async function createPinnedGroup(
+    request: import('@playwright/test').APIRequestContext,
+    name: string,
+    rank: number,
+    certname: string,
+    port: number,
+  ): Promise<string> {
+    const created = await request.post('/api/node-groups', {
+      data: { name, rank, strategy: 'PINNED' },
+    });
+    if (!created.ok()) return '';
+    const { group } = (await created.json()) as { group: { id: string } };
+
+    await request.post(`/api/node-groups/${group.id}/pins`, { data: { certnames: [certname] } });
+    await request.put(`/api/node-groups/${group.id}/classes`, {
+      data: { className: 'profile::provenance_demo', params: { port } },
+    });
+    return group.id;
+  }
+
+  /** The write answers 202; the file lands a moment later (ADR-0003). */
+  async function waitForMaterialization(
+    request: import('@playwright/test').APIRequestContext,
+    certname: string,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const response = await request.get(
+        `/api/nodes/${encodeURIComponent(certname)}/classification`,
+      );
+      if (response.ok()) {
+        const body = (await response.json()) as { attribution?: unknown; pending?: boolean };
+        if (body.attribution !== undefined && body.pending !== true) return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  test('says why each group matched, naming the fact and its projected value', async ({
+    page,
+    request,
+  }) => {
+    await apiLogin(request);
+
+    const certname = await firstCertname(request);
+    test.skip(certname === null, 'the projection has produced no nodes to classify');
+
+    const pinned = uniqueGroupName('why-pinned');
+    const id = await createPinnedGroup(request, pinned, 120, certname as string, 1234);
+    expect(id).not.toBe('');
+
+    await waitForMaterialization(request, certname as string);
+
+    await login(page);
+    await page.goto(`/nodes/${encodeURIComponent(certname as string)}`);
+
+    /*
+     * "pinned — ... no rule was evaluated" is produced by the match-reason
+     * renderer and nowhere else. The group NAME would not do: it already
+     * appears in the applied list, so asserting it would pass with the reason
+     * removed entirely — the same trap that made the #141 test vacuous twice.
+     */
+    // Scoped to THIS group's row. The reason renders once per applied group,
+    // and the previous test's groups are still pinned to the same node — so an
+    // unscoped match is ambiguous, and scoping also asserts the stronger thing:
+    // that the reason belongs to the group it is shown under.
+    const row = page.getByRole('listitem').filter({ hasText: pinned });
+    await expect(row.getByText(/pinned — this node is named on the group/)).toBeVisible();
+  });
+});

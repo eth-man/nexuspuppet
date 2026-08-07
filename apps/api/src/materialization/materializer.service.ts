@@ -4,7 +4,7 @@ import type { ClassificationConflict, PuppetValue } from '@nexuspuppet/contracts
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
 import type { TransactionClient } from './materialization.service';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
-import { matchGroups, type EvaluableGroup } from './pure/rule-evaluator';
+import { explainMatch, matchGroups, type EvaluableGroup } from './pure/rule-evaluator';
 import { mergeGroups, type MergeableGroup } from './pure/class-merger';
 import { renderEncDocument, renderDefaultDocument } from './pure/enc-yaml-renderer';
 
@@ -293,6 +293,9 @@ export class MaterializerService {
     const facts = (node?.facts ?? {}) as Record<string, unknown>;
 
     const matched = matchGroups({ certname, facts }, groups.evaluable);
+    // Why each one matched, captured against the SAME facts that decided it
+    // (#142). Explaining it later would judge a projection that has moved on.
+    const matchReasons = matched.map((group) => explainMatch({ certname, facts }, group));
     const mergeable = matched.map((g) => groups.mergeableById.get(g.id)).filter(isPresent);
 
     const merged = mergeGroups(mergeable);
@@ -320,6 +323,7 @@ export class MaterializerService {
           appliedGroupIds: merged.appliedGroupIds,
           conflicts: merged.conflicts as unknown as PuppetValue[],
           attribution: merged.attribution as unknown as Prisma.InputJsonObject,
+          matchReasons: matchReasons as unknown as Prisma.InputJsonArray,
         },
         update: {
           contentHash: rendered.contentHash,
@@ -327,6 +331,7 @@ export class MaterializerService {
           appliedGroupIds: merged.appliedGroupIds,
           conflicts: merged.conflicts as unknown as PuppetValue[],
           attribution: merged.attribution as unknown as Prisma.InputJsonObject,
+          matchReasons: matchReasons as unknown as Prisma.InputJsonArray,
           writtenAt: new Date(),
         },
       });

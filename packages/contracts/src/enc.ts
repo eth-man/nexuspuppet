@@ -84,6 +84,51 @@ export type EncDocument = z.infer<typeof encDocumentSchema>;
  * pattern — but they must be visible rather than silent.
  */
 /**
+ * How one rule evaluated against a node's projected facts (#142).
+ *
+ * `actual` is the value the rule was judged against — from the ManagedNode
+ * PROJECTION, not from PuppetDB live (ADR-0004). Those differ: a node can
+ * report something today that the projection has not caught up with, and the
+ * classification on disk was decided by the projection. `factsAsOf` on the
+ * explanation is the timestamp this value belongs to.
+ */
+export interface EvaluatedRule {
+  factPath: string;
+  operator: RuleOperator;
+  /** Absent for EXISTS / NOT_EXISTS. */
+  expected?: unknown;
+  /** What the projection held. Undefined when the path resolved to nothing. */
+  actual?: unknown;
+  /**
+   * The fact path resolved to nothing.
+   *
+   * Worth surfacing even on a group that matched, because a path outside the
+   * projected allow-list is indistinguishable from a genuinely absent fact —
+   * so a rule can look deliberate and be permanently unsatisfiable.
+   */
+  factMissing: boolean;
+  matched: boolean;
+}
+
+/**
+ * Why a group applied to a node (#142).
+ *
+ * The Classification tab could say WHICH groups applied and in what order, but
+ * not why any of them did — which meant reading the rules, then the node's
+ * facts, then evaluating the match by hand, against a projection that may not
+ * match what the node reports now.
+ */
+export interface GroupMatchExplanation {
+  groupId: string;
+  strategy: MatchStrategy;
+  /**
+   * Every rule and how it evaluated. Empty for a PINNED group, which has no
+   * rules to inspect — and where "pinned" is itself the whole answer.
+   */
+  rules: EvaluatedRule[];
+}
+
+/**
  * Which group put a value in the document, and which groups it beat (#141).
  *
  * GROUP IDS ONLY, never names. `explain()` already loads the applied groups to

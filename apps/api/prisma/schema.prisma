@@ -371,6 +371,14 @@ model EncMaterialization {
   appliedGroupIds String[]    @db.Uuid
   /// Conflicts detected during merge. Warnings, not errors — surfaced in the UI (ADR-0009).
   conflicts       Json        @default("[]")
+  /// Why each applied group matched: pinned, or which rule on which fact
+  /// holding what value (#142).
+  ///
+  /// Recorded at materialization time because it describes the evaluation that
+  /// produced THIS file. Recomputing it at read time would judge today's
+  /// projection, which can differ from the one that decided what is on disk —
+  /// and would then explain a classification nobody is running.
+  matchReasons    Json        @default("[]")
   /// Where every class, parameter and the environment came from (#141).
   ///
   /// Group IDS only, never names: `explain()` already loads the applied groups
