@@ -61,6 +61,60 @@ describe('AuthProviderResolver', () => {
   // paying 1.5s per case would make this suite take a minute.
   const resolver = () => new AuthProviderResolver([local, ldap], fakePrisma(accounts), 0);
 
+  /**
+   * What the login page is rendered from (ADR-0023 §3).
+   *
+   * The endpoint that answers this used to read the `AUTH_PROVIDER` token,
+   * which the registry pins to core's local provider and refuses to let
+   * anything replace (ADR-0015 §3) — so every deployment described itself as
+   * `local`, whatever it was actually running. These assert the description
+   * comes from the registered providers instead.
+   */
+  describe('descriptors', () => {
+    it('describes every registered source, not just the local one', () => {
+      expect(resolver().descriptors()).toEqual([
+        { source: 'ldap', mode: 'credentials', identifierLabel: 'Email' },
+        { source: 'local', mode: 'credentials', identifierLabel: 'Email' },
+      ]);
+    });
+
+    it('reports a redirect provider, which is what draws the SSO button', () => {
+      const oidc: IAuthProvider = { ...stub('oidc', 'unused'), mode: 'redirect' };
+      const withSso = new AuthProviderResolver([local, oidc], fakePrisma(accounts), 0);
+
+      expect(withSso.descriptors()).toEqual([
+        { source: 'local', mode: 'credentials', identifierLabel: 'Email' },
+        { source: 'oidc', mode: 'redirect', identifierLabel: 'Email' },
+      ]);
+    });
+
+    it("carries each provider's own identifier label", () => {
+      const ad: IAuthProvider = { ...stub('ldap', 'x'), identifierLabel: 'Username' };
+      const withAd = new AuthProviderResolver([local, ad], fakePrisma(accounts), 0);
+
+      expect(withAd.descriptors().find((d) => d.source === 'ldap')?.identifierLabel).toBe(
+        'Username',
+      );
+    });
+
+    /*
+     * Insertion order is whatever DI happened to produce. A login page that
+     * reorders its own buttons between polls is a login page nobody trusts.
+     */
+    it('is sorted, so the answer does not depend on registration order', () => {
+      const forwards = new AuthProviderResolver([local, ldap], fakePrisma(accounts), 0);
+      const backwards = new AuthProviderResolver([ldap, local], fakePrisma(accounts), 0);
+
+      expect(forwards.descriptors()).toEqual(backwards.descriptors());
+    });
+
+    it('is a list even with one source', () => {
+      const alone = new AuthProviderResolver([local], fakePrisma(accounts), 0);
+
+      expect(alone.descriptors()).toHaveLength(1);
+    });
+  });
+
   describe('dispatch', () => {
     it('sends a local account to the local provider', async () => {
       const result = await resolver().authenticate({

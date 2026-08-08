@@ -124,6 +124,32 @@ export type AuthResult =
 export const authModeSchema = z.enum(['credentials', 'redirect']);
 export type AuthMode = z.infer<typeof authModeSchema>;
 
+/**
+ * One way this deployment can authenticate somebody (ADR-0023 §3).
+ *
+ * A deployment may have several — local beside a directory, a directory beside
+ * a redirect provider — so the login endpoint answers with a LIST of these
+ * rather than with "the" provider.
+ */
+export interface AuthSourceDescriptor {
+  /** Matches `User.authSource`, which is what decides who authenticates an account. */
+  readonly source: string;
+  readonly mode: AuthMode;
+  /** What to call the identifier on the form. Meaningless for a redirect source. */
+  readonly identifierLabel: string;
+}
+
+/**
+ * The answer to "how do I log in here".
+ *
+ * **A list even with one entry**, deliberately. A shape that is an object when
+ * there is one source and a list when there are several is a shape every caller
+ * gets wrong once, and the caller that gets it wrong is a login page.
+ */
+export interface AuthSources {
+  readonly sources: readonly AuthSourceDescriptor[];
+}
+
 /** Where to send the browser, and the state to correlate the return leg. */
 export interface RedirectChallenge {
   location: string;
