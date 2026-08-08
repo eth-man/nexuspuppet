@@ -93,6 +93,12 @@ export class SystemStatusService {
    * hash. Hashing the tree would mean reading every node file on every status
    * poll — and the materializer already refuses to write when content is
    * unchanged, so its newest `writtenAt` only advances on a real change.
+   *
+   * Both timestamps are stamped by THIS process, which is what makes the
+   * comparison sound. A peer's own clock never enters it: two hosts that
+   * disagree by a few seconds would otherwise decide whether an estate looks
+   * healthy. It also still catches a peer that has stopped polling entirely —
+   * its `lastFetchAt` freezes, so the next real change leaves it behind.
    */
   private async replicationStatus(): Promise<SystemStatus['replication']> {
     const [peers, newest] = await Promise.all([
@@ -119,10 +125,18 @@ export class SystemStatusService {
          * A peer that has NEVER received a tree is behind as soon as anything
          * has been materialized — it is reachable and holds nothing, which is
          * the worst state and the easiest to miss.
+         *
+         * Otherwise the question is "has it POLLED since the last real change",
+         * not "has it TRANSFERRED since the last real change". A peer that
+         * polls and is answered 304 is current BY DEFINITION — 304 means the
+         * bytes it holds are identical to the ones we would send. Comparing
+         * against `lastChangedAt`, which only advances on a 200, marks every
+         * such peer permanently behind: it will never transfer again precisely
+         * because it is already up to date.
          */
         behind:
           lastMaterializedAt !== null &&
-          (peer.lastChangedAt === null || peer.lastChangedAt < lastMaterializedAt),
+          (peer.lastChangedAt === null || peer.lastFetchAt < lastMaterializedAt),
       })),
     };
   }

@@ -93,6 +93,7 @@ describe('system status (integration)', () => {
     await prisma.auditDeliveryJob.deleteMany();
     await prisma.auditLog.deleteMany();
     await prisma.encMaterializationJob.deleteMany();
+    await prisma.encReplicationPeer.deleteMany();
     await prisma.managedNode.deleteMany();
     await prisma.user.deleteMany();
   });
@@ -339,6 +340,78 @@ describe('system status (integration)', () => {
       const status = await service(new NoopAuditTransport(), ['role', 'fqdn']).status(false);
 
       expect(status.projection.factsNoNodeReports).toEqual(['role', 'fqdn']);
+    });
+  });
+
+  /**
+   * `behind` had no coverage at all, which is how it shipped reading backwards.
+   *
+   * A peer polls every few minutes and is answered 304 for as long as the tree
+   * is unchanged — which is the NORMAL state of a healthy estate, not an
+   * exception. Judging it by its last TRANSFER therefore marks every healthy
+   * peer behind forever: the only thing that would clear the alert is the very
+   * transfer that being up to date makes unnecessary.
+   */
+  describe('replication', () => {
+    const peer = (over: Record<string, unknown> = {}) =>
+      prisma.encReplicationPeer.create({
+        data: {
+          certname: 'puppet.test',
+          lastFetchAt: new Date(),
+          lastStatus: 304,
+          lastEtag: 'abc',
+          fetchCount: 10,
+          firstSeenAt: new Date(),
+          ...over,
+        },
+      });
+
+    const materializedAt = async (writtenAt: Date) => {
+      await prisma.managedNode.create({
+        data: { certname: 'a.test', facts: {}, environment: 'production' },
+      });
+      await prisma.encMaterialization.create({
+        data: {
+          certname: 'a.test',
+          contentHash: 'h',
+          revision: 1,
+          relativePath: 'nodes/a.test.yaml',
+          writtenAt,
+        },
+      });
+    };
+
+    it('does not call a peer behind when it polled after the last change and got 304', async () => {
+      const changed = new Date(Date.now() - 600_000);
+      await materializedAt(changed);
+      // Received the tree BEFORE that change, then polled after it and was told
+      // 304 — which proves the bytes it holds are the current ones.
+      await peer({ lastChangedAt: new Date(Date.now() - 900_000), lastFetchAt: new Date() });
+
+      const status = await service().status(false);
+
+      expect(status.replication?.peers[0]?.behind).toBe(false);
+    });
+
+    it('calls a peer behind when the tree changed after its last poll', async () => {
+      await peer({
+        lastChangedAt: new Date(Date.now() - 900_000),
+        lastFetchAt: new Date(Date.now() - 900_000),
+      });
+      await materializedAt(new Date());
+
+      const status = await service().status(false);
+
+      expect(status.replication?.peers[0]?.behind).toBe(true);
+    });
+
+    it('calls a peer that has never received a tree behind', async () => {
+      await materializedAt(new Date(Date.now() - 600_000));
+      await peer({ lastChangedAt: null, lastFetchAt: new Date() });
+
+      const status = await service().status(false);
+
+      expect(status.replication?.peers[0]?.behind).toBe(true);
     });
   });
 });

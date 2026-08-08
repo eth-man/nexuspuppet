@@ -201,6 +201,7 @@ describe('SystemStatusService audit forwarding and retention', () => {
 describe('SystemStatusService replication (ADR-0019 §6)', () => {
   const AT = new Date('2026-08-06T22:00:00.000Z');
   const EARLIER = new Date('2026-08-06T21:00:00.000Z');
+  const LATER = new Date('2026-08-06T23:00:00.000Z');
 
   const peer = (over: Record<string, unknown> = {}) => ({
     certname: 'puppet.corp.local',
@@ -245,11 +246,46 @@ describe('SystemStatusService replication (ADR-0019 §6)', () => {
     expect(status.replication?.peers[0]?.behind).toBe(false);
   });
 
-  it('is behind when classification was written after it last received', async () => {
+  it('is behind when classification changed after its last poll', async () => {
     const status = await build({
       replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
-      peers: [peer({ lastChangedAt: EARLIER })],
+      peers: [peer({ lastChangedAt: EARLIER, lastFetchAt: EARLIER })],
       lastMaterializedAt: AT,
+    }).status(false);
+
+    expect(status.replication?.peers[0]?.behind).toBe(true);
+  });
+
+  /*
+   * The bug this replaced a test for.
+   *
+   * `lastChangedAt` advances only on a 200, so a peer that is up to date stops
+   * advancing it — it is answered 304 precisely BECAUSE it already holds the
+   * current bytes. Judging it by its last transfer therefore reports every
+   * healthy peer as permanently behind, and the only event that would clear
+   * the alert is the transfer that being current makes unnecessary.
+   *
+   * What matters is whether it has POLLED since the last real change.
+   */
+  it('is not behind when it polled after the change and was answered 304', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      peers: [peer({ lastChangedAt: EARLIER, lastFetchAt: LATER, lastStatus: 304 })],
+      lastMaterializedAt: AT,
+    }).status(false);
+
+    expect(status.replication?.peers[0]?.behind).toBe(false);
+  });
+
+  /*
+   * A peer that stops polling altogether must still be caught: its
+   * `lastFetchAt` freezes, so the next real change leaves it behind.
+   */
+  it('is behind when it has stopped polling and classification moved on', async () => {
+    const status = await build({
+      replication: { enabled: true, allowedCertnames: ['puppet.corp.local'] },
+      peers: [peer({ lastChangedAt: EARLIER, lastFetchAt: EARLIER, lastStatus: 304 })],
+      lastMaterializedAt: LATER,
     }).status(false);
 
     expect(status.replication?.peers[0]?.behind).toBe(true);
