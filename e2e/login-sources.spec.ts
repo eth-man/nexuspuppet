@@ -66,9 +66,16 @@ test.describe('the login screen', () => {
   test('offers a password form when every source takes credentials', async ({ page }) => {
     const hits = await loginPageWith(page, [LDAP, LOCAL]);
 
-    // If the stub never fired, everything below is asserting the real
-    // deployment's shape and proves nothing.
-    expect(hits()).toBeGreaterThan(0);
+    /*
+     * If the stub never fired, everything below is asserting the real
+     * deployment's shape and proves nothing.
+     *
+     * POLLED, not read once. `goto` resolves on load; the page fetches this
+     * after hydration, so a bare read is a race that reports 0 on a fast
+     * machine and passes on a slow one. Every other assertion here retries,
+     * which is why this was the only one that failed.
+     */
+    await expect.poll(() => hits()).toBeGreaterThan(0);
     await expect(passwordField(page)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await expect(page.getByRole('link', { name: /^Continue with/ })).toHaveCount(0);
