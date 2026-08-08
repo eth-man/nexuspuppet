@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardDescription, CardHeader, CardHeading, CardTitle } from '@/components/ui/card';
+import { useCapabilities } from '@/lib/queries';
 
 /**
  * A feature this deployment does not have, rendered as a header and nothing else.
@@ -40,6 +41,25 @@ export function CapabilityCard({
   /** What still happens without it. Absence of a feature is not absence of behaviour. */
   note?: string;
 }) {
+  /*
+   * "Enterprise" is only an answer in CORE.
+   *
+   * On a deployment already running the enterprise layer, a padlock reading
+   * "Enterprise" tells an operator to buy what they have bought. That is how
+   * this read on staging: edition enterprise, OIDC locked — and the reason had
+   * nothing to do with licensing. The layer advertises exactly one directory
+   * capability, `directory.ldap` OR `sso.oidc`, because it refuses to run both
+   * (ADR-0015). LDAP was configured, so OIDC could never appear.
+   *
+   * So this deliberately does NOT explain the absence: from here, a licence
+   * that excludes a capability, a build without it, and a deployment that
+   * chose the other option are indistinguishable. Guessing produced a
+   * confidently wrong sentence once already. The caller knows its own domain
+   * and says why in `note`; this only stops claiming it is about the edition.
+   */
+  const capabilities = useCapabilities();
+  const onEnterprise = capabilities.data?.edition === 'enterprise';
+
   return (
     <Card>
       <CardHeader>
@@ -49,26 +69,34 @@ export function CapabilityCard({
         </CardHeading>
         <div className="flex shrink-0 items-center gap-2">
           <Badge className="border-line/60 text-ink-faint">
-            {/* Decorative: the word "Enterprise" beside it already carries the meaning. */}
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className="size-3"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <rect x="4" y="10" width="16" height="10" rx="2" />
-              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-            </svg>
-            Enterprise
+            {/*
+              The padlock is decorative and only appears where the label means
+              "locked to you". On enterprise it is not locked to anybody — the
+              capability simply is not there — so the badge drops it and says
+              so instead.
+            */}
+            {!onEnterprise && (
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="size-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <rect x="4" y="10" width="16" height="10" rx="2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+              </svg>
+            )}
+            {onEnterprise ? 'Unavailable' : 'Enterprise'}
           </Badge>
         </div>
       </CardHeader>
 
       <div className="border-t border-line px-3 py-2">
         <p className="text-[11px] text-ink-faint">
-          Requires the <span className="font-mono">{capability}</span> capability.
+          Requires the <span className="font-mono">{capability}</span> capability, which this
+          deployment does not advertise.
           {note !== undefined && <> {note}</>}
         </p>
       </div>

@@ -14,7 +14,8 @@
   "scripts": {
     "enterprise:fetch": "node scripts/enterprise.mjs",
     "build": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run build --workspaces --if-present",
-    "typecheck": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run typecheck --workspaces --if-present && npm run typecheck:e2e",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { apiLogin, assertStackReachable, login } from './support';
+import { apiLogin, assertStackReachable, lockedBadgeWord, login } from './support';
 
 /**
  * The OIDC settings card on Settings → Directory (issue #106).
@@ -75,20 +75,52 @@ test.describe('OIDC settings card', () => {
     expect([200, 400, 403, 501]).toContain(response.status());
   });
 
-  test('core names the capability and renders no unusable form', async ({ page, request }) => {
+  test('names the capability and renders no unusable form', async ({ page, request }) => {
     test.skip(await ssoAvailable(request), 'entitled deployment — the form is real');
+
+    const badge = await lockedBadgeWord(request);
 
     await login(page);
     await page.goto('/settings/auth');
 
     await expect(page.getByText('sso.oidc')).toBeVisible();
-    await expect(page.getByText('Enterprise').first()).toBeVisible();
+    /*
+     * The badge word, taken from the edition rather than hard-coded.
+     *
+     * This asserted "Enterprise" unconditionally, which passed in core and
+     * left the enterprise rendering — a padlock telling an operator to buy
+     * what they already run — the one nothing checked.
+     */
+    await expect(page.getByText(badge).first()).toBeVisible();
 
     // Gone, not disabled — see integrations.spec.ts for why that distinction
     // is what makes this assertion able to fail. By role: `Issuer` also
     // matches the InfoHint button "About the issuer" under substring matching.
     await expect(page.getByRole('textbox', { name: 'Issuer' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit settings' })).toHaveCount(0);
+  });
+
+  /*
+   * The rule the badge exists to obey, from the side that was wrong.
+   *
+   * On a deployment already running the enterprise layer, a locked card must
+   * not advertise "Enterprise" — there is nothing to buy. Asserting the
+   * ABSENCE is what makes this able to fail: the previous assertion looked for
+   * the word and found it, in both editions, and called that a pass.
+   */
+  test('an enterprise deployment is never told to buy Enterprise', async ({ page, request }) => {
+    test.skip(await ssoAvailable(request), 'entitled deployment — the card is a real form');
+    test.skip(
+      (await lockedBadgeWord(request)) !== 'Unavailable',
+      'core — Enterprise is the answer',
+    );
+
+    await login(page);
+    await page.goto('/settings/auth');
+
+    const card = page.locator('section,div').filter({ hasText: 'Single sign-on (OIDC)' }).last();
+    await expect(card.getByText('Enterprise')).toHaveCount(0);
+    await expect(page.getByText('sso.oidc')).toBeVisible();
   });
 
   test.describe('editing (needs sso.oidc)', () => {

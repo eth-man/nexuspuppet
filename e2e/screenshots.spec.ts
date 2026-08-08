@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiLogin, assertStackReachable, deleteGroupsByPrefix, login } from './support';
 
 /**
@@ -168,11 +168,7 @@ test.describe('@screenshots', () => {
   });
 });
 
-async function put(
-  request: Parameters<Parameters<typeof test>[1]>[0]['request'],
-  url: string,
-  data: unknown,
-): Promise<void> {
+async function put(request: APIRequestContext, url: string, data: unknown): Promise<void> {
   const response = await request.put(url, { data });
   if (!response.ok()) {
     throw new Error(`PUT ${url} failed: HTTP ${response.status()} ${await response.text()}`);
@@ -180,7 +176,7 @@ async function put(
 }
 
 async function createGroup(
-  request: Parameters<Parameters<typeof test>[1]>[0]['request'],
+  request: APIRequestContext,
   name: string,
   rank: number,
 ): Promise<string> {

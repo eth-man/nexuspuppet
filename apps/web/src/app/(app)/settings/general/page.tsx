@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuth } from '@/providers/auth-provider';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DeploymentCard } from '@/components/data/deployment-card';
 import { ChangePasswordCard } from '@/components/data/change-password';
@@ -46,11 +45,22 @@ export default function GeneralSettingsPage() {
               What your role permits. The API enforces these independently — hidden controls are a
               convenience, not a boundary.
             </p>
+            {/*
+              NOT <Badge>, which uppercases — it is for things the system
+              produced, like a state or an environment. A permission is an
+              IDENTIFIER: the same string the API's 501 carries and the same one
+              an operator greps a log for. `CLASSIFICATION:READ` matches nothing
+              they will ever search, and Users & Roles renders it verbatim two
+              tabs away, so uppercasing it here made one token look like two.
+            */}
             <div className="mt-1 flex flex-wrap gap-1">
               {permissions.map((permission) => (
-                <Badge key={permission} className="font-mono">
+                <span
+                  key={permission}
+                  className="rounded border border-line bg-panel-raised px-1.5 py-0.5 font-mono text-[10px] text-ink-muted"
+                >
                   {permission}
-                </Badge>
+                </span>
               ))}
             </div>
           </CardContent>

@@ -24,7 +24,22 @@ import { cn } from '@/lib/utils';
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
   return (
     <table
-      className={cn('w-full border-collapse bg-surface glass-surface text-sm', className)}
+      className={cn(
+        'w-full border-collapse bg-surface glass-surface text-sm',
+        /*
+         * Edge gutters, here rather than on each page.
+         *
+         * These tables scroll inside a bare container with no padding of its
+         * own, so a cell's own `px-2` is the entire margin — and a right-aligned
+         * last column (the `view` link, a report hash) ends up touching the
+         * window edge with nothing between them. Setting it on the first and
+         * last cells keeps the interior density that makes the estate readable
+         * on one screen while giving the outer edges somewhere to breathe.
+         */
+        '[&_td:first-child]:pl-3 [&_th:first-child]:pl-3',
+        '[&_td:last-child]:pr-3 [&_th:last-child]:pr-3',
+        className,
+      )}
       {...props}
     />
   );

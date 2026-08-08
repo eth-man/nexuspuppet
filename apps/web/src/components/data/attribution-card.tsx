@@ -55,15 +55,23 @@ export function AttributionCard({
     attribution.environment === null;
 
   if (empty) {
+    /*
+     * One quiet line, NOT the same empty state as Applied groups.
+     *
+     * Both cards are on screen together, and both used to render "No groups
+     * match this node / It receives default.yaml" at full size — the identical
+     * sentence twice, a few inches apart, filling half the page to say one
+     * thing once. Attribution has nothing of its own to add when nothing was
+     * set, so it says the little it can and gets out of the way.
+     */
     return (
       <Card>
         <CardHeader>
           <CardTitle>Where it came from</CardTitle>
         </CardHeader>
-        <EmptyState
-          title="No groups match this node"
-          hint="It receives default.yaml, which is a valid empty classification."
-        />
+        <p className="px-3 py-2 text-[11px] text-ink-faint">
+          Nothing was set, so there is nothing to attribute.
+        </p>
       </Card>
     );
   }

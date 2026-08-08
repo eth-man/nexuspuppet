@@ -127,12 +127,28 @@ export function OidcSettingsPanel() {
    * editions.
    */
   if (!licensed) {
+    /*
+     * WHY it is absent, which the generic card cannot know.
+     *
+     * The enterprise layer advertises exactly one directory capability and
+     * refuses to run two providers at once (ADR-0015), so on an LDAP
+     * deployment `sso.oidc` can never appear — nothing is unlicensed and
+     * nothing is missing. Saying only "requires the sso.oidc capability" there
+     * reads as a licence problem and sends an operator to ask for a quote for
+     * something they already have.
+     */
+    const usingLdap = capabilities.data?.capabilities.includes('directory.ldap') === true;
+
     return (
       <CapabilityCard
         title="Single sign-on (OIDC)"
         description="Authenticate against an OpenID Connect provider."
         capability="sso.oidc"
-        note="Local accounts keep working either way."
+        note={
+          usingLdap
+            ? 'This deployment authenticates against LDAP, and one directory provider is supported at a time — unset LDAP_URL and set OIDC_ISSUER to switch. Local accounts keep working either way.'
+            : 'Local accounts keep working either way.'
+        }
       />
     );
   }
