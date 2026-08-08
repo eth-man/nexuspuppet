@@ -39,13 +39,3 @@ export function SettingsGuard({
 
   return <>{children}</>;
 }
-
-/** An area of Settings that exists but has nothing in it yet. */
-export function SettingsEmpty({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="rounded border border-line-soft bg-panel p-6">
-      <p className="text-xs font-semibold text-ink">{title}</p>
-      <p className="mt-1 max-w-prose text-xs text-ink-muted">{children}</p>
-    </div>
-  );
-}
