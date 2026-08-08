@@ -773,6 +773,47 @@ tree exactly where it is and exits non-zero so `systemctl status` shows it:
 > disable it with `NEXUSPUPPET_SYNC_MAX_SHRINK_PERCENT` only when the estate
 > really is shrinking that fast.
 
+#### Compile receipts (ADR-0022)
+
+The sync script writes `.revision` into every tree it installs — the server's
+ETag verbatim — and `nexuspuppet-enc.sh` appends one line per compile:
+
+```
+<revision> <certname>
+```
+
+Those lines are carried back on the next poll and discarded once accepted, which
+is what turns "did this node get my change?" into an equality check on a
+revision instead of arithmetic on two hosts' clocks.
+
+**It needs one thing from you: the group puppetserver runs as.** The receipts
+directory is created `0770 root:<group>` so the puppetserver user can append and
+this script can rotate. It defaults to `puppet`; on Puppet Enterprise set:
+
+```bash
+# /etc/default/nexuspuppet-sync
+NEXUSPUPPET_SYNC_RECEIPTS_GROUP=pe-puppet
+```
+
+Get it wrong and the only symptom is silence — the compile path is forbidden
+from complaining, because a catalog must never fail over bookkeeping. So the
+sync script says it instead, on every run:
+
+```
+nexuspuppet-sync: warning: group 'puppet' does not exist or cannot be assigned
+to /var/lib/nexuspuppet-sync/receipts; compile receipts are disabled.
+```
+
+**Receipts are droppable, and the script will drop them.** They are capped at
+`NEXUSPUPPET_SYNC_MAX_RECEIPTS` (20000) oldest-first, one failed generation is
+retained and merged into the next attempt, and a NexusPuppet that answers `404`,
+`405` or `501` — one that predates this feature — has them discarded rather than
+accumulated. A week-long outage must not become a disk-full incident on a Puppet
+server; that is a worse failure than the visibility it was protecting.
+
+Classification and catalogs are not droppable. This is the one of the three
+where losing data is the correct trade.
+
 **Rolling back** is one command, because the previous trees are kept:
 
 ```bash
