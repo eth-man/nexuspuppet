@@ -275,7 +275,9 @@ case "$status" in
 esac
 
 if [ "$fresh" = no ]; then
-    ensure_receipts_dir && hand_over_receipts || true
+    if ensure_receipts_dir; then
+        hand_over_receipts || true
+    fi
     exit 0
 fi
 
@@ -341,4 +343,6 @@ fi
 
 log "installed ${new_count} node file(s), etag ${etag}"
 
-ensure_receipts_dir && hand_over_receipts || true
+if ensure_receipts_dir; then
+    hand_over_receipts || true
+fi
