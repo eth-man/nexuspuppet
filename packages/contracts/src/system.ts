@@ -276,6 +276,25 @@ export const notificationPayloadSchema = z.object({
 export type NotificationPayload = z.infer<typeof notificationPayloadSchema>;
 
 /**
+ * The API's log level, changeable without a restart.
+ *
+ * `locked` is true when `SETTINGS_SOURCE=env`, in which case a stored value is
+ * ignored entirely (ADR-0016 §2) — the console must say the control is inert
+ * rather than accept a change that will never take effect.
+ */
+export const logLevelSettingSchema = z.object({
+  level: z.enum(['debug', 'info', 'warn', 'error']),
+  source: z.enum(['environment', 'database']),
+  locked: z.boolean(),
+});
+export type LogLevelSetting = z.infer<typeof logLevelSettingSchema>;
+
+export const setLogLevelSchema = z.object({
+  level: z.enum(['debug', 'info', 'warn', 'error']),
+});
+export type SetLogLevel = z.infer<typeof setLogLevelSchema>;
+
+/**
  * An operational condition that is currently open (ADR-0021).
  *
  * Describes the DEPLOYMENT'S HEALTH and never a person or an action they took.

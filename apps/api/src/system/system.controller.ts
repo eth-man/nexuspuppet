@@ -1,17 +1,32 @@
-import { Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Put,
+  Req,
+} from '@nestjs/common';
 import type {
   ConsoleTlsStatus,
   DeploymentInfo,
+  LogLevelSetting,
   OperationalCondition,
+  SetLogLevel,
   SystemStatus,
   UpdateCheck,
 } from '@nexuspuppet/contracts';
+import { setLogLevelSchema } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SystemStatusService } from './system-status.service';
 import { ConsoleTlsService } from './console-tls.service';
 import { ConsoleTlsGrantService } from './console-tls-grant.service';
 import { DeploymentService } from './deployment.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { LogLevelService } from './log-level.service';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { openConditions } from '../notifications/notification-evaluator.service';
 
 /**
@@ -31,6 +46,7 @@ export class SystemController {
     private readonly grants: ConsoleTlsGrantService,
     private readonly deploymentService: DeploymentService,
     private readonly prisma: PrismaService,
+    private readonly logLevels: LogLevelService,
   ) {}
 
   /**
@@ -80,6 +96,36 @@ export class SystemController {
    * and if that ever stops being true, the constraint has been broken rather
    * than the permission being wrong.
    */
+  /**
+   * The log level in force, and whether it can be changed here.
+   *
+   * `settings:manage`, unlike the rest of this controller: raising the level to
+   * debug makes the API louder for everybody and can surface internals in a
+   * log an operator may be shipping elsewhere.
+   */
+  @RequirePermission('settings:manage')
+  @Get('log-level')
+  logLevel(): LogLevelSetting {
+    return this.logLevels.describe();
+  }
+
+  @RequirePermission('settings:manage')
+  @Put('log-level')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setLogLevel(
+    @Body(new ZodValidationPipe(setLogLevelSchema)) body: SetLogLevel,
+  ): Promise<void> {
+    await this.logLevels.set(body.level);
+  }
+
+  /** Return to whatever the environment says. */
+  @RequirePermission('settings:manage')
+  @Delete('log-level')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async clearLogLevel(): Promise<void> {
+    await this.logLevels.clear();
+  }
+
   @RequirePermission('inventory:read')
   @Get('conditions')
   async conditions(): Promise<OperationalCondition[]> {

@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
+  LogLevelSetting,
   NotificationEmailSettings,
   NotificationWebhookSettings,
   UpdateCheck,
@@ -453,6 +454,23 @@ export function useTestNotificationEmail(): UseMutationResult<
   return useMutation({
     mutationFn: (config) =>
       api.post<{ ok: boolean; error: string | null }>('/settings/notifications/email/test', config),
+  });
+}
+
+/** Applies within one refresh interval on every other replica. */
+export function useSetLogLevel(): UseMutationResult<void, Error, LogLevelSetting['level']> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (level) => api.put<void>('/system/log-level', { level }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['system', 'log-level'] }),
+  });
+}
+
+export function useClearLogLevel(): UseMutationResult<void, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>('/system/log-level'),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['system', 'log-level'] }),
   });
 }
 
