@@ -20,7 +20,7 @@ import {
   type Credentials,
   type IAuthProvider,
 } from '@nexuspuppet/contracts';
-import type { AuthProviderDescription } from '@nexuspuppet/contracts';
+import type { AuthProviderDescription, AuthSources } from '@nexuspuppet/contracts';
 import type { Response } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { permissionsFor } from './rbac.policy';
@@ -66,18 +66,29 @@ export class AuthController {
     private readonly roles: RoleRegistry,
   ) {}
 
-  /** Advertises how to log in, so the UI renders a form or an SSO button. */
+  /**
+   * Every way to log in here, so the UI renders a form, a button, or both.
+   *
+   * A LIST, and a list even with one entry (ADR-0023 §3) — a shape that changes
+   * between one and many is one every caller gets wrong once.
+   *
+   * It comes from the resolver, not from `AUTH_PROVIDER`. That token is bound
+   * to core's local provider and the registry refuses every attempt to replace
+   * it (ADR-0015 §3), so describing the deployment through it reported `local`
+   * on every deployment ever built. The visible cost was not cosmetic: the
+   * create-user dialog only offers a directory when this endpoint names one, so
+   * a directory account could not be provisioned from the console — and the
+   * login page only draws an SSO button for a redirect-mode answer, which this
+   * could never give.
+   *
+   * Public on purpose: the login form needs it before anyone has authenticated.
+   * It reveals only what a user is expected to type, and which providers exist
+   * — which the login screen is about to show them anyway.
+   */
   @Public()
   @Get('mode')
-  mode(): { mode: string; source: string; identifierLabel: string } {
-    return {
-      mode: this.provider.mode ?? 'credentials',
-      source: this.provider.source,
-      // Public on purpose, like the rest of this endpoint: the login form needs
-      // it before anyone has authenticated. It reveals only what a user is
-      // expected to type.
-      identifierLabel: this.provider.identifierLabel ?? 'Email',
-    };
+  mode(): AuthSources {
+    return { sources: this.resolver.descriptors() };
   }
 
   /**
@@ -115,12 +126,18 @@ export class AuthController {
     @Req() request: AuthenticatedRequest,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ principal: AuthenticatedPrincipal; permissions: string[]; expiresAt: string }> {
-    if ((this.provider.mode ?? 'credentials') === 'redirect') {
-      throw new BadRequestException({
-        error: 'REDIRECT_LOGIN_REQUIRED',
-        message: 'This deployment uses an external identity provider. Begin at /auth/redirect.',
-      });
-    }
+    /*
+     * No "this deployment is redirect-only, go to /auth/redirect" guard here
+     * any more. It was dead — it read `AUTH_PROVIDER`, which is always core's
+     * local credentials provider — and under ADR-0015 it would have been wrong
+     * if it had ever fired: a local account must keep being able to sign in
+     * with a password on a deployment that also runs SSO. That is the whole
+     * break-glass argument.
+     *
+     * An account whose source IS redirect-mode is refused one layer down,
+     * where it belongs: the resolver dispatches on `authSource` and a
+     * redirect-mode provider rejects `authenticate()`.
+     */
 
     // scrypt costs ~100ms and 32 MiB per attempt, so an unthrottled endpoint is
     // a cheap denial of service. Keyed by source address AND account, so one

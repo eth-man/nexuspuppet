@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { KeyRound, Plus, RefreshCw, Trash2, UserX } from 'lucide-react';
 import type { ManagedUser, Permission, Role } from '@nexuspuppet/contracts';
-import { useAuthMode, useRoles, useUser, useUsers } from '@/lib/queries';
+import { useAuthSources, useRoles, useUser, useUsers } from '@/lib/queries';
 import {
   useCreateUser,
   useDeactivateUser,
@@ -109,9 +109,20 @@ export function UsersPanel() {
    * In core mode this is 'local', so nothing external is offered at all and the
    * dialog is unchanged.
    */
-  const authMode = useAuthMode();
+  const authSources = useAuthSources();
+  /*
+   * The first source that is not local, if this deployment has one.
+   *
+   * Read from the LIST now (ADR-0023 §3). It used to come from an endpoint that
+   * described the `AUTH_PROVIDER` binding — always core's local provider — so
+   * this was always null and the selector below never rendered. On any
+   * directory deployment that meant a directory account could not be created
+   * from the console at all.
+   *
+   * Still one source, not a picker: offering a choice between several is #171.
+   */
   const externalSource =
-    authMode.data !== undefined && authMode.data.source !== 'local' ? authMode.data.source : null;
+    authSources.data?.sources.find((entry) => entry.source !== 'local')?.source ?? null;
   const [authSource, setAuthSource] = useState('local');
   const isLocal = authSource === 'local';
   const [error, setError] = useState<string | null>(null);

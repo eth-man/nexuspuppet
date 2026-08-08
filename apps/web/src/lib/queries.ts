@@ -2,6 +2,7 @@
 
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type {
+  AuthSources,
   DeploymentInfo,
   AuditForwardingView,
   AuthProviderDescription,
@@ -226,10 +227,10 @@ export function useUser(id: string | null): UseQueryResult<ManagedUserDetail> {
  * able to provision directory accounts, so the current principal's authSource
  * is the wrong signal — this is the right one.
  */
-export function useAuthMode(): UseQueryResult<{ mode: string; source: string }> {
+export function useAuthSources(): UseQueryResult<AuthSources> {
   return useQuery({
-    queryKey: ['auth-mode'],
-    queryFn: ({ signal }) => api.get<{ mode: string; source: string }>('/auth/mode', signal),
+    queryKey: ['auth-sources'],
+    queryFn: ({ signal }) => api.get<AuthSources>('/auth/mode', signal),
     staleTime: Infinity,
   });
 }

@@ -9,11 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-interface AuthMode {
-  mode: 'credentials' | 'redirect';
+interface AuthSourceDescriptor {
   source: string;
+  mode: 'credentials' | 'redirect';
   /** What to call the identifier — 'Email' locally, 'Username' for AD. */
-  identifierLabel?: string;
+  identifierLabel: string;
+}
+
+interface AuthSources {
+  sources: AuthSourceDescriptor[];
 }
 
 /**
@@ -33,8 +37,20 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
-  const identifierLabel = authMode?.identifierLabel ?? 'Email';
+  const [authSources, setAuthSources] = useState<AuthSources | null>(null);
+
+  /*
+   * A deployment may offer several sources (ADR-0023 §3), so this reads a list.
+   *
+   * Behaviour here is unchanged for now: the label comes from the first
+   * credentials source, and a redirect source still produces the single button
+   * this screen has always drawn. Rendering a form AND a button per source is
+   * #170 — this ticket only stops the answer being singular.
+   */
+  const sources = authSources?.sources ?? [];
+  const credentialSource = sources.find((entry) => entry.mode === 'credentials') ?? null;
+  const redirectSource = sources.find((entry) => entry.mode === 'redirect') ?? null;
+  const identifierLabel = credentialSource?.identifierLabel ?? 'Email';
   const [modeError, setModeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,8 +59,8 @@ export default function LoginPage() {
 
   useEffect(() => {
     api
-      .get<AuthMode>('/auth/mode')
-      .then(setAuthMode)
+      .get<AuthSources>('/auth/mode')
+      .then(setAuthSources)
       .catch((caught: unknown) => {
         // Distinguish "API is down" from "wrong password" before the user has
         // typed anything. Offering a password form for an unreachable API
@@ -97,13 +113,13 @@ export default function LoginPage() {
           </div>
         )}
 
-        {authMode?.mode === 'redirect' ? (
+        {credentialSource === null && redirectSource !== null ? (
           <div className="rounded border border-line-soft bg-panel p-3">
             <p className="mb-3 text-xs text-ink-muted">
-              This deployment authenticates through {authMode.source}.
+              This deployment authenticates through {redirectSource.source}.
             </p>
             <Button variant="primary" size="md" className="w-full" asChild>
-              <a href="/api/auth/redirect">Continue with {authMode.source}</a>
+              <a href="/api/auth/redirect">Continue with {redirectSource.source}</a>
             </Button>
           </div>
         ) : (

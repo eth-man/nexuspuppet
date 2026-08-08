@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   AUTH_PROVIDERS,
   type AuthResult,
+  type AuthSourceDescriptor,
   type AuthenticatedPrincipal,
   type Credentials,
   type IAuthProvider,
@@ -67,6 +68,28 @@ export class AuthProviderResolver {
   /** Sources this deployment can authenticate against. */
   sources(): string[] {
     return [...this.bySource.keys()].sort();
+  }
+
+  /**
+   * Every source, described well enough for a login page to render it.
+   *
+   * This is what `GET /auth/mode` answers with, and it comes from HERE rather
+   * than from the `AUTH_PROVIDER` token (ADR-0023 §3). That token is bound to
+   * core's local provider and the registry refuses to let anything replace it
+   * (ADR-0015 §3) — so a deployment describing itself through it always
+   * reported `local`, whatever directory it was actually running.
+   *
+   * Sorted, so two deployments with the same providers answer identically and
+   * a login page cannot reorder its own buttons between polls.
+   */
+  descriptors(): AuthSourceDescriptor[] {
+    return [...this.bySource.values()]
+      .map((provider) => ({
+        source: provider.source,
+        mode: provider.mode ?? 'credentials',
+        identifierLabel: provider.identifierLabel ?? 'Email',
+      }))
+      .sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0));
   }
 
   /**
