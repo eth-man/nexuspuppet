@@ -1,9 +1,11 @@
 import 'reflect-metadata';
-import { Logger } from '@nestjs/common';
+import { ConsoleLogger, Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { BootstrapService } from './auth/core-capabilities';
+import { LogLevelService } from './system/log-level.service';
+import { levelsFor } from './system/pure/log-levels';
 import { loadEnv } from './config/env';
 
 async function bootstrap(): Promise<void> {
@@ -13,13 +15,28 @@ async function bootstrap(): Promise<void> {
   // clear message rather than a stack trace from inside the framework.
   const env = loadEnv();
 
+  /*
+   * A logger INSTANCE we keep hold of, rather than a level array.
+   *
+   * Nest accepts `logger: LogLevel[]`, but that array is consumed at creation
+   * and cannot be changed afterwards — which is why LOG_LEVEL used to need a
+   * restart. Holding a ConsoleLogger lets `setLogLevels()` retarget the running
+   * logger, and that is the whole mechanism behind changing it live.
+   *
+   * The mapping comes from `levelsFor`, shared with the service, so the level
+   * applied at boot and the level applied later can never diverge.
+   */
+  const appLogger = new ConsoleLogger();
+  appLogger.setLogLevels(levelsFor(env.LOG_LEVEL));
+
   const app = await NestFactory.create<NestExpressApplication>(await AppModule.bootstrap(), {
-    logger:
-      env.LOG_LEVEL === 'debug'
-        ? ['debug', 'log', 'warn', 'error']
-        : env.LOG_LEVEL === 'info'
-          ? ['log', 'warn', 'error']
-          : [env.LOG_LEVEL],
+    logger: appLogger,
+  });
+
+  // Hands the service the only thing it needs from the app: a way to apply a
+  // level. It never sees the app itself, so it stays unit-testable.
+  app.get(LogLevelService).bind((level) => {
+    appLogger.setLogLevels(levelsFor(level));
   });
 
   // No global ValidationPipe: input is validated per-route by ZodValidationPipe

@@ -10,6 +10,7 @@ import type {
   LdapSettings,
   ManagedUser,
   OidcSettings,
+  LogLevelSetting,
   NotificationEmailSettings,
   NotificationWebhookSettings,
   OperationalCondition,
@@ -388,6 +389,14 @@ export function useNotificationEmail(
     queryKey: ['settings', 'notifications.email'],
     queryFn: ({ signal }) =>
       api.get<SettingsView<NotificationEmailSettings>>('/settings/notifications/email', signal),
+    enabled,
+  });
+}
+
+export function useLogLevel(enabled: boolean): UseQueryResult<LogLevelSetting> {
+  return useQuery({
+    queryKey: ['system', 'log-level'],
+    queryFn: ({ signal }) => api.get<LogLevelSetting>('/system/log-level', signal),
     enabled,
   });
 }

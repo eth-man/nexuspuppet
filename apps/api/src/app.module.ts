@@ -50,6 +50,7 @@ import { ClassificationPlanner } from './classification/plan/classification-plan
 import { ConflictReportService } from './classification/conflict-report.service';
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
+import { LogLevelService } from './system/log-level.service';
 import { ConsoleTlsService } from './system/console-tls.service';
 import { readFileSync } from 'node:fs';
 import { DeploymentService } from './system/deployment.service';
@@ -316,6 +317,18 @@ export class AppModule {
         // Read-only view of the ENC tree for pullers (ADR-0019). Registered
         // unconditionally so the service is testable and injectable; whether a
         // listener is actually opened is main.ts's decision, from config.
+        {
+          /*
+           * Explicit factory: the level from config and the SETTINGS_SOURCE
+           * flag are plain values, and the applier is supplied later by
+           * bootstrap via bind() — the logger instance belongs to main.ts and
+           * the container is built after it.
+           */
+          provide: LogLevelService,
+          inject: [PrismaService],
+          useFactory: (prisma: PrismaService): LogLevelService =>
+            new LogLevelService(prisma, env.LOG_LEVEL, undefined, env.SETTINGS_SOURCE === 'env'),
+        },
         encReplicationProvider(env),
         // Core, not capability-gated: what keeps ADR-0021 §1 honest is the
         // content constraint, not a licence check.
