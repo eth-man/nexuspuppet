@@ -42,7 +42,11 @@ StateDirectory=nexuspuppet-sync
 
 # The private key is readable here and nowhere else this unit needs to reach.
 ProtectSystem=strict
-ReadWritePaths=/etc/puppetlabs
+# The `-` prefix means "ignore if absent". Without it, a host that has no
+# /etc/puppetlabs — a test rig, a staging box, a server where Puppet lives
+# elsewhere — fails at step NAMESPACE with "No such file or directory"
+# pointing at the SCRIPT, which is present. That message costs an hour.
+ReadWritePaths=-/etc/puppetlabs
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes

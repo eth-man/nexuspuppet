@@ -151,6 +151,59 @@ describe('ENC materialization (integration)', () => {
       expect(state?.relativePath).toBe('nodes/web01.yaml');
     });
 
+    /*
+     * REGRESSION. `writtenAt` used to advance on every pass, which made it mean
+     * "when we last looked" rather than "when this last changed" — and the
+     * replication status then reported a peer as permanently behind while it was
+     * demonstrably current, because the peer's last transfer only advances when
+     * the tree actually changes.
+     *
+     * Found by looking at the console on staging: the System card said "1 behind"
+     * while the conditions panel said nothing was open, and the peer was being
+     * answered 304, which means it already had the tree.
+     */
+    it('does not advance writtenAt when nothing changed', async () => {
+      await seedNode('web01', { os: { family: 'RedHat' } });
+      await seedGroup({
+        name: 'base',
+        rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'RedHat' }],
+        classes: [{ className: 'profile::base' }],
+      });
+
+      await materializer.materializeNode('web01');
+      const first = await prisma.encMaterialization.findUnique({ where: { certname: 'web01' } });
+
+      // Long enough that an advancing timestamp is unambiguous.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await materializer.materializeNode('web01');
+      const second = await prisma.encMaterialization.findUnique({ where: { certname: 'web01' } });
+
+      expect(second?.contentHash).toBe(first?.contentHash);
+      expect(second?.writtenAt).toEqual(first?.writtenAt);
+    });
+
+    it('advances writtenAt when the document really changes', async () => {
+      await seedNode('web01', { os: { family: 'RedHat' } });
+      const group = await seedGroup({
+        name: 'base',
+        rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'RedHat' }],
+        classes: [{ className: 'profile::base' }],
+      });
+
+      await materializer.materializeNode('web01');
+      const first = await prisma.encMaterialization.findUnique({ where: { certname: 'web01' } });
+
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await prisma.nodeGroupClass.create({
+        data: { groupId: group.id, className: 'profile::db' },
+      });
+      await materializer.materializeNode('web01');
+      const second = await prisma.encMaterialization.findUnique({ where: { certname: 'web01' } });
+
+      expect(second?.contentHash).not.toBe(first?.contentHash);
+      expect(second?.writtenAt.getTime()).toBeGreaterThan(first?.writtenAt.getTime() ?? 0);
+    });
+
     it('a node matching nothing still gets a valid file, not a missing one', async () => {
       await seedNode('orphan01');
       await materializer.materializeNode('orphan01');
