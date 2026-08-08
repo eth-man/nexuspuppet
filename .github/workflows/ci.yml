@@ -236,6 +236,30 @@ jobs:
         if: failure()
         run: docker compose logs --tail 200
 
+  # ---------------------------------------------------------------------------
+  # The two scripts that run ON the Puppet server, in the shell they run in.
+  #
+  # Neither is TypeScript, so nothing else in this file touches them — and
+  # `nexuspuppet-enc.sh` is on the catalog compile path for every node in the
+  # estate. Its contract is that bookkeeping can fail in any way at all and a
+  # catalog still comes out, which is only worth something if something breaks
+  # it on purpose. That is what these tests do.
+  # ---------------------------------------------------------------------------
+  puppet-scripts:
+    name: Puppet-server scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck
+        run: shellcheck -s sh scripts/nexuspuppet-enc.sh scripts/nexuspuppet-sync.sh scripts/test/*.sh
+
+      # dash, not bash: puppetserver invokes the ENC script through /bin/sh, and
+      # on Debian and Ubuntu that is dash. A bashism here would pass every local
+      # run and fail on the estate.
+      - name: Compile receipts (dash)
+        run: dash scripts/test/enc-receipts.sh
+
   format:
     name: Formatting
     runs-on: ubuntu-latest

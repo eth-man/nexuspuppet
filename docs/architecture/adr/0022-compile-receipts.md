@@ -43,8 +43,17 @@ Every failure path — read-only filesystem, full disk, missing revision file,
 permissions — drops the receipt and lets the compile proceed:
 
 ```sh
-printf '%s %s %s\n' "$ts" "$revision" "$certname" >> "$receipts" 2>/dev/null || true
+{ printf '%s %s\n' "$revision" "$certname" >>"$receipts"; } 2>/dev/null || true
 ```
+
+**Corrected during implementation (#145): the line carries no timestamp.**
+This ADR first specified `<iso8601> <revision> <certname>`, which quietly
+required a `date` — a fork on the compile path, per compile, forever. Reading
+the revision and appending are both shell builtins, so dropping the timestamp
+takes the added cost to zero processes on a path whose entire cost today is one
+`cat`. Nothing is lost: the revision is what identifies the classification
+(§2), and the server stamps arrival when it receives the line. A receipt's
+timestamp was never the answer to any question this feature exists to answer.
 
 This is [ADR-0003](./0003-enc-generate-dont-serve.md) applied to the one
 script that must never acquire a dependency. A catalog must not fail because
