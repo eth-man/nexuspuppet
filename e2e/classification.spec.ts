@@ -582,4 +582,34 @@ test.describe('classification provenance', () => {
     const row = page.getByRole('listitem').filter({ hasText: pinned });
     await expect(row.getByText(/pinned — this node is named on the group/)).toBeVisible();
   });
+
+  test('shows the document the node will actually be served', async ({ page, request }) => {
+    await apiLogin(request);
+
+    const certname = await firstCertname(request);
+    test.skip(certname === null, 'the projection has produced no nodes to classify');
+
+    const name = uniqueGroupName('doc');
+    const id = await createPinnedGroup(request, name, 140, certname as string, 8080);
+    expect(id).not.toBe('');
+
+    await waitForMaterialization(request, certname as string);
+
+    await login(page);
+    await page.goto(`/nodes/${encodeURIComponent(certname as string)}`);
+
+    /*
+     * The rendered YAML, not a description of it. `classes:` is a line of the
+     * document itself — the header comment the materializer writes is the
+     * strongest signal it came from disk rather than from the console
+     * re-rendering what it thinks the answer should be.
+     */
+    await expect(page.getByText('Effective document')).toBeVisible();
+    await expect(page.getByText(/Managed by NexusPuppet/)).toBeVisible();
+    await expect(page.getByText(/profile::provenance_demo/).first()).toBeVisible();
+
+    // The hash belongs to the bytes shown, so a stale view is detectable.
+    const hash = page.getByText(/nodes\/.*\.yaml ·/);
+    await expect(hash).toBeVisible();
+  });
 });

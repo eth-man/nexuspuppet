@@ -1,3 +1,4 @@
+import { EncDocumentReader } from '../src/materialization/enc-document-reader';
 import type { AuditRecord, AuditTransaction, AuthenticatedPrincipal } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { MaterializationService } from '../src/materialization/materialization.service';
@@ -65,6 +66,7 @@ describe('classification writes (integration)', () => {
       new MaterializationService(),
       new PrismaAuditSink(prisma),
       PROJECTED,
+      new EncDocumentReader(ENC_DIR_FOR_TESTS),
     );
 
     await prisma.encMaterializationJob.deleteMany();
@@ -487,6 +489,7 @@ describe('classification writes (integration)', () => {
           new MaterializationService(),
           new PrismaAuditSink(prisma),
           PROJECTED,
+          new EncDocumentReader(ENC_DIR_FOR_TESTS),
         );
         const group = (await create('rules')).group;
 
@@ -515,6 +518,7 @@ describe('classification writes (integration)', () => {
         new MaterializationService(),
         new PrismaAuditSink(prisma),
         [],
+        new EncDocumentReader(ENC_DIR_FOR_TESTS),
       );
       const group = (await create('rules')).group;
 
@@ -740,6 +744,7 @@ describe('classification writes (integration)', () => {
         new MaterializationService(),
         sink,
         PROJECTED,
+        new EncDocumentReader(ENC_DIR_FOR_TESTS),
       );
 
       await substituted.create(
@@ -771,6 +776,7 @@ describe('classification writes (integration)', () => {
         new MaterializationService(),
         sink,
         PROJECTED,
+        new EncDocumentReader(ENC_DIR_FOR_TESTS),
       );
 
       await substituted.create(
@@ -794,3 +800,9 @@ describe('classification writes (integration)', () => {
     });
   });
 });
+
+/**
+ * Deliberately absent: these tests assert classification, not file contents,
+ * so readNode() returns null and the node reads as falling back to default.yaml.
+ */
+const ENC_DIR_FOR_TESTS = '/nonexistent/enc-output-for-tests';

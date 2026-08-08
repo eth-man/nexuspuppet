@@ -1,3 +1,4 @@
+import { EncDocumentReader } from '../materialization/enc-document-reader';
 import {
   BadRequestException,
   ConflictException,
@@ -82,6 +83,8 @@ export class ClassificationService {
      * precisely the default deployment.
      */
     private readonly projectedFacts: readonly string[],
+    /** Reads the ENC document back from disk (#143). */
+    private readonly reader: EncDocumentReader,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -117,12 +120,19 @@ export class ClassificationService {
    * stale data as current (ADR-0003).
    */
   async explain(certname: string): Promise<NodeClassificationExplanation> {
-    const [materialization, node, queued] = await Promise.all([
+    const [materialization, node, queued, document] = await Promise.all([
       this.prisma.encMaterialization.findUnique({ where: { certname } }),
       this.prisma.managedNode.findUnique({ where: { certname } }),
       this.prisma.encMaterializationJob.count({
         where: { OR: [{ certname }, { certname: null }], status: 'PENDING' },
       }),
+      /*
+       * Best-effort. A classification explanation that 500s because the ENC
+       * volume is unreadable is worse than one missing its document — the rest
+       * of the answer is still true and still useful, and the volume being
+       * unreadable is itself worth seeing on the page rather than as an error.
+       */
+      this.reader.readNode(certname).catch(() => null),
     ]);
 
     const appliedGroupIds = materialization?.appliedGroupIds ?? [];
@@ -144,6 +154,11 @@ export class ClassificationService {
     return {
       certname,
       appliedGroups: applied,
+      document,
+      // Null document means this node has no file of its own, so the ENC
+      // script falls back to default.yaml — a valid classification (ADR-0003),
+      // not an absence to render as a blank box.
+      usesDefault: document === null,
       conflicts: (materialization?.conflicts ?? []) as unknown as ClassificationConflict[],
       /*
        * Omitted rather than defaulted when the node was materialized before

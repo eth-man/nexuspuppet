@@ -12,6 +12,7 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError, Spinner } from '@/components/states';
 import { JsonView } from '@/components/data/json-view';
 import { AttributionCard, MatchReason } from '@/components/data/attribution-card';
+import { EffectiveDocument } from '@/components/data/effective-document';
 
 type Tab = 'facts' | 'classification' | 'runs';
 
@@ -149,6 +150,8 @@ function ClassificationTab({ certname }: { certname: string }) {
     pending,
     attribution,
     matchReasons,
+    document,
+    usesDefault,
   } = query.data;
   const reasonFor = (groupId: string) => matchReasons?.find((r) => r.groupId === groupId);
 
@@ -220,6 +223,18 @@ function ClassificationTab({ certname }: { certname: string }) {
             )}
           </CardContent>
         </Card>
+
+        {/*
+          The artefact itself, above its explanation: everything else on this
+          screen describes this file, and reading it first is what makes the
+          rest trustworthy.
+        */}
+        <EffectiveDocument
+          document={document}
+          usesDefault={usesDefault}
+          materialization={materialization}
+          pending={pending}
+        />
 
         <AttributionCard attribution={attribution} groups={appliedGroups} />
 
