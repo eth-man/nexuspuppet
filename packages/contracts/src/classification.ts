@@ -6,6 +6,7 @@ import {
   puppetClassNameSchema,
   puppetValueSchema,
   type ClassificationConflict,
+  type GroupMatchExplanation,
   type MergeAttribution,
 } from './enc';
 
@@ -150,6 +151,15 @@ export interface NodeClassificationExplanation {
    * console must not present the second when it means the first.
    */
   attribution?: MergeAttribution;
+  /**
+   * Why each applied group matched (#142), in the same order as
+   * `appliedGroups`.
+   *
+   * Optional for the same reason as `attribution`: a node materialized before
+   * this existed has no reasons recorded, which is different from having
+   * matched for no reason.
+   */
+  matchReasons?: GroupMatchExplanation[];
   /** Null when the node has never been materialized. */
   materialization: {
     contentHash: string;

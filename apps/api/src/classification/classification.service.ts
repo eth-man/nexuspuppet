@@ -17,6 +17,7 @@ import type {
   UpdateNodeGroup,
   NodeClassificationExplanation,
   ClassificationConflict,
+  GroupMatchExplanation,
   MergeAttribution,
   FactPathIndex,
   IAuditSink,
@@ -154,6 +155,11 @@ export class ClassificationService {
        */
       ...(hasAttribution(materialization?.attribution)
         ? { attribution: materialization.attribution as unknown as MergeAttribution }
+        : {}),
+      // Same reasoning: an empty array means "not recorded", which is not the
+      // same as "matched for no reason", so it is omitted rather than sent.
+      ...(Array.isArray(materialization?.matchReasons) && materialization.matchReasons.length > 0
+        ? { matchReasons: materialization.matchReasons as unknown as GroupMatchExplanation[] }
         : {}),
       materialization:
         materialization === null

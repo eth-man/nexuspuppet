@@ -1,4 +1,10 @@
-import { matchGroups, evaluateRule, resolveFactPath, groupMatches } from './rule-evaluator';
+import {
+  matchGroups,
+  evaluateRule,
+  resolveFactPath,
+  groupMatches,
+  explainMatch,
+} from './rule-evaluator';
 import type { EvaluableGroup, EvaluableNode } from './rule-evaluator';
 import type { NodeRule } from '@nexuspuppet/contracts';
 
@@ -247,5 +253,114 @@ describe('matchGroups ordering (ADR-0009)', () => {
 
   it('returns an empty list when nothing matches', () => {
     expect(matchGroups(node(), [])).toEqual([]);
+  });
+});
+
+describe('explainMatch (#142)', () => {
+  const node = { certname: 'web01.example.com', facts: { os: { family: 'RedHat' }, tier: 'gold' } };
+
+  const group = (over: Partial<Parameters<typeof explainMatch>[1]> = {}) =>
+    ({
+      id: 'g1',
+      name: 'group one',
+      rank: 100,
+      strategy: 'ALL_RULES',
+      isEnabled: true,
+      rules: [],
+      pinnedCertnames: [],
+      ...over,
+    }) as Parameters<typeof explainMatch>[1];
+
+  it('says pinned, with nothing to inspect', () => {
+    const result = explainMatch(
+      node,
+      group({ strategy: 'PINNED', pinnedCertnames: [node.certname] }),
+    );
+
+    expect(result).toEqual({ groupId: 'g1', strategy: 'PINNED', rules: [] });
+  });
+
+  it('reports the fact path, the expectation, and the value that satisfied it', () => {
+    const result = explainMatch(
+      node,
+      group({ rules: [{ factPath: 'os.family', operator: 'EQUALS', value: 'RedHat' }] }),
+    );
+
+    expect(result.rules[0]).toEqual({
+      factPath: 'os.family',
+      operator: 'EQUALS',
+      expected: 'RedHat',
+      actual: 'RedHat',
+      factMissing: false,
+      matched: true,
+    });
+  });
+
+  /*
+   * Under ANY_RULE a group applies on one rule out of several, and knowing
+   * which ones did NOT is most of the explanation — the difference between
+   * "this is why" and "one of these is why".
+   */
+  it('reports every rule, including the ones that did not match', () => {
+    const result = explainMatch(
+      node,
+      group({
+        strategy: 'ANY_RULE',
+        rules: [
+          { factPath: 'os.family', operator: 'EQUALS', value: 'Debian' },
+          { factPath: 'tier', operator: 'EQUALS', value: 'gold' },
+        ],
+      }),
+    );
+
+    expect(result.rules.map((r) => r.matched)).toEqual([false, true]);
+  });
+
+  /*
+   * A path outside the projected allow-list is indistinguishable from a
+   * genuinely absent fact, so a rule can look deliberate and be permanently
+   * unsatisfiable. Saying the fact was missing is what makes that visible.
+   */
+  it('flags a fact path that resolved to nothing', () => {
+    const result = explainMatch(
+      node,
+      group({ rules: [{ factPath: 'datacenter', operator: 'EQUALS', value: 'ams1' }] }),
+    );
+
+    expect(result.rules[0]?.factMissing).toBe(true);
+    expect(result.rules[0]).not.toHaveProperty('actual');
+    expect(result.rules[0]?.matched).toBe(false);
+  });
+
+  it('omits the expectation for operators that take none', () => {
+    const result = explainMatch(node, group({ rules: [{ factPath: 'tier', operator: 'EXISTS' }] }));
+
+    expect(result.rules[0]).not.toHaveProperty('expected');
+    expect(result.rules[0]?.matched).toBe(true);
+  });
+
+  /*
+   * The explanation must agree with the decision. Two functions computing "did
+   * this match" are two answers waiting to disagree, and the one written to
+   * disk would win silently.
+   */
+  it('agrees with groupMatches on every rule outcome', () => {
+    const rules = [
+      { factPath: 'os.family', operator: 'EQUALS' as const, value: 'RedHat' },
+      { factPath: 'tier', operator: 'EQUALS' as const, value: 'silver' },
+    ];
+
+    for (const strategy of ['ALL_RULES', 'ANY_RULE'] as const) {
+      const g = group({ strategy, rules });
+      const explained = explainMatch(node, g);
+      const decided = groupMatches(node, g);
+
+      const expected =
+        strategy === 'ALL_RULES'
+          ? explained.rules.every((r) => r.matched)
+          : explained.rules.some((r) => r.matched);
+
+      expect(decided).toBe(expected);
+    }
   });
 });

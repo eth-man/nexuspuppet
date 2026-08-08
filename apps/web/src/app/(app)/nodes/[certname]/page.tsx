@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError, Spinner } from '@/components/states';
 import { JsonView } from '@/components/data/json-view';
-import { AttributionCard } from '@/components/data/attribution-card';
+import { AttributionCard, MatchReason } from '@/components/data/attribution-card';
 
 type Tab = 'facts' | 'classification' | 'runs';
 
@@ -141,7 +141,16 @@ function ClassificationTab({ certname }: { certname: string }) {
   if (query.isError) return <QueryError error={query.error} />;
   if (query.isPending) return <Spinner label="Loading classification…" />;
 
-  const { appliedGroups, conflicts, materialization, factsAsOf, pending, attribution } = query.data;
+  const {
+    appliedGroups,
+    conflicts,
+    materialization,
+    factsAsOf,
+    pending,
+    attribution,
+    matchReasons,
+  } = query.data;
+  const reasonFor = (groupId: string) => matchReasons?.find((r) => r.groupId === groupId);
 
   return (
     <div className="grid gap-3 p-3 lg:grid-cols-2">
@@ -158,13 +167,17 @@ function ClassificationTab({ certname }: { certname: string }) {
         ) : (
           <ol className="divide-y divide-line-soft">
             {appliedGroups.map((group, index) => (
-              <li key={group.id} className="flex items-center gap-2 px-3 py-1.5">
-                <span className="w-4 text-right font-mono text-[11px] text-ink-faint">
-                  {index + 1}
-                </span>
-                <Layers className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
-                <span className="min-w-0 flex-1 truncate text-sm">{group.name}</span>
-                <Badge>rank {group.rank}</Badge>
+              <li key={group.id} className="px-3 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-4 text-right font-mono text-[11px] text-ink-faint">
+                    {index + 1}
+                  </span>
+                  <Layers className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate text-sm">{group.name}</span>
+                  <Badge>rank {group.rank}</Badge>
+                </div>
+                {/* Why it matched, under the name that matched (#142). */}
+                <MatchReason reason={reasonFor(group.id)} factsAsOf={factsAsOf} />
               </li>
             ))}
           </ol>

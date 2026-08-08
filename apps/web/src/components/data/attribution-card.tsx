@@ -172,3 +172,87 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </div>
   );
 }
+
+/**
+ * Why one group matched this node (#142).
+ *
+ * Rendered under the group's name in the applied list, because "why is this
+ * group here?" is asked while looking at the group — not on a separate screen.
+ *
+ * The values shown come from the ManagedNode PROJECTION, which is what rules
+ * are evaluated against (ADR-0004). That can differ from what the node reports
+ * now, so the timestamp the value belongs to is offered rather than implied.
+ */
+export function MatchReason({
+  reason,
+  factsAsOf,
+}: {
+  reason:
+    | {
+        strategy: string;
+        rules: Array<{
+          factPath: string;
+          operator: string;
+          expected?: unknown;
+          actual?: unknown;
+          factMissing: boolean;
+          matched: boolean;
+        }>;
+      }
+    | undefined;
+  factsAsOf: string | null;
+}) {
+  // Not recorded — this node was materialized before reasons were captured.
+  // Saying nothing is better than inventing one.
+  if (reason === undefined) return null;
+
+  if (reason.strategy === 'PINNED') {
+    return (
+      <p className="ml-6 mt-0.5 text-[11px] text-ink-faint">
+        pinned — this node is named on the group, no rule was evaluated
+      </p>
+    );
+  }
+
+  if (reason.rules.length === 0) return null;
+
+  return (
+    <ul className="ml-6 mt-0.5 space-y-0.5">
+      {reason.rules.map((rule, index) => (
+        <li
+          key={`${rule.factPath}-${index}`}
+          className={rule.matched ? 'text-[11px] text-ink-muted' : 'text-[11px] text-ink-faint'}
+        >
+          <span className="font-mono">{rule.factPath}</span>{' '}
+          <span className="text-ink-faint">{rule.operator.toLowerCase().replace(/_/g, ' ')}</span>
+          {rule.expected !== undefined && (
+            <>
+              {' '}
+              <code className="font-mono">{JSON.stringify(rule.expected)}</code>
+            </>
+          )}
+          {rule.factMissing ? (
+            /*
+             * The fact resolved to nothing. Worth saying loudly even on a group
+             * that matched: a path outside the projected allow-list looks
+             * identical to a genuinely absent fact, so a rule can look
+             * deliberate and be permanently unsatisfiable.
+             */
+            <span className="ml-1 text-state-pending">— no such fact on this node</span>
+          ) : (
+            <>
+              {' '}
+              <span className="text-ink-faint">
+                {rule.matched ? '✓' : '✕'}{' '}
+                <code className="font-mono">{JSON.stringify(rule.actual)}</code>
+              </span>
+              {factsAsOf !== null && index === 0 && (
+                <span className="ml-1 text-ink-faint">as projected</span>
+              )}
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
