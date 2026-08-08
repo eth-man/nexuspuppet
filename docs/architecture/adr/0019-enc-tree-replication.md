@@ -71,6 +71,12 @@ NexusPuppet serves the endpoint, so it observes every successful pull at no cost
 
 Without it, this design has one silent failure: a stopped timer means the console reports a change as materialized — true, and useless, because it has not left the building. Every machine keeps its old classification and nothing says so. **Materialized is not the end of the sentence; replicated is.**
 
+### Amended by ADR-0022
+
+This ADR described the replication endpoint as read-only. [ADR-0022](./0022-compile-receipts.md) adds a **receipts route to the same listener**, so that is no longer true — recorded here rather than left for a reader to discover the contradiction in the code.
+
+The two binding constraints below are unaffected: receipts compute no classification, and nothing about them touches the read path. ADR-0022 adds a third in the same spirit — that route accepts receipts and nothing else, attributed to the caller's own verified certname.
+
 ### Binding constraints
 
 Two, in ADR-0003's spirit and for its reasons:
