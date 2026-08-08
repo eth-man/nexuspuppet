@@ -100,6 +100,13 @@ Bind credentials stored in the database are secrets: never returned by any read 
 ### What it does NOT buy
 
 - **It is not multi-directory.** One directory provider at a time, as today. Several LDAP servers, or LDAP and OIDC together, is a larger change and not required by anything here.
+
+  > **Superseded by [ADR-0023](./0023-several-authentication-sources.md).** LDAP
+  > and OIDC together turned out not to be a larger change: this ADR's own
+  > resolver already maps `authSource` → provider over a collection, so the only
+  > thing enforcing "one at a time" was a guard in the enterprise layer citing
+  > the singular `AUTH_PROVIDER` token that *this ADR replaced*. Several
+  > instances of one kind — two LDAP servers — remains out of scope there too.
 - **It does not let one person authenticate two ways.** That is the shadowing bypass, refused in §1.
 - **It does not migrate accounts.** Changing an account's `authSource` remains an administrative action, and one that should clear any stored password hash.
 
