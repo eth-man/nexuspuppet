@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { apiLogin, assertStackReachable, login } from './support';
+import { apiLogin, assertStackReachable, lockedBadgeWord, login } from './support';
 
 /**
  * Card and control primitives (issue #72 slice 3), asserted through the screen
@@ -58,7 +58,7 @@ test.describe('primitives', () => {
     // string the API's 501 carries.
     await expect(page.getByRole('heading', { name: /Directory/ })).toBeVisible();
     await expect(page.getByText('directory.ldap')).toBeVisible();
-    await expect(page.getByText('Enterprise').first()).toBeVisible();
+    await expect(page.getByText(await lockedBadgeWord(request)).first()).toBeVisible();
 
     /*
      * ABSENT, not merely disabled — and that distinction is the point of this

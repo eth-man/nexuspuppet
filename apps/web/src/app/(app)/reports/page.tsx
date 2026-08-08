@@ -50,15 +50,30 @@ export default function ReportsPage() {
 
   const total = runs.data?.total ?? 0;
   const shown = runs.data?.items.length ?? 0;
+  /** A filter narrow enough that the count describes a subset, not the estate. */
+  const filtered = statuses.length > 0 && statuses.length < STATUSES.length;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-line-soft px-3 py-2">
         <h1 className="text-sm font-semibold tracking-tight">Reports</h1>
+        {/*
+          Say that a filter is on, in the same breath as the count.
+
+          This page opens filtered to `failed`, so on a 48-node estate it read
+          "showing 1–9 of 9" — a true statement about the filtered set that an
+          operator reads as a statement about the estate. The `1 of 3 states`
+          chip beside the filters was the only clue, and it is nowhere near the
+          number it qualifies.
+        */}
         <p className="text-xs text-ink-muted">
           Most recent run per node
-          {runs.isSuccess &&
-            ` — showing ${shown === 0 ? 0 : offset + 1}–${offset + shown} of ${total.toLocaleString()}`}
+          {runs.isSuccess && (
+            <>
+              {` — showing ${shown === 0 ? 0 : offset + 1}–${offset + shown} of ${total.toLocaleString()}`}
+              {filtered ? ` ${statuses.join(' / ')}` : ''}
+            </>
+          )}
         </p>
       </header>
 

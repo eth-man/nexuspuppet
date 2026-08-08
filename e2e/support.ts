@@ -144,3 +144,24 @@ export async function assertStackReachable(request: APIRequestContext): Promise<
     'The console is not reachable. Start it with `npm run dev:stack` before running E2E tests.',
   ).toBe(true);
 }
+
+/**
+ * The word a locked CapabilityCard shows for this deployment.
+ *
+ * "Enterprise" only answers *why not* in core. On a deployment already running
+ * the enterprise layer it told the operator to buy what they had bought — which
+ * is how the OIDC card read on an enterprise deployment configured for LDAP,
+ * where `sso.oidc` can never appear because the layer runs one directory
+ * provider at a time (ADR-0015). Nothing was unlicensed and nothing was
+ * missing.
+ *
+ * Tests take the word from here rather than hard-coding "Enterprise", which
+ * passed in core and made the enterprise rendering the untested one.
+ */
+export async function lockedBadgeWord(request: APIRequestContext): Promise<string> {
+  await apiLogin(request);
+  const response = await request.get('/api/capabilities');
+  if (!response.ok()) return 'Enterprise';
+  const body = (await response.json()) as { edition?: string };
+  return body.edition === 'enterprise' ? 'Unavailable' : 'Enterprise';
+}

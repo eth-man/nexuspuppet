@@ -120,11 +120,25 @@ export function AuditForwardingPanel() {
         switching={setActive.isPending}
       />
 
+      {/*
+        Anchored in a bar of its own rather than floating right.
+
+        As a bare ghost button between two cards it belonged to neither and
+        read as something left behind — and it is the one control here that
+        stops audit records leaving the deployment, which is not a thing to
+        find by accident. The bar states what is currently on, so the button
+        has a subject.
+      */}
       {licensed && view.active !== 'none' && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-3 rounded border border-line-soft bg-panel px-3 py-2">
+          <p className="min-w-0 text-[11px] text-ink-faint">
+            Forwarding is on, via <span className="font-mono text-ink-muted">{view.active}</span>.
+            Records are written and retained here either way — this only stops them being sent on.
+          </p>
           <Button
             variant="ghost"
             size="sm"
+            className="shrink-0"
             disabled={setActive.isPending}
             onClick={() => {
               setError(null);

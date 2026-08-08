@@ -52,8 +52,15 @@ export function SystemStatusCard() {
               : `oldest due ${relativeAge(data.materialization.oldestDueAt)}`
           }
         />
+        {/*
+          "Stranded", not "Failed". This card sits directly above the estate
+          tiles, where "Failed 9" counts NODE RUNS — so two numbers labelled
+          the same thing, inches apart, meant entirely different things. This
+          one counts nodes whose ENC file could not be written and which
+          nothing will retry.
+        */}
         <Metric
-          label="Failed"
+          label="Stranded"
           value={stranded}
           // Spread rather than `tone={cond ? 'failed' : undefined}`:
           // exactOptionalPropertyTypes distinguishes "absent" from "undefined".
