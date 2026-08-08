@@ -1,0 +1,22 @@
+{
+  // The E2E suite belongs to no workspace, so `npm run typecheck` — which runs
+  // per-workspace configs — never looked at it. It is the suite that guards the
+  // console, and a plain mistake in it (a fixture used but not destructured)
+  // surfaced only as a ReferenceError after a ten-minute browser run in CI.
+  //
+  // Types only. Running the suite still needs a stack; this just makes a
+  // typo cost seconds instead of a CI cycle.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // `page.evaluate` callbacks are compiled here but RUN in the browser, so
+    // this needs the DOM lib even though nothing in the suite touches a
+    // document in Node.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

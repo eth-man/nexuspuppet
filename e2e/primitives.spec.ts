@@ -48,7 +48,7 @@ test.describe('primitives', () => {
    * Now: named, explained, and not drawn. The feature is still discoverable —
    * the header was the part anyone read — and there is nothing to operate.
    */
-  test('core names the directory feature and draws no form', async ({ page }) => {
+  test('names the directory feature and draws no form', async ({ page, request }) => {
     test.skip(directory, 'this deployment can run a directory');
 
     await login(page);
