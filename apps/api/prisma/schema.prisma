@@ -386,6 +386,12 @@ model EncMaterialization {
   /// a stored name goes stale the moment a group is renamed, which is exactly
   /// when somebody is most likely to be reading this.
   attribution     Json        @default("{}")
+  /// When this node's document last CHANGED — not when it was last examined.
+  ///
+  /// The materializer runs continuously and mostly writes nothing; advancing
+  /// this on every pass made it mean "when we last looked", and anything
+  /// comparing it against a replication peer's last transfer then reported the
+  /// peer as permanently behind while it was demonstrably current.
   writtenAt       DateTime    @default(now())
 
   @@index([writtenAt])

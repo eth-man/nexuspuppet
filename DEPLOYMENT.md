@@ -723,6 +723,13 @@ host. Nothing is installed, and no interpreter is added to a box that is often
 tightly controlled.
 
 > **On Puppet Enterprise, change `SupplementaryGroups=puppet` to `pe-puppet`.**
+>
+> If the unit fails with `status=216/GROUP` and *"Failed to determine
+> supplementary groups: No such process"*, that is systemd saying **the named
+> group does not exist on this host** — not that a process is missing. On a
+> host with no Puppet installed at all, clear the directive with a drop-in
+> (`SupplementaryGroups=`); the grant exists only to read the Puppet private
+> key.
 > The unit drops every capability, including `CAP_DAC_OVERRIDE` — the only
 > reason root can normally read a file it does not own. The Puppet server's
 > private key is `0640 puppet:puppet`, so the unit joins that group instead of

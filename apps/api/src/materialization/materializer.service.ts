@@ -332,7 +332,21 @@ export class MaterializerService {
           conflicts: merged.conflicts as unknown as PuppetValue[],
           attribution: merged.attribution as unknown as Prisma.InputJsonObject,
           matchReasons: matchReasons as unknown as Prisma.InputJsonArray,
-          writtenAt: new Date(),
+          /*
+           * ONLY when the document actually changed.
+           *
+           * This used to advance on every pass, which made `writtenAt` mean
+           * "when we last looked" rather than "when this last changed" — and
+           * anything comparing it against a replication peer's last transfer
+           * then reported the peer as permanently behind. The peer had the
+           * current tree (it was being answered 304, which says so), while the
+           * console insisted it was stale.
+           *
+           * Same lesson as ADR-0022 one layer up: compare what changed against
+           * what was received, never two clocks that advance for different
+           * reasons.
+           */
+          ...(changed ? { writtenAt: new Date() } : {}),
         },
       });
     }
