@@ -1,3 +1,4 @@
+import { EncDocumentReader } from '../src/materialization/enc-document-reader';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -67,6 +68,7 @@ describe('classification plan (integration)', () => {
       new MaterializationService(),
       new PrismaAuditSink(prisma),
       PROJECTED,
+      new EncDocumentReader(ENC_DIR_FOR_TESTS),
     );
 
     await prisma.encMaterializationJob.deleteMany();
@@ -677,3 +679,9 @@ describe('classification plan (integration)', () => {
     });
   });
 });
+
+/**
+ * Deliberately absent: these tests assert classification, not file contents,
+ * so readNode() returns null and the node reads as falling back to default.yaml.
+ */
+const ENC_DIR_FOR_TESTS = '/nonexistent/enc-output-for-tests';

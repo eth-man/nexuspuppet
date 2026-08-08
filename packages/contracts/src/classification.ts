@@ -160,6 +160,19 @@ export interface NodeClassificationExplanation {
    * matched for no reason.
    */
   matchReasons?: GroupMatchExplanation[];
+  /**
+   * The YAML this node will actually be served (#143).
+   *
+   * READ FROM DISK, never re-rendered — re-rendering would answer "what would
+   * we write now", quietly hiding a file that failed to write or belongs to a
+   * classification that has since changed.
+   *
+   * Null when the node has no file of its own and receives `default.yaml`,
+   * which is a valid classification rather than an error.
+   */
+  document: string | null;
+  /** True when `document` is null because the node falls back to default.yaml. */
+  usesDefault: boolean;
   /** Null when the node has never been materialized. */
   materialization: {
     contentHash: string;

@@ -31,6 +31,7 @@ import { ClassificationService } from './classification/classification.service';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
 import { NodeProjectionService } from './puppetdb/node-projection.service';
 import { PosixEncStorage } from './materialization/posix-enc-storage';
+import { EncDocumentReader } from './materialization/enc-document-reader';
 import { EncReplicationService } from './replication/enc-replication.service';
 import {
   DEFAULT_EVALUATOR_PACING,
@@ -622,7 +623,16 @@ export class AppModule {
             materialization: MaterializationService,
             audit: IAuditSink,
           ): ClassificationService =>
-            new ClassificationService(prisma, materialization, audit, env.PUPPETDB_PROJECTED_FACTS),
+            new ClassificationService(
+              prisma,
+              materialization,
+              audit,
+              env.PUPPETDB_PROJECTED_FACTS,
+              // Reads the ENC document back (#143). Constructed with the path
+              // rather than injected via ENC_FILE_WRITER: reading needs none
+              // of the writer's guarantees, and that seam is published.
+              new EncDocumentReader(env.ENC_OUTPUT_DIR),
+            ),
         },
         {
           provide: MaterializerService,
