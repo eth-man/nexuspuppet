@@ -623,6 +623,170 @@ describe('user administration (integration)', () => {
    * `DELETE /users/:id` verb. These tests are about the guards, because the
    * trigger is a small icon one pixel away from the reversible one.
    */
+  /**
+   * Moving an account between authentication sources (ADR-0023 §2).
+   *
+   * `email` is globally unique, so nobody can hold an account per source — a
+   * move is the ONLY way across, and it has to keep the id, since the role, the
+   * history and every audit row naming this account as a subject hang off it.
+   */
+  describe('moving between authentication sources', () => {
+    /** A resolver with a second source, which core alone never has. */
+    const withLdap = () => {
+      const ldap = {
+        source: 'ldap',
+        async authenticate() {
+          return { ok: false as const, reason: 'INVALID_CREDENTIALS' as const };
+        },
+        async resolve() {
+          return null;
+        },
+      };
+      return new UsersService(
+        prisma,
+        new PrismaAuditSink(prisma),
+        tokens,
+        new AuthProviderResolver([provider, ldap], prisma, 0),
+      );
+    };
+
+    it('clears the password hash in the same write that moves the source', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await makeUser('mover@example.com', 'VIEWER');
+
+      await withLdap().moveAuthSource(subject.id, { authSource: 'ldap' }, principalFor(actor), CTX);
+
+      const after = await prisma.user.findUnique({ where: { id: subject.id } });
+      expect(after?.authSource).toBe('ldap');
+      /*
+       * A leftover hash is a credential that outlives whatever the directory
+       * revokes. Strict dispatch makes it inert rather than exploitable, and
+       * inert is not a reason to keep it.
+       */
+      expect(after?.passwordHash).toBeNull();
+    });
+
+    it('keeps the id, the role and the account’s history', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await makeUser('mover@example.com', 'OPERATOR');
+
+      const moved = await withLdap().moveAuthSource(
+        subject.id,
+        { authSource: 'ldap' },
+        principalFor(actor),
+        CTX,
+      );
+
+      expect(moved.id).toBe(subject.id);
+      expect(moved.role).toBe('OPERATOR');
+    });
+
+    it('records both the old and the new source', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await makeUser('mover@example.com', 'VIEWER');
+
+      await withLdap().moveAuthSource(subject.id, { authSource: 'ldap' }, principalFor(actor), CTX);
+
+      const entry = await prisma.auditLog.findFirst({
+        where: { action: 'user.auth-source.move' },
+      });
+      // Both halves: "moved to ldap" alone does not tell an auditor what it
+      // was before, which is the question they are asking.
+      expect(entry?.before).toMatchObject({ authSource: 'local' });
+      expect(entry?.after).toMatchObject({ authSource: 'ldap' });
+    });
+
+    it('ends the sessions held under the old source', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await makeUser('mover@example.com', 'VIEWER');
+      await tokens.issue(principalFor(subject), CTX);
+
+      expect(await prisma.refreshToken.count({ where: { userId: subject.id } })).toBeGreaterThan(0);
+
+      await withLdap().moveAuthSource(subject.id, { authSource: 'ldap' }, principalFor(actor), CTX);
+
+      const live = await prisma.refreshToken.count({
+        where: { userId: subject.id, revokedAt: null },
+      });
+      expect(live).toBe(0);
+    });
+
+    /*
+     * An account with neither a password nor a directory cannot authenticate at
+     * all — silently, and discovered by the person it locks out.
+     */
+    it('refuses a move to local without a password', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await prisma.user.create({
+        data: {
+          email: 'directory@example.com',
+          displayName: 'Directory person',
+          role: 'VIEWER',
+          roleId: await roleIdFor(prisma, 'VIEWER'),
+          authSource: 'ldap',
+          passwordHash: null,
+        },
+      });
+
+      await expect(
+        withLdap().moveAuthSource(subject.id, { authSource: 'local' }, principalFor(actor), CTX),
+      ).rejects.toThrow(/needs a password/i);
+
+      const after = await prisma.user.findUnique({ where: { id: subject.id } });
+      expect(after?.authSource).toBe('ldap');
+    });
+
+    it('sets the password when moving to local, and it works', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await prisma.user.create({
+        data: {
+          email: 'returning@example.com',
+          displayName: 'Returning',
+          role: 'VIEWER',
+          roleId: await roleIdFor(prisma, 'VIEWER'),
+          authSource: 'ldap',
+          passwordHash: null,
+        },
+      });
+
+      await withLdap().moveAuthSource(
+        subject.id,
+        { authSource: 'local', password: 'a-brand-new-password' },
+        principalFor(actor),
+        CTX,
+      );
+
+      // Proven by authenticating, not by inspecting the hash.
+      const result = await provider.authenticate({
+        email: 'returning@example.com',
+        password: 'a-brand-new-password',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('refuses a source no provider answers to', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+      const subject = await makeUser('mover@example.com', 'VIEWER');
+
+      await expect(
+        users.moveAuthSource(subject.id, { authSource: 'saml' }, principalFor(actor), CTX),
+      ).rejects.toThrow(/cannot authenticate against "saml"/i);
+    });
+
+    /*
+     * A privilege boundary, not a courtesy: moving yourself to a directory
+     * clears your password and hands the question of whether you may sign in
+     * to a system you may not control.
+     */
+    it('refuses to move your own account', async () => {
+      const actor = await makeUser('admin@example.com', 'ADMIN');
+
+      await expect(
+        withLdap().moveAuthSource(actor.id, { authSource: 'ldap' }, principalFor(actor), CTX),
+      ).rejects.toThrow(/your own authentication source/i);
+    });
+  });
+
   describe('permanent deletion', () => {
     it('removes the user and their sessions', async () => {
       const user = await makeUser('user@example.com', 'OPERATOR');

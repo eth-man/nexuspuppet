@@ -620,6 +620,38 @@ export const updateUserSchema = z.object({
 });
 export type UpdateUser = z.infer<typeof updateUserSchema>;
 
+/**
+ * Move an account between authentication sources (ADR-0023 §2).
+ *
+ * Its OWN request rather than a field on `updateUserSchema`, because it is an
+ * action with consequences beyond the column: it clears any stored password
+ * hash and revokes the account's sessions. Folded into the general update, a
+ * caller could change a role and a source at once and leave an audit row that
+ * cannot say which of the two revoked the sessions.
+ *
+ * `email` is globally unique, so a person cannot hold an account per source.
+ * Moving is the only way across, and it keeps the id — with it the account's
+ * role, its history, and every audit row that names it as a subject.
+ */
+export const moveAuthSourceSchema = z
+  .object({
+    authSource: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z][a-z0-9_-]*$/, 'authSource must be lowercase alphanumeric'),
+    /**
+     * Required when moving TO local, refused otherwise.
+     *
+     * An account with neither a password nor a directory cannot authenticate at
+     * all, so moving to local without one produces a row nobody can sign in as
+     * — silently, and discovered by the person it locks out.
+     */
+    password: z.string().min(12).max(1024).optional(),
+  })
+  .strict();
+export type MoveAuthSource = z.infer<typeof moveAuthSourceSchema>;
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(1024),
   newPassword: z.string().min(12).max(1024),

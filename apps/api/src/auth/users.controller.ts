@@ -15,12 +15,14 @@ import {
   changePasswordSchema,
   createUserSchema,
   resetPasswordSchema,
+  moveAuthSourceSchema,
   updateUserSchema,
   type ChangePassword,
   type CreateUser,
   type ManagedUser,
   type ManagedUserDetail,
   type ResetPassword,
+  type MoveAuthSource,
   type UpdateUser,
 } from '@nexuspuppet/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -67,6 +69,27 @@ export class UsersController {
     @Req() request: AuthenticatedRequest,
   ): Promise<ManagedUser> {
     return this.users.update(id, body, principalOf(request), contextOf(request));
+  }
+
+  /**
+   * Move an account between authentication sources (ADR-0023 §2).
+   *
+   * A route of its own rather than a field on PATCH, because it does more than
+   * set a column: it clears any stored password hash and revokes the account's
+   * sessions. Folded into the general update, one request could change a role
+   * and a source together and leave an audit row unable to say which of them
+   * revoked the sessions.
+   *
+   * POST, not PATCH: this is an action with consequences, not a partial edit.
+   */
+  @RequirePermission('users:manage')
+  @Post(':id/auth-source')
+  moveAuthSource(
+    @Param('id', UuidParam) id: string,
+    @Body(new ZodValidationPipe(moveAuthSourceSchema)) body: MoveAuthSource,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ManagedUser> {
+    return this.users.moveAuthSource(id, body, principalOf(request), contextOf(request));
   }
 
   /**
