@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { AUDIT_SINK } from '@nexuspuppet/contracts';
 import type {
+  MoveAuthSource,
   AuthenticatedPrincipal,
   CreateUser,
   IAuditSink,
@@ -410,6 +411,117 @@ export class UsersService {
     });
 
     await this.tokens.revokeAllForUser(id);
+  }
+
+  /**
+   * Move an account to a different authentication source (ADR-0023 §2).
+   *
+   * An EDIT, never a delete and recreate. `email` is globally unique, so the
+   * two rows could not coexist anyway — and a delete would take the account's
+   * role, its history and every audit row naming it as a subject, leaving a
+   * window in which the person cannot sign in at all.
+   */
+  async moveAuthSource(
+    id: string,
+    input: MoveAuthSource,
+    actor: AuthenticatedPrincipal,
+    context: AuditContext,
+  ): Promise<ManagedUser> {
+    const target = input.authSource.trim().toLowerCase();
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const before = await tx.user.findUnique({ where: { id } });
+      if (before === null) throw new NotFoundException('No such user.');
+
+      if (before.authSource === target) {
+        throw new ConflictException(`${before.email} is already authenticated by "${target}".`);
+      }
+
+      /*
+       * Not your own account, ever.
+       *
+       * A privilege boundary rather than a courtesy: moving yourself to a
+       * directory clears your password and hands the decision of whether you
+       * may sign in to a system you may not control. The "last administrator"
+       * guard would not catch it, because another administrator existing does
+       * not make locking yourself out deliberate.
+       */
+      if (id === actor.userId) {
+        throw new ForbiddenException(
+          'You cannot change your own authentication source. Ask another administrator.',
+        );
+      }
+
+      /*
+       * Refuse a source nothing provides.
+       *
+       * The resolver dispatches strictly on `authSource` and refuses an account
+       * naming a source it has no provider for — so this would produce a row
+       * that looks configured and can never log in, discovered by the person it
+       * locks out. Local is always available; core binds it unconditionally.
+       */
+      if (!this.providers.sources().includes(target)) {
+        throw new BadRequestException(
+          `This deployment cannot authenticate against "${target}". ` +
+            `Configured sources: ${this.providers.sources().join(', ')}.`,
+        );
+      }
+
+      const toLocal = target === 'local';
+
+      if (toLocal && input.password === undefined) {
+        throw new BadRequestException(
+          `Moving ${before.email} to local authentication needs a password. ` +
+            'An account with neither a password nor a directory cannot sign in at all.',
+        );
+      }
+
+      if (!toLocal && input.password !== undefined) {
+        throw new BadRequestException(
+          `A password cannot be set for an account authenticated by "${target}". ` +
+            'The directory holds the credential.',
+        );
+      }
+
+      /*
+       * The hash is cleared in the SAME write, not a second one that can fail
+       * on its own. A leftover hash on an account moved to a directory is a
+       * credential that outlives whatever that directory revokes. Strict
+       * dispatch (ADR-0015 §1) makes it inert rather than exploitable, and
+       * inert is not a reason to keep a credential.
+       */
+      const passwordHash = toLocal ? await hashPassword(input.password ?? '') : null;
+
+      const after = await tx.user.update({
+        where: { id },
+        data: { authSource: target, passwordHash },
+      });
+
+      await this.record(
+        tx,
+        actor,
+        context,
+        'user.auth-source.move',
+        id,
+        { email: before.email, authSource: before.authSource },
+        { email: after.email, authSource: after.authSource },
+      );
+
+      return after;
+    });
+
+    /*
+     * Revoked AFTER the commit, as password reset does.
+     *
+     * "Sessions do not survive the move" means refresh tokens: an access token
+     * already issued lives out its remaining minutes, which is ADR-0015's
+     * recorded decision for a deregistered provider and the same trade here.
+     * Refreshing re-resolves through the NEW source, which is what must not be
+     * bypassed.
+     */
+    await this.tokens.revokeAllForUser(id);
+
+    return toManagedUser(updated);
   }
 
   private async record(
