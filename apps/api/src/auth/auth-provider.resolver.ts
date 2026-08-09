@@ -24,6 +24,14 @@ import { PrismaService } from '../prisma/prisma.service';
 const DEFAULT_LOGIN_FLOOR_MS = 1500;
 
 /**
+ * How often the "no account exists" warning may repeat.
+ *
+ * A minute is short enough that an operator configuring a directory sees it
+ * immediately, and long enough that a stranger cannot drive the log.
+ */
+const NO_ACCOUNT_WARN_INTERVAL_MS = 60_000;
+
+/**
  * Dispatch a login to the one provider that owns the account (ADR-0015).
  *
  * `authSource` on the account decides, and nothing chains or falls back. The
@@ -39,6 +47,10 @@ const DEFAULT_LOGIN_FLOOR_MS = 1500;
 @Injectable()
 export class AuthProviderResolver {
   private readonly logger = new Logger(AuthProviderResolver.name);
+
+  /** Throttle state for the no-account warning; see warnNoAccount. */
+  private warnMutedUntil = 0;
+  private warnSuppressed = 0;
 
   /** source -> provider. Built once; the set cannot change after boot. */
   private readonly bySource = new Map<string, IAuthProvider>();
@@ -204,13 +216,7 @@ export class AuthProviderResolver {
        * the caller guessing addresses.
        */
       const directories = this.sources().filter((source) => source !== 'local');
-      if (directories.length > 0) {
-        this.logger.warn(
-          `Login refused for "${email}": no account exists. Directory users are not ` +
-            'provisioned automatically (ADR-0015 §5) — create the account with ' +
-            `authSource set to one of: ${directories.join(', ')}.`,
-        );
-      }
+      if (directories.length > 0) this.warnNoAccount(email, directories);
 
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
@@ -256,6 +262,40 @@ export class AuthProviderResolver {
     }
 
     return provider.resolve(userId);
+  }
+
+  /**
+   * Say it once a minute, and say how many were swallowed.
+   *
+   * THROTTLED BECAUSE THE RATE LIMITER DOES NOT BOUND THIS. The login limiter
+   * keys on `${ip}|${email}`, so ten attempts buys ten tries PER ADDRESS — an
+   * unauthenticated caller varying the address gets a fresh bucket every
+   * request, and an unthrottled warning here would emit one line per request,
+   * for as long as they cared to keep going. A log that can be driven by a
+   * stranger is a disk-full incident with extra steps.
+   *
+   * One line the moment it starts is all an operator configuring a directory
+   * needs; the suppressed count is what stops the throttle hiding a flood
+   * instead of reporting it.
+   */
+  private warnNoAccount(email: string, directories: string[]): void {
+    const now = Date.now();
+
+    if (now < this.warnMutedUntil) {
+      this.warnSuppressed += 1;
+      return;
+    }
+
+    const swallowed =
+      this.warnSuppressed > 0 ? ` (${String(this.warnSuppressed)} similar suppressed)` : '';
+    this.warnSuppressed = 0;
+    this.warnMutedUntil = now + NO_ACCOUNT_WARN_INTERVAL_MS;
+
+    this.logger.warn(
+      `Login refused for "${email}": no account exists. Directory users are not ` +
+        'provisioned automatically (ADR-0015 §5) — create the account with ' +
+        `authSource set to one of: ${directories.join(', ')}.${swallowed}`,
+    );
   }
 
   private async padTo(startedAt: number): Promise<void> {

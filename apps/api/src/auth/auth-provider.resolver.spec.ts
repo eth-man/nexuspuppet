@@ -232,6 +232,40 @@ describe('AuthProviderResolver', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
+    /*
+     * The login limiter keys on `${ip}|${email}`, so varying the address buys a
+     * fresh bucket every request — it does NOT bound this. Without a throttle,
+     * an unauthenticated caller writes one log line per request for as long as
+     * they like.
+     */
+    it('cannot be driven by a stranger varying the address', async () => {
+      const spy = warn();
+      const r = resolver();
+
+      for (let i = 0; i < 50; i += 1) {
+        await r.authenticate({ email: `nobody${String(i)}@corp.test`, password: 'x' });
+      }
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports how many it swallowed, so the throttle cannot hide a flood', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-09T12:00:00Z'));
+      const spy = warn();
+      const r = resolver();
+
+      await r.authenticate({ email: 'a@corp.test', password: 'x' });
+      await r.authenticate({ email: 'b@corp.test', password: 'x' });
+      await r.authenticate({ email: 'c@corp.test', password: 'x' });
+
+      jest.setSystemTime(new Date('2026-08-09T12:01:30Z'));
+      await r.authenticate({ email: 'd@corp.test', password: 'x' });
+
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenLastCalledWith(expect.stringContaining('2 similar suppressed'));
+      jest.useRealTimers();
+    });
+
     it('still refuses identically, so the answer is no oracle', async () => {
       warn();
 
