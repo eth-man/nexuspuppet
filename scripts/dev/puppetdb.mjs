@@ -32,7 +32,17 @@ const PORT = Number(process.env.DEV_PUPPETDB_PORT ?? 8081);
 
 /** Throwaway CA + server + client certs, so the mTLS path is genuinely exercised. */
 function ensureCertificates() {
-  if (existsSync(join(C, 'client.pem'))) return;
+  /*
+   * ALL of them, not just client.pem.
+   *
+   * Guarding on one file means a partially-deleted set is never repaired: the
+   * generator returns early, then the server crashes reading the file that is
+   * missing. Deleting server.* to force a regeneration — which is exactly what
+   * someone does after changing the SAN below — left the stand-in permanently
+   * unable to start.
+   */
+  const REQUIRED = ['ca.pem', 'ca.key', 'server.pem', 'server.key', 'client.pem', 'client.key'];
+  if (REQUIRED.every((f) => existsSync(join(C, f)))) return;
 
   mkdirSync(C, { recursive: true });
   const run = (args) => execFileSync('openssl', args, { cwd: C, stdio: 'pipe' });
@@ -64,6 +74,20 @@ function ensureCertificates() {
     'server.csr',
     '-subj',
     '/CN=localhost',
+    /*
+     * A SAN, so this is reachable by a name other than localhost.
+     *
+     * Without one, Node falls back to the CN and the certificate is usable
+     * ONLY from the same host — which is fine for `npm run dev:stack` and
+     * useless the moment the API runs in a container and resolves this by
+     * service name. Staging hit exactly that: mTLS initialised, then every
+     * projection failed with "Host: nexuspuppet-puppetdb-standin is not cert's
+     * CN: localhost", and the console showed an estate of zero.
+     *
+     * Extra names can be added for another topology without editing this.
+     */
+    '-addext',
+    `subjectAltName=${process.env['PUPPETDB_STANDIN_SANS'] ?? 'DNS:localhost,DNS:nexuspuppet-puppetdb-standin,IP:127.0.0.1'}`,
   ]);
   run([
     'x509',
@@ -78,6 +102,11 @@ function ensureCertificates() {
     '-days',
     '365',
     '-sha256',
+    // Extensions in a CSR are NOT carried into the signed certificate by
+    // default, so without this the SAN above is silently dropped and the
+    // failure looks identical to never having added it.
+    '-copy_extensions',
+    'copyall',
     '-out',
     'server.pem',
   ]);
