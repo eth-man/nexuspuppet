@@ -119,12 +119,26 @@ an environment variable and discovered at runtime:
 
 # Enterprise edition — this section, and only this section, needs Node >= 22.12
 # on the host. The core install needs nothing but Docker.
+#
+# The distribution's `nodejs` package is NOT new enough on Ubuntu 22.04 (it
+# ships 12.x), and `enterprise:fetch` fails in ways that do not mention Node.
+# Install a current one first:
+#   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+#   sudo apt-get install -y nodejs
 export NEXUSPUPPET_ENTERPRISE_REPO='git@github.com:yourorg/nexuspuppet-enterprise.git'
 export NEXUSPUPPET_ENTERPRISE_REF=v1.0.0      # default: main
 npm run enterprise:fetch                       # clones into packages/enterprise/
 npm install
 npm install ldapts --workspace @nexuspuppet/enterprise   # LDAP deployments only
 ```
+
+> **`npm install` here is correct, and is the opposite of the rule on a
+> development machine.** The root `workspaces` glob is `packages/*`, so on a
+> checkout you commit from, installing with the enterprise layer present writes
+> its dependencies into the public `package-lock.json` — and the
+> `core-isolation` CI job asserts that package does not exist. On a DEPLOYMENT
+> host nothing is ever committed, so there is no such hazard. Do not carry this
+> instruction back to a dev checkout.
 
 **That last line is needed again after every `npm install` that replaces
 `packages/enterprise`** — a fresh clone, a new tag, another `enterprise:fetch`.

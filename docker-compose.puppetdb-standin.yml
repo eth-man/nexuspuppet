@@ -1,0 +1,41 @@
+# The PuppetDB stand-in, as a service rather than a container somebody once made
+# by hand.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.puppetdb-standin.yml up -d
+#
+# WHY THIS FILE EXISTS. Staging ran a stand-in for weeks under the name
+# `nexuspuppet-puppetdb-standin`, created imperatively and recorded nowhere. When
+# the VM was rebuilt from a bare snapshot there was nothing to restore it from:
+# the console came up healthy, answered logins, and reported an estate of zero
+# nodes with `PuppetDB unavailable` in the log. A fixture that only exists on one
+# machine is not a fixture, it is that machine's local state.
+#
+# NEVER for production. It serves synthetic fixtures and mints its own throwaway
+# CA; a deployment pointed at this is pointed at made-up nodes.
+services:
+  puppetdb-standin:
+    # The API resolves this by container name over the compose network, so the
+    # name is part of the contract: PUPPETDB_URL must match it.
+    container_name: nexuspuppet-puppetdb-standin
+    image: node:22-alpine
+    working_dir: /app
+    # openssl, because the stand-in mints its CA and client certificate on first
+    # boot — which is also how the API gets the client cert it presents. Without
+    # this the console starts fine and every inventory view is empty.
+    command: sh -c "apk add --no-cache openssl >/dev/null && node scripts/dev/puppetdb.mjs"
+    volumes:
+      - ./scripts:/app/scripts
+      # The synthetic estate it serves. Missing this, the container starts,
+      # mints its certificates, and exits on ENOENT for nodes-query.sample.json.
+      - ./fixtures:/app/fixtures
+      # The generated certs must land where the API expects to read them, which
+      # is the same host directory the api service mounts.
+      - ${PUPPETDB_CERT_DIR:-./scripts/dev/certs}:/app/scripts/dev/certs
+    restart: unless-stopped
+    healthcheck:
+      # A TLS handshake it will refuse without a client certificate still proves
+      # the listener is up; `--insecure` keeps this from needing the CA.
+      test: ['CMD-SHELL', 'wget -q --spider --no-check-certificate https://127.0.0.1:8081 || true']
+      interval: 30s
+      timeout: 5s
+      retries: 3
