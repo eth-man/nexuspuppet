@@ -182,9 +182,36 @@ export class AuthProviderResolver {
     });
 
     if (account === null) {
-      // Deliberately identical to every other refusal. The padding above makes
-      // the early return here indistinguishable from a full provider round
-      // trip; without it this branch would be the enumeration oracle.
+      /*
+       * The ANSWER stays identical to every other refusal — the padding above
+       * makes this early return indistinguishable from a full provider round
+       * trip, and without that this branch is the enumeration oracle.
+       *
+       * The LOG is a different question, and it was wrong to have none.
+       *
+       * There is no auto-provisioning (ADR-0015 §5), so a directory user with
+       * no account row is refused HERE: the directory provider is never asked,
+       * and nothing was written anywhere. Somebody who has just configured LDAP
+       * sees a correct-looking bind, a correct-looking search base, and a login
+       * that fails exactly as a wrong password does. That cost hours during the
+       * 2026-08-09 AD switch-over and would have cost minutes with this line.
+       *
+       * Only when a DIRECTORY is configured. On a core deployment an unknown
+       * address is a typo, and warning about every one of them is noise that
+       * teaches operators to ignore the log.
+       *
+       * A log is not an oracle: it reaches an operator reading the host, not
+       * the caller guessing addresses.
+       */
+      const directories = this.sources().filter((source) => source !== 'local');
+      if (directories.length > 0) {
+        this.logger.warn(
+          `Login refused for "${email}": no account exists. Directory users are not ` +
+            'provisioned automatically (ADR-0015 §5) — create the account with ' +
+            `authSource set to one of: ${directories.join(', ')}.`,
+        );
+      }
+
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
