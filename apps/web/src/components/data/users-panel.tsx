@@ -99,32 +99,51 @@ export function UsersPanel() {
   const [role, setRole] = useState<string>('VIEWER');
   const [password, setPassword] = useState('');
   /**
-   * Which authority owns this account's credentials.
+   * Which authorities this DEPLOYMENT can authenticate against.
    *
-   * Keyed off the DEPLOYMENT's active provider, not the current user's
-   * authSource. An administrator with a local account on an LDAP deployment
-   * must still be able to provision directory accounts — reading it off the
-   * principal would hide the option from exactly the person who needs it.
+   * The deployment's sources, never the current user's `authSource`. An
+   * administrator holding a local account on a directory deployment must still
+   * be able to provision directory accounts — reading it off the principal
+   * would hide the option from exactly the person who needs it.
    *
-   * In core mode this is 'local', so nothing external is offered at all and the
-   * dialog is unchanged.
+   * In core the only source is local, so no selector is offered at all and this
+   * dialog looks as it always has.
    */
   const authSources = useAuthSources();
-  /*
-   * The first source that is not local, if this deployment has one.
+  const directories = (authSources.data?.sources ?? [])
+    .map((entry) => entry.source)
+    .filter((source) => source !== 'local');
+
+  /**
+   * What the dialog opens on (ADR-0023 §4).
    *
-   * Read from the LIST now (ADR-0023 §3). It used to come from an endpoint that
-   * described the `AUTH_PROVIDER` binding — always core's local provider — so
-   * this was always null and the selector below never rendered. On any
-   * directory deployment that meant a directory account could not be created
-   * from the console at all.
+   * ONE directory: that directory. NONE: local. TWO OR MORE: nothing, and the
+   * form refuses to submit until somebody picks.
    *
-   * Still one source, not a picker: offering a choice between several is #171.
+   * The asymmetry of the mistakes is the whole argument. Defaulting to a
+   * directory and getting it wrong means somebody cannot sign in — noticed in
+   * minutes, fixed in one edit. Defaulting to local and getting it wrong means
+   * a directory-managed person holds a password-backed account that keeps
+   * working after that directory revokes them. One is an inconvenience; the
+   * other is an offboarding hole nothing reports.
+   *
+   * Between two directories there is no such asymmetry — either could be right
+   * — so it does not guess.
    */
-  const externalSource =
-    authSources.data?.sources.find((entry) => entry.source !== 'local')?.source ?? null;
-  const [authSource, setAuthSource] = useState('local');
+  const defaultSource = directories.length === 1 ? (directories[0] ?? 'local') : '';
+
+  /*
+   * DERIVED, not synced through an effect. `sources` arrives asynchronously, so
+   * seeding useState from it would need an effect to correct the initial value
+   * — and an effect that writes the field the user is editing overwrites their
+   * choice on any refetch. `null` means "not chosen yet", and the default
+   * stands in until they choose.
+   */
+  const [chosenSource, setChosenSource] = useState<string | null>(null);
+  const authSource = chosenSource ?? (directories.length === 0 ? 'local' : defaultSource);
   const isLocal = authSource === 'local';
+  /** Two or more directories and nothing picked. */
+  const mustChooseSource = authSource === '';
   const [error, setError] = useState<string | null>(null);
 
   if (!manages) return null;
@@ -347,9 +366,14 @@ export function UsersPanel() {
         onClose={() => setOpen(false)}
         title="New user"
         description={
-          isLocal
-            ? 'Local account. The user can change their own password after signing in.'
-            : `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.`
+          // Three states, not two: with several directories configured there is
+          // no chosen source yet, and "Authenticated by ." is what the
+          // two-branch version rendered.
+          mustChooseSource
+            ? 'This deployment has more than one directory. Choose which one owns this account — it decides who authenticates them, and it cannot be guessed from the address.'
+            : isLocal
+              ? 'Local account. The user can change their own password after signing in.'
+              : `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.`
         }
         footer={
           <>
@@ -359,7 +383,7 @@ export function UsersPanel() {
             <Button
               variant="primary"
               size="sm"
-              disabled={create.isPending || (isLocal && password.length < 12)}
+              disabled={create.isPending || mustChooseSource || (isLocal && password.length < 12)}
               onClick={() => {
                 setError(null);
                 create.mutate(
@@ -376,7 +400,7 @@ export function UsersPanel() {
                       setDisplayName('');
                       setPassword('');
                       setRole('VIEWER');
-                      setAuthSource('local');
+                      setChosenSource(null);
                     },
                     onError: (caught) => {
                       setOpen(false);
@@ -426,17 +450,33 @@ export function UsersPanel() {
                 ))}
               </Select>
             </div>
-            {externalSource !== null && (
+            {/*
+              Absent in core, where local is the only source and a select with
+              one option is a control that cannot be operated.
+            */}
+            {directories.length > 0 && (
               <div className="space-y-1">
                 <Label htmlFor="newAuthSource">Authentication</Label>
                 <Select
                   id="newAuthSource"
                   value={authSource}
-                  onChange={(e) => setAuthSource(e.target.value)}
+                  onChange={(e) => setChosenSource(e.target.value)}
                   className="w-full"
+                  aria-invalid={mustChooseSource}
                 >
+                  {/*
+                    Only present while it IS the value. A permanent "choose…"
+                    row is a thing users can select their way back into, and
+                    selecting it would put a valid form back into an invalid
+                    state for no reason.
+                  */}
+                  {mustChooseSource && <option value="">Choose…</option>}
                   <option value="local">local (password)</option>
-                  <option value={externalSource}>{externalSource}</option>
+                  {directories.map((source) => (
+                    <option key={source} value={source}>
+                      {source}
+                    </option>
+                  ))}
                 </Select>
               </div>
             )}
