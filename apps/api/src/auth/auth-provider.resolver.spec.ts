@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { AuthResult, Credentials, IAuthProvider } from '@nexuspuppet/contracts';
 import { AuthProviderResolver } from './auth-provider.resolver';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -193,6 +194,108 @@ describe('AuthProviderResolver', () => {
       });
 
       expect(result.ok).toBe(false);
+    });
+  });
+
+  /**
+   * The silent refusal (2026-08-09).
+   *
+   * A directory user with no account row is refused before the provider is
+   * ever asked, and nothing was logged — so a freshly configured LDAP
+   * deployment looked identical to a wrong password. The answer must stay
+   * identical; the LOG must not.
+   */
+  describe('a directory login refused for want of an account', () => {
+    const warn = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('says so in the log, naming the sources an account could use', async () => {
+      const spy = warn();
+
+      await resolver().authenticate({ email: 'nobody@corp.test', password: 'x' });
+
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('no account exists'));
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('ldap'));
+    });
+
+    /*
+     * On core an unknown address is a typo. Warning about every one of them is
+     * noise, and noise is what teaches an operator to stop reading the log.
+     */
+    it('stays quiet when local is the only source', async () => {
+      const spy = warn();
+      const localOnly = new AuthProviderResolver([local], fakePrisma(accounts), 0);
+
+      await localOnly.authenticate({ email: 'nobody@corp.test', password: 'x' });
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    /*
+     * `credentialsSchema` is `z.string().min(1).max(255)` with no `.email()`,
+     * deliberately: an AD deployment logs in with a username. So a submitted
+     * identifier can contain a newline, `trim()` only strips the ends, and a
+     * raw interpolation would let an unauthenticated caller forge log entries
+     * beneath a line that looks like ours.
+     */
+    it('cannot be used to forge log lines', async () => {
+      const spy = warn();
+      const forged = 'x@corp.test\n2026-08-09 ERROR [Bootstrap] Everything is fine';
+
+      await resolver().authenticate({ email: forged, password: 'x' });
+
+      const logged = String(spy.mock.calls[0]?.[0] ?? '');
+      // The newline is escaped, so the whole thing stays one line.
+      expect(logged).not.toContain('\n');
+      expect(logged).toContain('\\n');
+      expect(logged.split('\n')).toHaveLength(1);
+    });
+
+    /*
+     * The login limiter keys on `${ip}|${email}`, so varying the address buys a
+     * fresh bucket every request — it does NOT bound this. Without a throttle,
+     * an unauthenticated caller writes one log line per request for as long as
+     * they like.
+     */
+    it('cannot be driven by a stranger varying the address', async () => {
+      const spy = warn();
+      const r = resolver();
+
+      for (let i = 0; i < 50; i += 1) {
+        await r.authenticate({ email: `nobody${String(i)}@corp.test`, password: 'x' });
+      }
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports how many it swallowed, so the throttle cannot hide a flood', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-09T12:00:00Z'));
+      const spy = warn();
+      const r = resolver();
+
+      await r.authenticate({ email: 'a@corp.test', password: 'x' });
+      await r.authenticate({ email: 'b@corp.test', password: 'x' });
+      await r.authenticate({ email: 'c@corp.test', password: 'x' });
+
+      jest.setSystemTime(new Date('2026-08-09T12:01:30Z'));
+      await r.authenticate({ email: 'd@corp.test', password: 'x' });
+
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy).toHaveBeenLastCalledWith(expect.stringContaining('2 similar suppressed'));
+      jest.useRealTimers();
+    });
+
+    it('still refuses identically, so the answer is no oracle', async () => {
+      warn();
+
+      const unknown = await resolver().authenticate({ email: 'nobody@corp.test', password: 'x' });
+      const wrongPassword = await resolver().authenticate({
+        email: 'dave@corp.test',
+        password: 'wrong',
+      });
+
+      expect(unknown).toEqual(wrongPassword);
     });
   });
 

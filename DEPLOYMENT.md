@@ -410,6 +410,33 @@ ownership problem described above, and only the containerised run will show it.
 
 ---
 
+### Pointing at Active Directory
+
+Four things that look like something else when they are wrong. All measured
+against a live Windows Server 2025 DC.
+
+- **Use the hostname, not the IP.** A DC certificate carries
+  `SAN: DNS:dc01.example.com` and typically **no IP SAN**, so an `ldaps://<ip>`
+  URL fails strict verification — which is the entire point of setting
+  `LDAP_CA_PATH`. Give the container a resolver that can answer for the domain.
+- **`extra_hosts` is not enough.** With a hosts entry present, `getent hosts`
+  resolves inside the container while Node's `dns.lookup()` still returns
+  `EAI_AGAIN`. What works is `dns: [<dc-ip>]` on the api service; Docker's
+  embedded DNS still resolves compose service names and forwards the rest.
+- **Delete `LDAP_SEARCH_FILTER`** if it came from an OpenLDAP example. AD has
+  no `inetOrgPerson`, so every login fails while the URL and base DN look
+  correct. The `ad` dialect supplies its own filter.
+- **`.env` is a fallback, not a merge.** Once anything is saved through the
+  console, `provider_settings` holds a row, the database wins, and every
+  directory value in `.env` goes inert (ADR-0015 §4). `GET /settings/auth/ldap`
+  reports which source is live — check it before editing a file.
+
+**There is no auto-provisioning** (ADR-0015 §5): a directory user with no
+NexusPuppet account is refused before the directory is ever asked. Create the
+account first, with `authSource` set to the directory.
+
+---
+
 ## 4. Configure `.env`
 
 ```bash

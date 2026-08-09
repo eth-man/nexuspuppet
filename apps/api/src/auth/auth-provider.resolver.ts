@@ -24,6 +24,14 @@ import { PrismaService } from '../prisma/prisma.service';
 const DEFAULT_LOGIN_FLOOR_MS = 1500;
 
 /**
+ * How often the "no account exists" warning may repeat.
+ *
+ * A minute is short enough that an operator configuring a directory sees it
+ * immediately, and long enough that a stranger cannot drive the log.
+ */
+const NO_ACCOUNT_WARN_INTERVAL_MS = 60_000;
+
+/**
  * Dispatch a login to the one provider that owns the account (ADR-0015).
  *
  * `authSource` on the account decides, and nothing chains or falls back. The
@@ -39,6 +47,10 @@ const DEFAULT_LOGIN_FLOOR_MS = 1500;
 @Injectable()
 export class AuthProviderResolver {
   private readonly logger = new Logger(AuthProviderResolver.name);
+
+  /** Throttle state for the no-account warning; see warnNoAccount. */
+  private warnMutedUntil = 0;
+  private warnSuppressed = 0;
 
   /** source -> provider. Built once; the set cannot change after boot. */
   private readonly bySource = new Map<string, IAuthProvider>();
@@ -182,9 +194,30 @@ export class AuthProviderResolver {
     });
 
     if (account === null) {
-      // Deliberately identical to every other refusal. The padding above makes
-      // the early return here indistinguishable from a full provider round
-      // trip; without it this branch would be the enumeration oracle.
+      /*
+       * The ANSWER stays identical to every other refusal — the padding above
+       * makes this early return indistinguishable from a full provider round
+       * trip, and without that this branch is the enumeration oracle.
+       *
+       * The LOG is a different question, and it was wrong to have none.
+       *
+       * There is no auto-provisioning (ADR-0015 §5), so a directory user with
+       * no account row is refused HERE: the directory provider is never asked,
+       * and nothing was written anywhere. Somebody who has just configured LDAP
+       * sees a correct-looking bind, a correct-looking search base, and a login
+       * that fails exactly as a wrong password does. That cost hours during the
+       * 2026-08-09 AD switch-over and would have cost minutes with this line.
+       *
+       * Only when a DIRECTORY is configured. On a core deployment an unknown
+       * address is a typo, and warning about every one of them is noise that
+       * teaches operators to ignore the log.
+       *
+       * A log is not an oracle: it reaches an operator reading the host, not
+       * the caller guessing addresses.
+       */
+      const directories = this.sources().filter((source) => source !== 'local');
+      if (directories.length > 0) this.warnNoAccount(email, directories);
+
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
@@ -229,6 +262,53 @@ export class AuthProviderResolver {
     }
 
     return provider.resolve(userId);
+  }
+
+  /**
+   * Say it once a minute, and say how many were swallowed.
+   *
+   * THROTTLED BECAUSE THE RATE LIMITER DOES NOT BOUND THIS. The login limiter
+   * keys on `${ip}|${email}`, so ten attempts buys ten tries PER ADDRESS — an
+   * unauthenticated caller varying the address gets a fresh bucket every
+   * request, and an unthrottled warning here would emit one line per request,
+   * for as long as they cared to keep going. A log that can be driven by a
+   * stranger is a disk-full incident with extra steps.
+   *
+   * One line the moment it starts is all an operator configuring a directory
+   * needs; the suppressed count is what stops the throttle hiding a flood
+   * instead of reporting it.
+   */
+  private warnNoAccount(email: string, directories: string[]): void {
+    const now = Date.now();
+
+    if (now < this.warnMutedUntil) {
+      this.warnSuppressed += 1;
+      return;
+    }
+
+    const swallowed =
+      this.warnSuppressed > 0 ? ` (${String(this.warnSuppressed)} similar suppressed)` : '';
+    this.warnSuppressed = 0;
+    this.warnMutedUntil = now + NO_ACCOUNT_WARN_INTERVAL_MS;
+
+    /*
+     * JSON.stringify, not a bare interpolation.
+     *
+     * `credentialsSchema` is `z.string().min(1).max(255)` with NO `.email()`,
+     * and correctly so: an AD deployment logs in with a username, which is what
+     * `identifierLabel` exists to say. `trim()` strips the ends, so an interior
+     * newline survives — and a raw interpolation would let an unauthenticated
+     * caller write whatever they liked into the log, forging entries beneath a
+     * line that looks like ours.
+     *
+     * Escaping here rather than tightening the schema: `.email()` would reject
+     * every legitimate AD username.
+     */
+    this.logger.warn(
+      `Login refused for ${JSON.stringify(email)}: no account exists. Directory users are ` +
+        'not provisioned automatically (ADR-0015 §5) — create the account with ' +
+        `authSource set to one of: ${directories.join(', ')}.${swallowed}`,
+    );
   }
 
   private async padTo(startedAt: number): Promise<void> {
