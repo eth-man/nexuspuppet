@@ -140,12 +140,24 @@ export function OidcSettingsPanel() {
      * a licence problem and sends an operator to ask for a quote for something
      * they already have.
      */
+    /*
+     * "Set OIDC_ISSUER" is only true on ENTERPRISE, where the capability is a
+     * configuration matter. In core there is no OIDC provider to configure at
+     * all, and telling an operator to set an environment variable sends them
+     * to edit a file that will change nothing.
+     */
+    const onEnterprise = capabilities.data?.edition === 'enterprise';
+
     return (
       <CapabilityCard
         title="Single sign-on (OIDC)"
         description="Authenticate against an OpenID Connect provider."
         capability="sso.oidc"
-        note="Set OIDC_ISSUER to add it. A directory already configured keeps working alongside it, and so do local accounts."
+        note={
+          onEnterprise
+            ? 'Set OIDC_ISSUER to add it. A directory already configured keeps working alongside it, and so do local accounts.'
+            : 'Local accounts keep working either way.'
+        }
       />
     );
   }

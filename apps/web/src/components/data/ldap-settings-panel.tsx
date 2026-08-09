@@ -219,7 +219,20 @@ export function LdapSettingsPanel() {
         title="Directory (LDAP)"
         description="Authenticate against an LDAP or Active Directory server."
         capability="directory.ldap"
-        note="Local accounts keep working either way."
+        /*
+         * Symmetry with the OIDC card, which said how to enable itself while
+         * this one did not — so on a deployment with neither configured, two
+         * identical-looking cards gave different amounts of help.
+         *
+         * Enterprise-only advice: in core there is no LDAP provider to point at
+         * a server, so naming the variable would send an operator to edit a
+         * file that changes nothing.
+         */
+        note={
+          capabilities.data?.edition === 'enterprise'
+            ? 'Set LDAP_URL to add it. OIDC, if configured, keeps working alongside it, and so do local accounts.'
+            : 'Local accounts keep working either way.'
+        }
       />
     );
   }
