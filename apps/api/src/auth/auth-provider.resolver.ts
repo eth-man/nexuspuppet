@@ -291,9 +291,22 @@ export class AuthProviderResolver {
     this.warnSuppressed = 0;
     this.warnMutedUntil = now + NO_ACCOUNT_WARN_INTERVAL_MS;
 
+    /*
+     * JSON.stringify, not a bare interpolation.
+     *
+     * `credentialsSchema` is `z.string().min(1).max(255)` with NO `.email()`,
+     * and correctly so: an AD deployment logs in with a username, which is what
+     * `identifierLabel` exists to say. `trim()` strips the ends, so an interior
+     * newline survives — and a raw interpolation would let an unauthenticated
+     * caller write whatever they liked into the log, forging entries beneath a
+     * line that looks like ours.
+     *
+     * Escaping here rather than tightening the schema: `.email()` would reject
+     * every legitimate AD username.
+     */
     this.logger.warn(
-      `Login refused for "${email}": no account exists. Directory users are not ` +
-        'provisioned automatically (ADR-0015 §5) — create the account with ' +
+      `Login refused for ${JSON.stringify(email)}: no account exists. Directory users are ` +
+        'not provisioned automatically (ADR-0015 §5) — create the account with ' +
         `authSource set to one of: ${directories.join(', ')}.${swallowed}`,
     );
   }

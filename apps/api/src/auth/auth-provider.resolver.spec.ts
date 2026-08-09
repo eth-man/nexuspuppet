@@ -233,6 +233,26 @@ describe('AuthProviderResolver', () => {
     });
 
     /*
+     * `credentialsSchema` is `z.string().min(1).max(255)` with no `.email()`,
+     * deliberately: an AD deployment logs in with a username. So a submitted
+     * identifier can contain a newline, `trim()` only strips the ends, and a
+     * raw interpolation would let an unauthenticated caller forge log entries
+     * beneath a line that looks like ours.
+     */
+    it('cannot be used to forge log lines', async () => {
+      const spy = warn();
+      const forged = 'x@corp.test\n2026-08-09 ERROR [Bootstrap] Everything is fine';
+
+      await resolver().authenticate({ email: forged, password: 'x' });
+
+      const logged = String(spy.mock.calls[0]?.[0] ?? '');
+      // The newline is escaped, so the whole thing stays one line.
+      expect(logged).not.toContain('\n');
+      expect(logged).toContain('\\n');
+      expect(logged.split('\n')).toHaveLength(1);
+    });
+
+    /*
      * The login limiter keys on `${ip}|${email}`, so varying the address buys a
      * fresh bucket every request — it does NOT bound this. Without a throttle,
      * an unauthenticated caller writes one log line per request for as long as
