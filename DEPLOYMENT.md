@@ -660,7 +660,7 @@ puppetserver runs on this same Docker host.** It usually does not. Pick one:
 | Layout | How the ENC directory travels | Notes |
 |---|---|---|
 | Same host, **puppetserver in Docker** | The `enc-data` named volume, mounted `:ro` | Simplest. Uncomment the reference block in `docker-compose.yml` |
-| Same host, **puppetserver native** | Bind-mount a host path, e.g. `/srv/nexuspuppet/enc`, owned by uid 100 | The named volume does **not** work here — see below |
+| Same host, **puppetserver native** | Bind-mount a host path, e.g. `/srv/nexuspuppet/enc`, owned by uid 100 | The named volume does **not** work here — see below. For the full small-deployment walkthrough see [Co-locating on the Puppet server](#co-locating-on-the-puppet-server-small-deployments) |
 | Separate puppetserver VM | **Replication** — NexusPuppet serves the tree, a timer on puppetserver pulls it (ADR-0019) | Recommended. See below |
 | Separate puppetserver VM | Bind-mount `ENC_OUTPUT_DIR` to a host path exported over **NFS**, mounted read-only on puppetserver | Works, but puts another host's availability into catalog compilation — if this host goes down the mount hangs and every compile blocks, which is the failure ADR-0003 exists to prevent |
 | Separate VM, no shared FS | `rsync` the tree on a timer | Adds propagation delay. The directory is self-consistent — files are written atomically via tmp+fsync+rename — but rsync mid-write can still ship a partial *set*. Use `--delay-updates` |
@@ -697,6 +697,126 @@ of which won).
 Whichever you choose, the mount on puppetserver is **read-only**. The API is the
 only writer. A second writer breaks the content-hash change detection that keeps
 a no-op from becoming estate-wide file churn.
+
+### Co-locating on the Puppet server (small deployments)
+
+One host, one Puppet server, a handful of nodes: there is often nothing else to
+put NexusPuppet on. This works, and it is the layout with the fewest moving
+parts — no replication, no second certificate, no propagation delay. What
+follows was walked end to end on a 4-vCPU / 6 GB OpenVox 8 host; the numbers are
+measured, not estimated.
+
+**It does not weaken ADR-0003.** The compile path is still `cat` on a local
+file. Stop every NexusPuppet container and agent runs continue against the tree
+already on disk. What co-location *does* add is a resource coupling: the console
+now competes with two JVMs for RAM on the box whose availability your whole
+estate depends on. That is the trade, and it is why the footprint is measured
+below rather than waved at.
+
+**Survey the host first.** The two collisions that matter:
+
+```bash
+sudo ss -ltnp | awk '{print $4}' | sort -u   # 8140 and 8081 are Puppet's
+free -m; df -h /
+```
+
+PuppetDB's own PostgreSQL already holds `127.0.0.1:5432`. NexusPuppet's `db`
+container does not publish a port, so the two coexist untouched — but if you
+publish it for a debugging session, that is the clash you will hit. `80`, `443`,
+`3000`, `3001` and `8443` were free on a stock OpenVox host.
+
+**Reuse the node's own certificate.** This is the step co-location makes
+disappear. Section 3 has you issue a client certificate and add it to PuppetDB's
+allowlist. On the Puppet server itself, a certificate that PuppetDB already
+trusts is sitting on disk — the host's own agent certificate, whose certname is
+in `/etc/puppetlabs/puppetdb/certificate-whitelist` because the node reports to
+itself:
+
+```bash
+sudo install -d -m 0500 -o 100 -g 101 /etc/nexuspuppet/certs
+CN=$(sudo /opt/puppetlabs/bin/puppet config print certname)
+sudo install -m 0444 -o 100 -g 101 /etc/puppetlabs/puppet/ssl/certs/$CN.pem         /etc/nexuspuppet/certs/client.pem
+sudo install -m 0400 -o 100 -g 101 /etc/puppetlabs/puppet/ssl/private_keys/$CN.pem  /etc/nexuspuppet/certs/client.key
+sudo install -m 0444 -o 100 -g 101 /etc/puppetlabs/puppet/ssl/certs/ca.pem          /etc/nexuspuppet/certs/ca.pem
+```
+
+Copy, do not symlink: the container reads these as uid 100 and `/etc/puppetlabs/puppet/ssl/private_keys` is not traversable by it. Copying also means a `puppet ssl clean` cannot pull the console's credential out from under it.
+
+Read section 3's "What this certificate can do" before you do this. Reusing the
+agent certificate gives the console the same estate-wide PuppetDB read the agent
+has — which is what any NexusPuppet client certificate grants — but it now
+shares an identity with the node, so revoking one revokes the other.
+
+Point `.env` at it by IP, not by name, unless the server certificate carries a
+DNS SAN you can resolve **from inside a container**:
+
+```ini
+PUPPETDB_URL=https://<puppet-server-ip>:8081
+PUPPETDB_CERT_DIR=/etc/nexuspuppet/certs
+ENC_REPLICATION_ENABLED=false
+API_BIND=127.0.0.1
+WEB_BIND=127.0.0.1
+```
+
+`ENC_REPLICATION_ENABLED=false` is the point of co-locating — there is nothing
+to replicate to, and it opens no listener on a host that should be advertising
+Puppet's ports and nothing else. Keep both binds on loopback and reach the
+console over an SSH tunnel or the bundled TLS proxy (section 7); co-location
+must not quietly add a public web listener to a Puppet server.
+
+**Then the ordinary path**, with the ENC bind mount from the previous section
+and the schema created *before* first start — the API bootstraps its admin
+account on boot and exits if the tables are not there:
+
+```bash
+cp docker-compose.native-enc.example.yml docker-compose.override.yml
+sudo install -d -m 0755 -o 100 -g root /srv/nexuspuppet/enc
+docker compose build
+docker compose run --rm api npx prisma migrate deploy   # BEFORE up
+docker compose up -d
+```
+
+Skip the migrate and the API restart-loops on `The table public.users does not
+exist`, which reads like a broken image and is really an empty database.
+
+**Verify as the user that will actually read the tree** — root can read
+anything, so testing as root proves nothing:
+
+```bash
+sudo -u puppet /usr/local/bin/nexuspuppet-enc.sh $(sudo /opt/puppetlabs/bin/puppet config print certname)
+```
+
+Expect YAML and exit 0.
+
+**What it costs.** Measured with three containers idle against a one-node
+estate:
+
+| | |
+|---|---|
+| RSS, all three containers | ~146 MB (api 78, web 40, db 28) |
+| Disk, images | ~1.4 GB |
+| Disk, build cache after one build | ~2.4 GB — `docker builder prune` reclaims it |
+
+The steady-state memory is small enough to sit beside puppetserver and PuppetDB
+on 6 GB. The **build** is the part to watch: it is the heaviest thing that will
+ever run on that host, and an OOM there takes puppetserver with it. On a host
+with less than ~2 GB free, build the images elsewhere and ship them
+(`docker save` / `docker load`) rather than building in place.
+
+Installing Docker rewrites the host firewall rules. Confirm Puppet survived it
+before going further — on a Puppet server this is the check people skip:
+
+```bash
+systemctl is-active puppetserver puppetdb
+```
+
+**Known limitation: no compile receipts** (ADR-0022). The receipt mechanism
+keys on a `.revision` file, and that file is written by
+[`scripts/nexuspuppet-sync.sh`](scripts/nexuspuppet-sync.sh) when it installs a
+replicated tree — the materializer does not write one. A co-located tree
+therefore has no `.revision`, and the ENC script's `record_receipt` returns
+early. Compiles succeed and are served correctly; they are simply not recorded,
+and nothing warns you. Track this at #185.
 
 ### Replicating the tree to a separate puppetserver (ADR-0019)
 
