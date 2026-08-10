@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-08-08)
 - **Deciders:** Architect
+- **Amended:** 2026-08-10 — §7–§12 specify the receiving end.
 - **Related:** [ADR-0019](./0019-enc-tree-replication.md) (extends; amends its read-only claim), [ADR-0003](./0003-enc-generate-dont-serve.md), [ADR-0004](./0004-puppetdb-read-only-mtls.md)
 
 ## Context
@@ -178,3 +179,124 @@ server does. There is nothing for a fact to read.
 needed: during an incident, on two hosts whose clocks may disagree, where "the
 node reported after the tree changed" is not the same statement as "the node
 compiled from the new tree."
+
+## Amendment — 2026-08-10: the receiving end
+
+Sections 1–6 specify what happens on the Puppet server. They left the origin's
+side as implementation detail, and it was not: it contained six decisions, two
+of which are load-bearing enough that getting them wrong is unrecoverable
+without shipping a new puller to every Puppet server in the estate.
+
+### 7. A receipt is current state, not history
+
+One row per node, overwritten. Growth is bounded by the size of the estate
+rather than by the compile rate, so there is no retention sweeper and no
+scheduled deletion to get wrong — a thousand nodes are a thousand rows whether
+they compile hourly or half-hourly.
+
+This follows §5's own reasoning to its conclusion. If the newest lines carry the
+answer and discarding the tail "loses history nobody queries", then storing that
+tail at the far end is storing what nobody queries, at roughly 48,000 rows a day
+per thousand nodes.
+
+What is given up, explicitly: "when did this node move to revision X", and the
+ability to distinguish a node flapping between two revisions from one sitting
+still. If either becomes a question worth answering, it is a new decision with a
+new cost, not a quiet schema change.
+
+### 8. A receipt belongs to a node AND the server that served it
+
+The key is (peer certname, node certname). A node can compile against more than
+one Puppet server — load-balanced masters, or a co-located instance beside a
+replicated one — and those servers can hold different revisions.
+
+Keyed on the node alone, such a node's row flaps between revisions on every
+sync, and the console reports whichever landed last with no way to explain the
+oscillation. The reporting server's identity is already established from its
+client certificate (§4), so recording it costs nothing and turns an
+unexplainable flap into the actual diagnosis: this server is behind, that one is
+not.
+
+### 9. There is no compile time, only a report time
+
+The receipt line is `<revision> <certname>`. §1 deliberately omits a timestamp —
+`date` would be a fork per compile — and the puller uploads in batches, so the
+only time the origin can know is when the batch arrived.
+
+**The console must say "reported", never "compiled at".** The gap between the
+two is up to one sync interval, and a UI that implies otherwise invents
+precision the data does not have, in exactly the incident where somebody is
+reasoning about ordering.
+
+### 10. An oversized batch is truncated and acknowledged, never refused
+
+The shipped puller treats 2xx as done, 404/405/501 as "this origin has no
+receipts surface, discard", and **everything else as retryable — re-uploading
+the identical body forever**.
+
+So refusing an oversized batch with 413, which is what HTTP semantics ask for,
+permanently wedges that peer: it re-sends the same too-large body every sync,
+its receipts never land, and it says so only in a log nobody is reading. Fixing
+it would mean shipping a new puller and waiting for every Puppet server to be
+upgraded.
+
+The origin therefore applies §5's rule at its own end — keep the newest lines,
+drop the oldest, acknowledge — and logs how many it discarded. This is a
+deliberate deviation from HTTP semantics, taken because the client is already in
+the field and cannot be assumed to change. Any future status code added to this
+route must be checked against that list before it is returned.
+
+### 11. Sweeping distinguishes "never known" from "known and gone"
+
+Receipts have no foreign key to ManagedNode, because a receipt for a node the
+console cannot see is the most useful fact available about exactly the node
+somebody is debugging.
+
+That makes the obvious sweep — delete receipts whose node is unknown — destroy
+the evidence the previous sentence exists to preserve, within one reconcile
+interval, silently. An unprojected node is unknown on every pass.
+
+Each receipt therefore records whether its node existed at ingest. Only rows
+that once matched and no longer do are debris, and only those are swept, in the
+reconciler's existing orphan pass. A receipt that never matched is a finding and
+is kept.
+
+### 12. "Current" means current with the origin, and the gap is attributed
+
+The comparison is against the origin's current tree revision — that is the
+revision an operator created by saving a change, and "did my change reach this
+node" is the question being asked.
+
+Comparing instead against the revision the node's own Puppet server holds would
+let a node read as perfectly current while the change made an hour ago had
+reached nothing. That server's revision is still needed, but as the *attribution*
+rather than the verdict:
+
+| Receipt | Peer holds | Reading |
+|---|---|---|
+| = origin | — | Current |
+| = peer, ≠ origin | ≠ origin | The node is fine; the puller is behind |
+| ≠ peer | = origin | The server has it; the agent has not run |
+| ≠ both | ≠ origin | Both are behind |
+
+One verdict, with a cause. An operator who is told only "behind" has to go
+looking for which half is at fault, during the incident.
+
+### Binding constraints added by this amendment
+
+3. **Never return a status this route has not agreed with the puller.** 2xx
+   means "consumed, delete them"; 404, 405 and 501 mean "discard, this origin
+   has no receipts surface"; everything else means "retry the identical body
+   forever". A status chosen for its HTTP correctness rather than against that
+   list is a silent, permanent data-loss bug in a component we do not control.
+4. **The console may never present a report time as a compile time.**
+
+### Still open after this amendment
+
+**Co-located deployments collect nothing.** The hand-over lives in
+`nexuspuppet-sync.sh`, and a NexusPuppet co-located with puppetserver has no
+puller — so its receipts accumulate on disk and nothing ever uploads them. The
+tree is named and the receipts are written; only the collection is missing.
+Deliberately left to its own decision rather than folded in here, because
+reading a local file is a different trust and failure model from accepting an
+mTLS-authenticated upload.

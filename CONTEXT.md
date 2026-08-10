@@ -28,3 +28,47 @@ revoked afterwards. It is not a machine credential — the product has none — 
 it carries a password like any local account.
 _Avoid_: service account, bot user, agent account (an **agent** is a Puppet
 agent, never a program acting on the console)
+
+### Classification delivery
+
+**ENC tree**:
+The directory of YAML documents NexusPuppet materializes and puppetserver reads
+— `default.yaml`, `nodes/<certname>.yaml`, and the `.revision` naming it. One
+writer only. It travels to a Puppet server either by being materialized there
+(co-located) or by being pulled from an origin (replication); the tree itself is
+identical either way.
+_Avoid_: ENC directory, classification output, the YAML folder
+
+**Tree revision**:
+The identity of an ENC tree's contents — the SHA-256 of the packed documents,
+served as the replication ETag and written into `.revision`. It is a content
+hash, so it is **not ordered**: two revisions can be compared for equality and
+nothing else. Identical documents always produce the identical revision.
+_Avoid_: version, generation, etag (the ETag is one *use* of the revision, not
+another name for it)
+
+**Compile receipt**:
+A record that a node was served a particular tree revision, written by the ENC
+script as it serves and carried back to the origin out of band (ADR-0022). It
+proves what was **served**, never what the agent applied — and it carries no
+compile time, only the time the origin received it.
+_Avoid_: compile log, catalog record, "when the node last compiled"
+
+### Certnames
+
+Two different identities share the word `certname`, and they appear in the same
+request. Always qualify which one is meant.
+
+**Node certname**:
+The certname of a managed node — the machine being classified. It names a
+`nodes/<certname>.yaml` document and appears in the *body* of a compile receipt.
+It is untrusted input wherever it becomes a filesystem path.
+_Avoid_: hostname, fqdn, node name
+
+**Peer certname**:
+The certname of a **Puppet server** that pulls the ENC tree, taken from its
+verified client certificate and never from a request body or header. It
+identifies the replication peer and attributes every receipt that peer submits.
+_Avoid_: client certname, puller name, and above all a bare "certname" in any
+context where a node certname is also in play
+
