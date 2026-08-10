@@ -431,6 +431,22 @@ against a live Windows Server 2025 DC.
   directory value in `.env` goes inert (ADR-0015 §4). `GET /settings/auth/ldap`
   reports which source is live — check it before editing a file.
 
+### Pointing at Entra ID (OIDC)
+
+**Filter the groups claim on the app registration.** Entra stops sending
+`groups` once a user is in roughly 150 groups — 200 for implicit flows — and
+refers the relying party to Microsoft Graph instead. NexusPuppet does not follow
+that reference, so those users resolve to no groups and are refused.
+
+The failure is upside down: the people in 150+ groups are senior
+administrators, so it lands on the account being onboarded while ordinary users
+sign in fine. Configure the registration to emit only the groups **assigned to
+the application** — which is what the mappings use anyway, and stays under the
+limit — or set `OIDC_DEFAULT_ROLE` to admit everyone at a floor role.
+
+The refusal says so explicitly, naming the endpoint it was referred to, so it
+does not read as a role-mapping problem.
+
 **There is no auto-provisioning** (ADR-0015 §5): a directory user with no
 NexusPuppet account is refused before the directory is ever asked. Create the
 account first, with `authSource` set to the directory.
