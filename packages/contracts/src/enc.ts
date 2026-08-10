@@ -197,6 +197,49 @@ export interface MergeResult {
   attribution: MergeAttribution;
 }
 
+/**
+ * How a node's last reported compile compares with the current classification
+ * (ADR-0022 §12).
+ *
+ * The verdict is against the ORIGIN's revision — that is the revision an
+ * operator created by saving a change, and "did my change reach this node" is
+ * the question being asked. The peer's revision attributes the gap rather than
+ * deciding it.
+ */
+export type CompileCurrency =
+  /** The node compiled the revision the origin currently holds. */
+  | 'CURRENT'
+  /** The node matches its own Puppet server, which has not fetched the latest. */
+  | 'PULLER_BEHIND'
+  /** Its Puppet server is current; the node has not compiled since. */
+  | 'AGENT_BEHIND'
+  /** Neither the server nor the node has the current revision. */
+  | 'BOTH_BEHIND'
+  /** A receipt exists but the peer's position is unknown, so the gap cannot be
+   *  attributed. Normal on a co-located deployment, which has no puller. */
+  | 'BEHIND';
+
+/**
+ * What a Puppet server reported about one node (ADR-0022).
+ *
+ * `reportedAt` is when the ORIGIN received this, never when the node compiled —
+ * no compile time exists (§9). Anything rendering this must say "reported".
+ */
+export interface CompileReceiptView {
+  /** The Puppet server that served it, from its verified client certificate. */
+  peerCertname: string;
+  /** The tree revision served. Comparable for equality only. */
+  revision: string;
+  reportedAt: string;
+  /**
+   * The revision that Puppet server last fetched, when it is a replication
+   * peer. Null co-located, where there is no puller and therefore no
+   * fetch — not an error, and not the same as "unknown".
+   */
+  peerRevision: string | null;
+  currency: CompileCurrency;
+}
+
 export const materializationStatusSchema = z.enum(['PENDING', 'IN_PROGRESS', 'DONE', 'FAILED']);
 export type MaterializationStatus = z.infer<typeof materializationStatusSchema>;
 

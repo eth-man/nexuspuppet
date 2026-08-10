@@ -13,6 +13,7 @@ import { EmptyState, LoadingRows, QueryError, Spinner } from '@/components/state
 import { JsonView } from '@/components/data/json-view';
 import { AttributionCard, MatchReason } from '@/components/data/attribution-card';
 import { EffectiveDocument } from '@/components/data/effective-document';
+import { CompileReceipts } from '@/components/data/compile-receipts';
 
 type Tab = 'facts' | 'classification' | 'runs';
 
@@ -152,6 +153,7 @@ function ClassificationTab({ certname }: { certname: string }) {
     matchReasons,
     document,
     usesDefault,
+    compileReceipts,
   } = query.data;
   const reasonFor = (groupId: string) => matchReasons?.find((r) => r.groupId === groupId);
 
@@ -235,6 +237,13 @@ function ClassificationTab({ certname }: { certname: string }) {
           materialization={materialization}
           pending={pending}
         />
+
+        {/*
+          Directly beneath the document, because the pair is the question:
+          that card is what this node WILL be served, this one is what it last
+          actually compiled. Separated, each is half an answer.
+        */}
+        <CompileReceipts receipts={compileReceipts} />
 
         <AttributionCard attribution={attribution} groups={appliedGroups} />
 

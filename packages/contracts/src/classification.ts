@@ -8,6 +8,7 @@ import {
   type ClassificationConflict,
   type GroupMatchExplanation,
   type MergeAttribution,
+  type CompileReceiptView,
 } from './enc';
 
 /**
@@ -160,6 +161,15 @@ export interface NodeClassificationExplanation {
    * matched for no reason.
    */
   matchReasons?: GroupMatchExplanation[];
+  /**
+   * What each Puppet server reported this node last compiling (ADR-0022).
+   *
+   * Empty when nothing has reported — which is the normal state until a
+   * collector is running, and must read as "not reported" rather than as
+   * "behind". One entry per serving Puppet server, so a node compiling against
+   * two masters shows both rather than flapping between them.
+   */
+  compileReceipts?: CompileReceiptView[];
   /**
    * The YAML this node will actually be served (#143).
    *

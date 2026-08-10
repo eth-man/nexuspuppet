@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@ne
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import { MaterializerService } from './materializer.service';
+import type { CompileReceiptsService } from '../replication/compile-receipts.service';
 
 /**
  * Drives the materializer and repairs drift (ADR-0003).
@@ -54,6 +55,11 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
      * `writeRevision` on IEncFileWriter.
      */
     private readonly treeRevision: () => Promise<string>,
+    /**
+     * Optional so a deployment assembled without receipts still reconciles.
+     * The sweep is bookkeeping; the orphan pass it rides on is not.
+     */
+    private readonly receipts?: CompileReceiptsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -152,6 +158,33 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Drop receipts for nodes that once existed and no longer do (ADR-0022 §11).
+   *
+   * Only rows that matched a ManagedNode when they arrived. A receipt that
+   * never matched is evidence about a node the projection has not caught up
+   * with — which is the node somebody is most likely to be debugging — and
+   * sweeping it would destroy exactly what the missing foreign key preserves.
+   *
+   * Never throws, for the same reason the revision stamp does not: receipts are
+   * droppable, and a failed sweep must not stop the orphan pass that keeps
+   * puppetserver from reading a classification the database no longer holds.
+   */
+  private async sweepReceipts(known: Set<string>): Promise<void> {
+    if (this.receipts === undefined) return;
+
+    try {
+      const removed = await this.receipts.sweepOrphans(known);
+      if (removed > 0) {
+        this.logger.log(`Reconcile removed ${String(removed)} compile receipt(s) for gone nodes.`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not sweep compile receipts: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+    }
+  }
+
+  /**
    * Record what the tree on disk now is, for compile receipts (ADR-0022 §2).
    *
    * WRITTEN AFTER THE TREE SETTLES, deliberately. The replication puller can
@@ -192,11 +225,17 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
    * no longer exists anywhere in the system.
    */
   private async removeOrphans(): Promise<number> {
-    const onDisk = await this.writer.listMaterializedCertnames();
-    if (onDisk.length === 0) return 0;
-
     const known = await this.prisma.managedNode.findMany({ select: { certname: true } });
     const knownSet = new Set(known.map((n) => n.certname));
+
+    // Receipts are swept even when the ENC tree holds nothing, because the two
+    // are orphaned by different events: a file is orphaned when a node stops
+    // matching, a receipt when the node itself disappears. Returning early on
+    // an empty tree would leave receipts for a decommissioned estate forever.
+    await this.sweepReceipts(knownSet);
+
+    const onDisk = await this.writer.listMaterializedCertnames();
+    if (onDisk.length === 0) return 0;
 
     let removed = 0;
     for (const certname of onDisk) {
