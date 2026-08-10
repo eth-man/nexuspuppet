@@ -76,6 +76,20 @@ services:
       # same certificate material the PuppetDB client uses, which is issued by
       # the Puppet CA and carries serverAuth as well as clientAuth. Reusing it
       # is why this feature creates no new secret.
+      # 0.0.0.0 INSIDE the container, always — overriding whatever .env says.
+      #
+      # ENC_REPLICATION_BIND means "which host interface to publish on", and it
+      # is used that way in `ports:` below. Passing it through to the process as
+      # well makes it mean two things at once, and the two disagree: a
+      # deployment that sets 127.0.0.1 to keep the listener private — the
+      # co-located layout in ADR-0022 §14 — binds the CONTAINER's loopback,
+      # which the published port cannot reach. The handshake then fails with a
+      # bare EOF and nothing in the log, because the connection never arrives.
+      #
+      # The container is the isolation boundary. What the host exposes is
+      # decided by the publish address; what the process binds inside its own
+      # namespace is not a security control.
+      ENC_REPLICATION_BIND: 0.0.0.0
       ENC_REPLICATION_CERT_PATH: /etc/nexuspuppet/certs/client.pem
       ENC_REPLICATION_KEY_PATH: /etc/nexuspuppet/certs/client.key
       ENC_REPLICATION_CA_PATH: /etc/nexuspuppet/certs/ca.pem
@@ -102,11 +116,15 @@ services:
       - '${API_BIND:-127.0.0.1}:${API_PORT:-3001}:3001'
       # ENC replication (ADR-0019), when ENC_REPLICATION_ENABLED=true.
       #
-      # Binds every interface, unlike the API above, and for the opposite
+      # Defaults to every interface, unlike the API above, and for the opposite
       # reason: this listener terminates mTLS itself and admits only
       # allowlisted certnames, so there is no cleartext to protect and the
-      # puller is on another host by definition. Publishing it while the
-      # feature is disabled is harmless — nothing listens inside the container.
+      # puller is usually on another host. Publishing it while the feature is
+      # disabled is harmless — nothing listens inside the container.
+      #
+      # Set ENC_REPLICATION_BIND=127.0.0.1 for a co-located deployment, where
+      # the only client is the collector on this same machine (ADR-0022 §14).
+      # It restricts the HOST side only; see the environment block above.
       - '${ENC_REPLICATION_BIND:-0.0.0.0}:${ENC_REPLICATION_PORT:-8443}:${ENC_REPLICATION_PORT:-8443}'
     healthcheck:
       test:
