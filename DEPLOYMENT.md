@@ -821,7 +821,7 @@ it serves.
 
 What does not exist yet, in **any** layout, is the far end. `nexuspuppet-sync.sh`
 POSTs accumulated receipts to `/enc-receipts`, and the API implements no such
-route — ADR-0022 §4 is specified but unbuilt (#187). A replicated deployment at
+route — ADR-0022 §4 is specified but unbuilt (#146). A replicated deployment at
 least has a puller trying; a co-located one has no puller at all, so its receipt
 file simply grows on disk until something reads it.
 
