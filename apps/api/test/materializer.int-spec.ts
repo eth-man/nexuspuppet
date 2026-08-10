@@ -568,7 +568,14 @@ describe('ENC materialization (integration)', () => {
         'ghost01.yaml',
       ]);
 
-      const reconciler = new ReconcilerService(prisma, materializer, writer, 60_000, 60_000);
+      const reconciler = new ReconcilerService(
+        prisma,
+        materializer,
+        writer,
+        60_000,
+        60_000,
+        async () => 'test-revision',
+      );
       const removed = await reconciler.reconcile('test');
 
       expect(removed).toBe(1);
@@ -577,14 +584,28 @@ describe('ENC materialization (integration)', () => {
 
     it('leaves default.yaml alone', async () => {
       await materializer.ensureDefaultDocument();
-      const reconciler = new ReconcilerService(prisma, materializer, writer, 60_000, 60_000);
+      const reconciler = new ReconcilerService(
+        prisma,
+        materializer,
+        writer,
+        60_000,
+        60_000,
+        async () => 'test-revision',
+      );
       await reconciler.reconcile('test');
 
       await expect(readFile(join(encDir, 'default.yaml'), 'utf8')).resolves.toContain('classes');
     });
 
     it('queues a full recompute as part of reconciling', async () => {
-      const reconciler = new ReconcilerService(prisma, materializer, writer, 60_000, 60_000);
+      const reconciler = new ReconcilerService(
+        prisma,
+        materializer,
+        writer,
+        60_000,
+        60_000,
+        async () => 'test-revision',
+      );
       await reconciler.reconcile('test');
 
       const job = await prisma.encMaterializationJob.findUnique({

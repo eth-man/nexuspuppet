@@ -243,6 +243,21 @@ export interface IEncFileWriter {
   writeNode(certname: string, yaml: string, contentHash: string): Promise<boolean>;
   removeNode(certname: string): Promise<void>;
   writeDefault(yaml: string): Promise<void>;
+  /**
+   * Name the tree from inside itself, so the ENC script can say what it served
+   * without knowing anything about how the tree got there (ADR-0022 §2).
+   *
+   * The replication puller already writes this file when it installs a tree it
+   * fetched. A deployment that materializes locally — NexusPuppet co-located
+   * with puppetserver — has no puller, so without this the tree is anonymous
+   * and every compile receipt is silently dropped.
+   *
+   * The value must be the SAME identity the replication endpoint would serve
+   * for this tree, or a receipt would mean one thing on a replicated deployment
+   * and another on a co-located one, and "is this node current?" would stop
+   * being an equality check.
+   */
+  writeRevision(revision: string): Promise<void>;
   listMaterializedCertnames(): Promise<string[]>;
   /**
    * Whether the destination can currently be written to.

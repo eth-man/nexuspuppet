@@ -810,13 +810,24 @@ before going further — on a Puppet server this is the check people skip:
 systemctl is-active puppetserver puppetdb
 ```
 
-**Known limitation: no compile receipts** (ADR-0022). The receipt mechanism
-keys on a `.revision` file, and that file is written by
-[`scripts/nexuspuppet-sync.sh`](scripts/nexuspuppet-sync.sh) when it installs a
-replicated tree — the materializer does not write one. A co-located tree
-therefore has no `.revision`, and the ENC script's `record_receipt` returns
-early. Compiles succeed and are served correctly; they are simply not recorded,
-and nothing warns you. Track this at #185.
+**Compile receipts** (ADR-0022) are *recorded* here but not yet *collected*,
+and the distinction matters.
+
+The tree names itself: the materializer writes `.revision` alongside the
+documents, using the same identity the replication endpoint would serve as an
+ETag — so a receipt means the same thing whether the tree was materialized
+locally or pulled from another instance. The ENC script appends receipt lines as
+it serves.
+
+What does not exist yet, in **any** layout, is the far end. `nexuspuppet-sync.sh`
+POSTs accumulated receipts to `/enc-receipts`, and the API implements no such
+route — ADR-0022 §4 is specified but unbuilt (#146). A replicated deployment at
+least has a puller trying; a co-located one has no puller at all, so its receipt
+file simply grows on disk until something reads it.
+
+Practical effect while that is true: receipts cost you nothing and tell you
+nothing. `NEXUSPUPPET_RECEIPTS` is capped and rotated by the sync script where
+one runs; co-located, point it somewhere you are willing to let accumulate.
 
 ### Replicating the tree to a separate puppetserver (ADR-0019)
 
