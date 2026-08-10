@@ -47,6 +47,16 @@ nothing else. Identical documents always produce the identical revision.
 _Avoid_: version, generation, etag (the ETag is one *use* of the revision, not
 another name for it)
 
+**ENC listener**:
+The mTLS-authenticated listener an origin runs so Puppet servers can fetch the
+ENC tree (ADR-0019) and hand back compile receipts (ADR-0022 §4). Governed by
+`ENC_REPLICATION_ENABLED`, whose name is narrower than its meaning: enabling it
+starts the listener, and the bind address plus the certname allowlist decide who
+may reach it. A co-located deployment runs it bound to loopback and replicates
+nothing.
+_Avoid_: the replication endpoint, the replication port (it carries receipts
+too, which do not replicate anything)
+
 **Compile receipt**:
 A record that a node was served a particular tree revision, written by the ENC
 script as it serves and carried back to the origin out of band (ADR-0022). It
@@ -71,4 +81,3 @@ verified client certificate and never from a request body or header. It
 identifies the replication peer and attributes every receipt that peer submits.
 _Avoid_: client certname, puller name, and above all a bare "certname" in any
 context where a node certname is also in play
-

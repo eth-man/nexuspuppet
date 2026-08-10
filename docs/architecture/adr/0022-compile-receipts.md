@@ -291,12 +291,93 @@ looking for which half is at fault, during the incident.
    list is a silent, permanent data-loss bug in a component we do not control.
 4. **The console may never present a report time as a compile time.**
 
+### 13. Receipts are collected by their own unit, not by the replication puller
+
+The rotate/cap/retry lifecycle lives in `nexuspuppet-sync.sh` because that is
+where it was first needed. It is not replication's work. A NexusPuppet
+co-located with puppetserver has no puller, and therefore — today — no receipts
+at all.
+
+**Not merely uncollected: never written.** The receipts directory is created by
+the sync script's `ensure_receipts_dir`, and the ENC script's append is
+deliberately swallowed so that a receipt can never fail a compile (§1). With no
+puller, nothing creates the directory, every append fails silently, and the
+compile is served correctly. Verified on a co-located host: exit 0, correct
+YAML, nothing written, no error anywhere.
+
+So the collector owns **both** halves — creating the directory and draining it.
+Splitting them would put the prerequisite in a documentation step whose omission
+produces exactly the current behaviour, which is invisible.
+
+One unit, both layouts. §6's atomic rename discipline then exists in one place
+rather than being got right twice.
+
+### 14. A co-located origin accepts its own receipts on a loopback listener
+
+The receipts route lives on the ENC listener because that is where the mTLS
+identity is established (§4), and that reasoning does not weaken when the peer
+happens to be the same machine. A co-located deployment therefore binds the
+listener to loopback and allowlists its own certname:
+
+```ini
+ENC_REPLICATION_ENABLED=true
+ENC_REPLICATION_BIND=127.0.0.1
+ENC_REPLICATION_ALLOWED_CERTNAMES=<this host's certname>
+```
+
+No new code: the bind address is already configurable and the allowlist already
+works. No second ingestion path, no second authentication story, and the peer
+identity stays *proven* rather than asserted — the collector presents the
+certificate the host already holds.
+
+Rejected: a plaintext route on the console API for localhost only. It would make
+`peerCertname` something the caller claims rather than something a certificate
+established, which is binding constraint 1 with the reasoning removed.
+
+**`ENC_REPLICATION_ENABLED` accordingly means "the ENC listener is running"**,
+not "this deployment replicates". What the listener is exposed to is decided by
+the bind address and the allowlist, which is where that decision belongs. The
+name is now narrower than the meaning; that is a naming debt paid in the
+glossary and the deployment guide rather than by a second flag whose four
+combinations nobody would exercise.
+
+The bind address is a per-deployment decision, not a constant. A host that also
+serves remote pullers must keep binding publicly; only a host that serves
+nobody but itself may bind to loopback.
+
+### 15. The migration keeps collecting throughout
+
+`nexuspuppet-sync.sh` is in the field. It retains its receipt handling, skips it
+when the collector unit is present, and says once that receipts have moved. Two
+drainers never race for the same file, and no operator's collection stops
+because they upgraded a script without installing a unit.
+
+The old path is removed a release later, once the collector is the documented
+default. A clean break would be one implementation sooner, at the cost of
+silently ending collection for anyone who upgraded and read no release note —
+and silence is this feature's characteristic failure. It is the wrong thing to
+economise on.
+
+### 16. A receipt names a peer; it does not create one
+
+A replication peer is something that fetches the tree. A co-located instance
+fetches nothing, so it must not appear in the console's peer list — it would
+render as a peer that has never fetched and never will, which is
+indistinguishable from a broken puller and is precisely what that view exists to
+surface.
+
+`CompileReceipt.peerCertname` therefore references a certname without requiring
+an `EncReplicationPeer` row to exist.
+
+This also settles what §12's verdict means co-located. That table uses the
+peer's last fetched revision to separate "the puller is behind" from "the agent
+has not run". With no puller, the tree is materialized in place and those two
+revisions are identical by construction: the node is current, or its agent has
+not run. Two states rather than four, because one of the failure modes cannot
+occur — a simplification, not a degradation.
+
 ### Still open after this amendment
 
-**Co-located deployments collect nothing.** The hand-over lives in
-`nexuspuppet-sync.sh`, and a NexusPuppet co-located with puppetserver has no
-puller — so its receipts accumulate on disk and nothing ever uploads them. The
-tree is named and the receipts are written; only the collection is missing.
-Deliberately left to its own decision rather than folded in here, because
-reading a local file is a different trust and failure model from accepting an
-mTLS-authenticated upload.
+Nothing. The co-located gap that this amendment originally left open is
+specified by §13–§16 — and the investigation corrected its premise: receipts
+were not accumulating uncollected, they were never being written.
