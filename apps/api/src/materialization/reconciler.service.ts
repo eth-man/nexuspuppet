@@ -44,6 +44,16 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
     private readonly writer: IEncFileWriter,
     private readonly drainIntervalMs: number,
     private readonly reconcileIntervalMs: number,
+    /**
+     * The identity of the tree as it now stands on disk (ADR-0022 §2).
+     *
+     * A callback rather than the replication service itself: the reconciler
+     * has no business knowing that replication exists, and a co-located
+     * deployment with `ENC_REPLICATION_ENABLED=false` still needs this. What
+     * matters is that both callers compute it the SAME way — see
+     * `writeRevision` on IEncFileWriter.
+     */
+    private readonly treeRevision: () => Promise<string>,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -54,6 +64,12 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
     // A restart may have missed changes, and the file tree may have been
     // restored from a backup or wiped. Start from a known-good state.
     await this.reconcile('startup');
+
+    // Unconditionally at boot, not only when something changed: a tree written
+    // by a version that predates this, or restored from a backup, is on disk
+    // and anonymous. Nothing else would ever name it, because nothing about it
+    // is going to change.
+    await this.stampRevision('startup');
 
     this.drainTimer = setInterval(() => {
       void this.tick();
@@ -94,6 +110,10 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
       if (result.failed > 0) {
         this.logger.warn(`${result.failed} materialization job(s) failed this tick.`);
       }
+      // Only when the tree actually moved. Recomputing the identity means
+      // reading every file in it, so doing it on every idle tick would turn a
+      // 2-second no-op into a full tree read forever.
+      if (result.filesChanged > 0) await this.stampRevision('drain');
     } catch (error) {
       // A thrown drain must never kill the timer; the next tick retries.
       this.logger.error(
@@ -124,9 +144,44 @@ export class ReconcilerService implements OnModuleInit, OnModuleDestroy {
 
     if (removed !== null && removed > 0) {
       this.logger.log(`Reconcile (${reason}) removed ${removed} orphaned ENC file(s).`);
+      // A deletion changes the tree exactly as much as a write does.
+      await this.stampRevision(`reconcile:${reason}`);
     }
 
     return removed ?? 0;
+  }
+
+  /**
+   * Record what the tree on disk now is, for compile receipts (ADR-0022 §2).
+   *
+   * WRITTEN AFTER THE TREE SETTLES, deliberately. The replication puller can
+   * name a tree before publishing it, because it swaps a whole directory into
+   * place atomically. A local materializer updates files in place, so there is
+   * no instant at which the tree atomically becomes revision R — and between
+   * the first node write and this stamp, a compile sees new content under the
+   * previous revision.
+   *
+   * Stamping afterwards makes that window under-claim: a receipt in it names
+   * the older revision, so the node looks behind when it is in fact current.
+   * Stamping first would invert it — nodes would claim a revision they had not
+   * yet received, and "current" would be a lie rather than a lag. Between a
+   * false negative and a false positive on "did this node get my change", only
+   * one of them is safe.
+   *
+   * Never throws. Receipts are droppable by design (ADR-0022 §5); classification
+   * delivery is not, and a tree that materialized correctly must not be treated
+   * as failed because it could not be named.
+   */
+  private async stampRevision(reason: string): Promise<void> {
+    try {
+      await this.writer.writeRevision(await this.treeRevision());
+    } catch (error) {
+      this.logger.warn(
+        `Could not stamp the ENC tree revision after ${reason}: ` +
+          `${error instanceof Error ? error.message : String(error)}. ` +
+          'Classification is unaffected; compile receipts for this revision will be dropped.',
+      );
+    }
   }
 
   /**

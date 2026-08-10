@@ -669,11 +669,12 @@ export class AppModule {
           // Starts the drain and reconcile loops on module init, and writes
           // default.yaml before puppetserver can ask for an unknown node.
           provide: ReconcilerService,
-          inject: [PrismaService, MaterializerService, ENC_FILE_WRITER],
+          inject: [PrismaService, MaterializerService, ENC_FILE_WRITER, EncReplicationService],
           useFactory: (
             prisma: PrismaService,
             materializer: MaterializerService,
             writer: IEncFileWriter,
+            replication: EncReplicationService,
           ): ReconcilerService =>
             new ReconcilerService(
               prisma,
@@ -681,6 +682,15 @@ export class AppModule {
               writer,
               env.ENC_MATERIALIZER_INTERVAL_MS,
               env.ENC_RECONCILE_INTERVAL_MS,
+              // Single-sourced on purpose. `readTree` IS the definition of a
+              // tree's identity — it is what the replication endpoint serves as
+              // an ETag and therefore what a puller writes into `.revision`.
+              // Computing it a second way here would let a co-located and a
+              // replicated deployment disagree about what revision the same
+              // bytes are, which is the one thing a receipt cannot survive.
+              // Provided regardless of ENC_REPLICATION_ENABLED — that flag
+              // governs whether the tree is SERVED, not whether it has a name.
+              async () => (await replication.readTree()).etag,
             ),
         },
         // Global, so a new controller is protected by default and forgetting

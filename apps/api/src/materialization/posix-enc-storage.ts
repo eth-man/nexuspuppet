@@ -124,6 +124,23 @@ export class PosixEncStorage implements IEncFileWriter {
     await this.atomicWrite(this.defaultFile, yaml);
   }
 
+  /**
+   * Write `.revision` — the tree naming itself, for compile receipts.
+   *
+   * A trailing newline, and the same atomic write as everything else here, so
+   * the ENC script's single `read` either sees a whole revision or no file at
+   * all. It reads with `read -r <"${tree}/.revision"`, which would happily
+   * return a torn value from a non-atomic write.
+   *
+   * NOT under nodes/, so `listMaterializedCertnames` cannot mistake it for a
+   * node and the reconciler cannot orphan-sweep it. Also outside what the
+   * replication endpoint packs — that archive is default.yaml plus nodes/*.yaml
+   * — so writing it cannot perturb the very ETag it records.
+   */
+  async writeRevision(revision: string): Promise<void> {
+    await this.atomicWrite(join(this.root, '.revision'), `${revision}\n`);
+  }
+
   /** Certnames currently on disk. Used by the reconciler to find orphans. */
   async listMaterializedCertnames(): Promise<string[]> {
     try {

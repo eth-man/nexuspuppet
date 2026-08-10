@@ -34,6 +34,7 @@ class InMemoryEncStorage implements IEncFileWriter {
   nodes = new Map<string, string>();
   hashes = new Map<string, string>();
   defaultDocument: string | null = null;
+  revision: string | null = null;
   layoutEnsured = false;
   writable = true;
 
@@ -47,6 +48,10 @@ class InMemoryEncStorage implements IEncFileWriter {
     this.nodes.set(certname, yaml);
     this.hashes.set(certname, contentHash);
     return true;
+  }
+
+  async writeRevision(revision: string): Promise<void> {
+    this.revision = revision;
   }
 
   async removeNode(certname: string): Promise<void> {
@@ -142,7 +147,7 @@ describe('ENC storage seam (integration)', () => {
       // Present in storage, absent from the projection: an orphan.
       await storage.writeNode('orphan.example.com', 'classes: {}\n', 'hash');
 
-      const reconciler = new ReconcilerService(prisma, materializer, storage, 0, 0);
+      const reconciler = new ReconcilerService(prisma, materializer, storage, 0, 0, async () => 'seam-revision');
       const removed = await reconciler.reconcile('test');
 
       expect(removed).toBe(1);
