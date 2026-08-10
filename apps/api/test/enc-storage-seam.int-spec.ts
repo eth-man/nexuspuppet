@@ -147,7 +147,14 @@ describe('ENC storage seam (integration)', () => {
       // Present in storage, absent from the projection: an orphan.
       await storage.writeNode('orphan.example.com', 'classes: {}\n', 'hash');
 
-      const reconciler = new ReconcilerService(prisma, materializer, storage, 0, 0, async () => 'seam-revision');
+      const reconciler = new ReconcilerService(
+        prisma,
+        materializer,
+        storage,
+        0,
+        0,
+        async () => 'seam-revision',
+      );
       const removed = await reconciler.reconcile('test');
 
       expect(removed).toBe(1);
