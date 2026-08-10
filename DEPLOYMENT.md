@@ -758,11 +758,31 @@ API_BIND=127.0.0.1
 WEB_BIND=127.0.0.1
 ```
 
-`ENC_REPLICATION_ENABLED=false` is the point of co-locating — there is nothing
-to replicate to, and it opens no listener on a host that should be advertising
-Puppet's ports and nothing else. Keep both binds on loopback and reach the
-console over an SSH tunnel or the bundled TLS proxy (section 7); co-location
-must not quietly add a public web listener to a Puppet server.
+`ENC_REPLICATION_ENABLED=false` is the point of co-locating: there is nothing to
+replicate to, and a Puppet server should advertise Puppet's ports and nothing
+else. Keep both binds on loopback and reach the console over an SSH tunnel or
+the bundled TLS proxy (section 7) — co-location must not quietly add a public
+web listener to a Puppet server.
+
+**Unless you want compile receipts.** Those are uploaded to the ENC listener,
+because that is where the client certificate proves which Puppet server is
+reporting (ADR-0022 §4). A co-located deployment that wants them runs the
+listener bound to loopback, reachable by nothing but itself:
+
+```ini
+ENC_REPLICATION_ENABLED=true
+ENC_REPLICATION_BIND=127.0.0.1
+ENC_REPLICATION_ALLOWED_CERTNAMES=<this host's certname>
+```
+
+`ENC_REPLICATION_ENABLED` means **the ENC listener is running** — serving trees,
+accepting receipts, or both. What it is exposed to is decided by the bind
+address and the allowlist, not by the flag. The name is narrower than the
+meaning; see `CONTEXT.md`.
+
+Choose the bind address for what this host serves, not by copying a value. A
+host that also serves remote pullers must keep binding publicly; only a host
+that serves nobody but itself may bind to loopback.
 
 **Then the ordinary path**, with the ENC bind mount from the previous section
 and the schema created *before* first start — the API bootstraps its admin
@@ -810,8 +830,8 @@ before going further — on a Puppet server this is the check people skip:
 systemctl is-active puppetserver puppetdb
 ```
 
-**Compile receipts** (ADR-0022) are *recorded* here but not yet *collected*,
-and the distinction matters.
+**Compile receipts** (ADR-0022) are not yet available in this layout, and the
+reason is worth knowing rather than discovering.
 
 The tree names itself: the materializer writes `.revision` alongside the
 documents, using the same identity the replication endpoint would serve as an
@@ -819,15 +839,21 @@ ETag — so a receipt means the same thing whether the tree was materialized
 locally or pulled from another instance. The ENC script appends receipt lines as
 it serves.
 
-What does not exist yet, in **any** layout, is the far end. `nexuspuppet-sync.sh`
-POSTs accumulated receipts to `/enc-receipts`, and the API implements no such
-route — ADR-0022 §4 is specified but unbuilt (#146). A replicated deployment at
-least has a puller trying; a co-located one has no puller at all, so its receipt
-file simply grows on disk until something reads it.
+Two things are missing, and they are independent.
 
-Practical effect while that is true: receipts cost you nothing and tell you
-nothing. `NEXUSPUPPET_RECEIPTS` is capped and rotated by the sync script where
-one runs; co-located, point it somewhere you are willing to let accumulate.
+The far end does not exist in **any** layout: `nexuspuppet-sync.sh` POSTs to
+`/enc-receipts` and the API implements no such route, so ADR-0022 §4 is
+specified but unbuilt (#146). Today that upload returns 405 and the puller
+discards the batch, exactly as designed.
+
+Co-located, there is also nothing to upload. The receipts directory is created
+by the sync script, which does not run here, and the ENC script's append is
+swallowed so that a receipt can never fail a compile — so no receipt is written
+at all, silently. A collector that owns creating the directory and draining it
+is specified in ADR-0022 §13–§16 and tracked at #190.
+
+Practical effect until both land: compile receipts cost you nothing and tell you
+nothing in this layout, and there is no file to manage.
 
 ### Replicating the tree to a separate puppetserver (ADR-0019)
 
