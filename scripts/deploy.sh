@@ -4,6 +4,9 @@
 #   ./scripts/deploy.sh --puppetdb https://puppetdb.example.com:8081   # first run
 #   ./scripts/deploy.sh                                                # every run after
 #
+#   --certs <dir>   where client.pem/client.key/ca.pem live (default ./certs,
+#                   or /etc/nexuspuppet/certs if that is where they already are)
+#
 # WHY THIS EXISTS. DEPLOYMENT.md is a reference — it explains why each decision
 # is what it is, which is what you want at 2am and not what you want on a fresh
 # server. The sequence underneath all that prose is short, and this is it.
@@ -20,11 +23,19 @@ cd "$(dirname "$0")/.."
 
 PUPPETDB_URL=""
 ADMIN_EMAIL="admin@example.com"
+CERT_DIR_ARG=""
+
+# Where DEPLOYMENT.md §3 tells operators to install the certificates. The
+# .env.example default is ./certs, and those two disagreeing is a real trap:
+# somebody follows the guide, puts the files in /etc, and the script says there
+# is no certificate in ./certs.
+GUIDE_CERT_DIR="/etc/nexuspuppet/certs"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --puppetdb) PUPPETDB_URL="${2:-}"; shift 2 ;;
         --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
+        --certs) CERT_DIR_ARG="${2:-}"; shift 2 ;;
         -h | --help)
             sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -95,6 +106,17 @@ else
     set_env BOOTSTRAP_ADMIN_PASSWORD "$ADMIN_PASSWORD"
     set_env PUPPETDB_URL "$PUPPETDB_URL"
 
+    # --certs wins; otherwise, if the guide's location holds a full set and the
+    # default does not, use the guide's. An operator who followed the
+    # documentation should not have to discover that the script disagreed with
+    # it.
+    if [ -n "$CERT_DIR_ARG" ]; then
+        set_env PUPPETDB_CERT_DIR "$CERT_DIR_ARG"
+    elif [ ! -f ./certs/client.pem ] && [ -f "${GUIDE_CERT_DIR}/client.pem" ]; then
+        set_env PUPPETDB_CERT_DIR "$GUIDE_CERT_DIR"
+        echo "    certificates found in ${GUIDE_CERT_DIR}; using those"
+    fi
+
     echo "    secrets generated; .env is 0600"
 fi
 
@@ -109,15 +131,26 @@ fi
 CERT_DIR="$(grep -E '^PUPPETDB_CERT_DIR=' .env | cut -d= -f2- || true)"
 CERT_DIR="${CERT_DIR:-./certs}"
 if [ ! -f "${CERT_DIR}/client.pem" ] || [ ! -f "${CERT_DIR}/client.key" ] || [ ! -f "${CERT_DIR}/ca.pem" ]; then
+    hint=""
+    if [ -f "${GUIDE_CERT_DIR}/client.pem" ]; then
+        # The exact case that produced this message for a real operator: files
+        # present where the guide said to put them, and .env pointing elsewhere.
+        hint="
+       They ARE in ${GUIDE_CERT_DIR}. Point .env at them and re-run:
+         sed -i 's|^PUPPETDB_CERT_DIR=.*|PUPPETDB_CERT_DIR=${GUIDE_CERT_DIR}|' .env
+         ./scripts/deploy.sh
+"
+    fi
     die "No PuppetDB client certificate in ${CERT_DIR}.
-
+${hint}
        Expected client.pem, client.key and ca.pem. On your Puppet server:
 
-         puppetserver ca generate --certname nexuspuppet.internal
+         puppetserver ca generate --certname <this-host-fqdn>
 
-       then copy them here, owned by uid 100 so the container can read them,
-       and add that certname to PuppetDB's allowlist. DEPLOYMENT.md §3 has the
-       exact commands — including why the allowlist is the step people miss."
+       Copy them across owned by uid 100 so the container can read them, and add
+       that certname to PuppetDB's allowlist. Pass --certs <dir> to use a
+       location other than ./certs. DEPLOYMENT.md §3 has the exact commands —
+       including the allowlist, which is the step people miss."
 fi
 
 step "Building images"
