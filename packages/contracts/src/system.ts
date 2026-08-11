@@ -182,6 +182,68 @@ export const encReplicationHealthSchema = z.object({
   peers: z.array(encReplicationPeerSchema),
 });
 
+/**
+ * How far a classification change has actually got (#147, ADR-0022).
+ *
+ * The chain is: materialized here -> replicated to Puppet servers -> compiled
+ * by nodes. Every stage is answered by comparing a revision for EQUALITY
+ * against the one the tree currently carries.
+ *
+ * NEVER BY COMPARING TIMESTAMPS. Two hosts' clocks disagree, and the moment
+ * this view is read is an incident — "it reported after we changed it" is not
+ * the same statement as "it has the change", and the difference is exactly what
+ * somebody is trying to establish. Timestamps here are for display only, and
+ * nothing branches on them.
+ */
+export interface PropagationFront {
+  /**
+   * The revision the ENC tree on disk carries.
+   *
+   * Null when the tree has never been stamped, which makes every comparison
+   * below impossible rather than false — the console says so instead of
+   * reporting an estate that is 0% propagated.
+   */
+  revision: string | null;
+  /** When the tree was last written. Display only. */
+  materializedAt: string | null;
+  /** Classification changes still queued to be written. */
+  pending: number;
+  /** Changes that could not be written. These are a fault, unlike the rest. */
+  failed: number;
+  replication: {
+    /**
+     * False on a co-located deployment, where there is nothing to replicate to.
+     * The stage is then not applicable rather than incomplete — showing 0/0
+     * would read as a failure of something that is not happening.
+     */
+    enabled: boolean;
+    /** Peers whose last fetched revision equals the current one. */
+    current: number;
+    total: number;
+  };
+  compiled: {
+    /** Nodes with a receipt at the current revision. */
+    current: number;
+    /** Nodes that have reported any revision at all. */
+    reported: number;
+    /** Nodes in the estate. */
+    total: number;
+  };
+  /**
+   * Nodes not yet on the current revision, by name, so the view leads somewhere.
+   *
+   * Bounded: an estate mid-rollout has thousands, and a status payload carrying
+   * thousands of names is a second problem rather than a report on the first.
+   */
+  outstanding: Array<{
+    certname: string;
+    /** What it last reported, or null if it has never reported at all. */
+    reportedRevision: string | null;
+  }>;
+  /** How many outstanding nodes there are in total, when the list is cut short. */
+  outstandingTotal: number;
+}
+
 export const systemStatusSchema = z.object({
   materialization: materializationHealthSchema,
   /** Absent when the deployment has no audit transport installed. */

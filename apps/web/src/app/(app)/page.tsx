@@ -11,6 +11,7 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmptyState, LoadingRows, QueryError } from '@/components/states';
 import { SystemStatusCard } from '@/components/data/system-status-card';
 import { OpenConditionsPanel } from '@/components/data/open-conditions-panel';
+import { PropagationFront } from '@/components/data/propagation-front';
 
 /**
  * Estate overview.
@@ -52,6 +53,16 @@ export default function DashboardPage() {
 
       <div className="mb-3">
         <SystemStatusCard />
+      </div>
+
+      {/*
+        Below the status card and above the estate totals. It answers a question
+        an operator asks WHILE watching something happen — "has my change
+        landed" — which sits between "is anything wrong" and "what does the
+        estate look like".
+      */}
+      <div className="mb-3">
+        <PropagationFront />
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">

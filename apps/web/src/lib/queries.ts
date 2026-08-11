@@ -28,6 +28,7 @@ import type {
   ConsoleTlsStatus,
   Role,
   ConflictReport,
+  PropagationFront,
 } from '@nexuspuppet/contracts';
 import { api } from './client';
 
@@ -297,6 +298,21 @@ export function useAuthProvider(enabled: boolean): UseQueryResult<AuthProviderDe
  * they are looking at the screen. Every query behind it rides an existing
  * index, so a 30s poll from several open consoles is cheap.
  */
+/**
+ * Where the current classification has got to (#147).
+ *
+ * Polled a little faster than system status: this is read while watching a
+ * rollout move, and the numbers only change when a Puppet server fetches or a
+ * node compiles.
+ */
+export function usePropagationFront(): UseQueryResult<PropagationFront> {
+  return useQuery({
+    queryKey: ['propagation-front'],
+    queryFn: ({ signal }) => api.get<PropagationFront>('/system/propagation', signal),
+    refetchInterval: 15_000,
+  });
+}
+
 export function useSystemStatus(): UseQueryResult<SystemStatus> {
   return useQuery({
     queryKey: ['system-status'],
