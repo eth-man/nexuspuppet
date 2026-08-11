@@ -57,9 +57,32 @@ same command, keeps your `.env`, rebuilds and re-migrates in the right order.
 CI runs that script on every commit, so it is the install path that is actually
 tested rather than one described in prose.
 
-You still need two things it cannot invent for you: a **client certificate**
-(§3 — including the allowlist step people miss) and, once the console is up,
-**TLS in front of it** (§7).
+### Reachable, and encrypted, in the same command
+
+The console binds loopback by default because port 3000 is plain HTTP — a
+certificate elsewhere does not encrypt it, and publishing it puts login
+credentials on the network in the clear. To reach it from another machine
+without that:
+
+```bash
+./scripts/deploy.sh --puppetdb https://puppetdb.example.com:8081 \
+                    --tls console.example.com
+```
+
+Caddy issues a certificate itself at startup — no ACME, no internet, no files —
+serves the console on 443, and leaves 3000 on loopback behind it. Your browser
+will warn, because that CA is in nobody's trust store; the traffic is genuinely
+encrypted, which is the part `WEB_BIND=0.0.0.0` does not give you.
+
+That name has to resolve to this host from wherever you browse. Replace the
+certificate with a publicly trusted one later via §7 — nothing else changes.
+
+**Not for a console the public can reach.** A warning users learn to click
+through is worse than no warning; get a real certificate for anything
+internet-facing.
+
+You still need one thing the script cannot invent: a **client certificate** for
+PuppetDB (§3 — including the allowlist step people miss).
 
 Everything below is the reference: what each decision means and what breaks when
 it is wrong. Read it when something does not fit, not to get started.
