@@ -8,6 +8,11 @@
 #                   or /etc/nexuspuppet/certs if that is where they already are)
 #   --check         run the preflight checks and stop. Answers "will this work?"
 #                   before anything is built, and names the fix when it will not.
+#   --tls <hostname>  publish the console on 443 with TLS, using a certificate
+#                   Caddy issues itself. The console stays on loopback behind
+#                   it. Browsers warn (that CA is not in their trust store);
+#                   the traffic is genuinely encrypted, which cleartext on
+#                   0.0.0.0 is not.
 #   --skip-preflight  deploy without checking. For automated environments that
 #                   deliberately have no real PuppetDB — CI uses it, after
 #                   asserting that --check REFUSES that same environment.
@@ -31,6 +36,7 @@ ADMIN_EMAIL="admin@example.com"
 CERT_DIR_ARG=""
 CHECK_ONLY=""
 SKIP_PREFLIGHT=""
+TLS_HOSTNAME=""
 
 # Where DEPLOYMENT.md §3 tells operators to install the certificates. The
 # .env.example default is ./certs, and those two disagreeing is a real trap:
@@ -44,6 +50,7 @@ while [ $# -gt 0 ]; do
         --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
         --certs) CERT_DIR_ARG="${2:-}"; shift 2 ;;
         --check) CHECK_ONLY=yes; shift ;;
+        --tls) TLS_HOSTNAME="${2:-}"; shift 2 ;;
         --skip-preflight) SKIP_PREFLIGHT=yes; shift ;;
         -h | --help)
             sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
@@ -305,6 +312,24 @@ if [ -n "$CHECK_ONLY" ]; then
     exit 0
 fi
 
+if [ -n "$TLS_HOSTNAME" ]; then
+    step "Enabling TLS for ${TLS_HOSTNAME}"
+    set_env_always() {
+        if grep -qE "^${1}=" .env; then
+            sed -i "s|^${1}=.*|${1}=${2}|" .env
+        else
+            printf '%s=%s\n' "$1" "$2" >>.env
+        fi
+    }
+    set_env_always CONSOLE_HOSTNAME "$TLS_HOSTNAME"
+    set_env_always CADDY_CONFIG "./deploy/caddy/Caddyfile.internal"
+    # The console itself stays on loopback. The proxy reaches it over the
+    # compose network, so publishing it as well would defeat the point.
+    set_env_always WEB_BIND 127.0.0.1
+    echo "    console will be served on https://${TLS_HOSTNAME}"
+    echo "    ${TLS_HOSTNAME} must resolve to this host from wherever you browse"
+fi
+
 step "Building images"
 docker compose build || die "docker compose build"
 
@@ -326,6 +351,13 @@ docker compose run --rm api npx prisma migrate deploy || die "prisma migrate dep
 step "Starting NexusPuppet"
 docker compose up -d || die "docker compose up -d"
 
+if [ -n "$TLS_HOSTNAME" ] || grep -qE '^CADDY_CONFIG=.*Caddyfile\.internal' .env 2>/dev/null; then
+    step "Starting the TLS proxy"
+    # Only `proxy`. cert-helper belongs to the supplied-certificate flow and has
+    # nothing to adopt here.
+    docker compose --profile tls up -d proxy || die "docker compose --profile tls up -d proxy"
+fi
+
 # Read both from .env, but let the environment win — Compose resolves shell
 # variables ahead of .env, so anything else would print a URL that is not the
 # one it just bound.
@@ -333,7 +365,15 @@ env_or() { printf '%s' "${2:-$(grep -E "^${1}=" .env | cut -d= -f2- || true)}"; 
 WEB_BIND="$(env_or WEB_BIND "${WEB_BIND:-}")"
 WEB_PORT="$(env_or WEB_PORT "${WEB_PORT:-}")"
 printf '\n\033[32mNexusPuppet is running.\033[0m\n'
-printf '  Console:  http://%s:%s\n' "${WEB_BIND:-127.0.0.1}" "${WEB_PORT:-3000}"
+CONSOLE_HOST="$(grep -E '^CONSOLE_HOSTNAME=' .env | cut -d= -f2- || true)"
+if grep -qE '^CADDY_CONFIG=.*Caddyfile\.internal' .env 2>/dev/null && [ -n "$CONSOLE_HOST" ]; then
+    printf '  Console:  https://%s\n' "$CONSOLE_HOST"
+    printf '            your browser will warn — Caddy issued that certificate\n'
+    printf '            itself, so no public CA vouches for it. The connection\n'
+    printf '            IS encrypted. DEPLOYMENT.md §7 replaces it with a real one.\n'
+else
+    printf '  Console:  http://%s:%s\n' "${WEB_BIND:-127.0.0.1}" "${WEB_PORT:-3000}"
+fi
 
 if [ -n "${ADMIN_PASSWORD:-}" ]; then
     # Shown ONCE, and only on the run that generated it. It is in .env if this

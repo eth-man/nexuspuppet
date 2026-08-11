@@ -1,0 +1,57 @@
+# TLS with a certificate Caddy issues itself.
+#
+#   ./scripts/deploy.sh --tls console.example.com
+#
+# WHY THIS EXISTS. The default Caddyfile expects a certificate you supply, and
+# obtaining one is the step that stops people — so the console ends up either
+# unreachable on loopback or published in cleartext, and the second is the one
+# that happens quietly. This gives a third option: encrypted and reachable, with
+# nothing to obtain.
+#
+# WHAT `tls internal` DOES. Caddy runs a small CA of its own, generates a
+# certificate for the site address at startup, and renews it. No ACME, no
+# internet, no files. The private key never leaves the container's volume.
+#
+# WHAT IT DOES NOT DO. That CA is not in anyone's trust store, so browsers warn
+# exactly as they would for any self-signed certificate. The traffic is properly
+# encrypted; what is missing is a third party vouching that this host is what it
+# claims. Two ways to resolve it, both better than cleartext:
+#
+#   - install Caddy's root once on the machines that use the console, from
+#     /data/caddy/pki/authorities/local/root.crt inside this container
+#   - replace this with a real certificate later, via the default Caddyfile and
+#     the cert-helper flow (DEPLOYMENT.md §7). Nothing else changes.
+#
+# NOT FOR A CONSOLE THE PUBLIC CAN REACH. A warning users are trained to click
+# through is worse than no warning at all; on anything internet-facing, get a
+# certificate a browser already trusts.
+{
+	admin 0.0.0.0:2019
+	# `auto_https disable_certs` in the default file switches off certificate
+	# management entirely. Here we WANT management — just from the local CA
+	# rather than from ACME — so it is deliberately absent.
+	default_sni {$CONSOLE_HOSTNAME}
+	log {
+		output stderr
+		format console
+		level {$CADDY_LOG_LEVEL:INFO}
+	}
+}
+
+http://{$CONSOLE_HOSTNAME} {
+	redir https://{host}{uri} permanent
+}
+
+https://{$CONSOLE_HOSTNAME} {
+	# The one line that differs from the default Caddyfile.
+	tls internal
+
+	handle {
+		reverse_proxy web:3000 {
+			# The browser's address, for logs and redirects. Without these the
+			# app builds links from the container's own name.
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+}

@@ -226,7 +226,12 @@ services:
       # The same Caddyfile the proxy runs. Reloading means POSTing this config
       # back with Cache-Control: must-revalidate — without which Caddy accepts
       # it, answers 200, and changes nothing, because it is byte-identical.
-      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Which Caddyfile, chosen by the deployment rather than by editing this.
+      # The default expects a certificate you supply; Caddyfile.internal has
+      # Caddy issue one itself (`--tls` in scripts/deploy.sh). A variable in the
+      # mount SOURCE is the only way to switch config files without a second
+      # compose file, because Caddy has no conditionals.
+      - ${CADDY_CONFIG:-./deploy/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
     # NO PORTS. Reachable only over the Compose network, through the proxy route
     # that fronts it. Publishing this would expose certificate installation to
     # anything that can route to the host.
@@ -249,7 +254,10 @@ services:
       CONSOLE_HOSTNAME: ${CONSOLE_HOSTNAME:-}
       CADDY_LOG_LEVEL: ${CADDY_LOG_LEVEL:-INFO}
     volumes:
-      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Same variable as cert-helper above, so the two never disagree about
+      # which config is live — that would reload the proxy with a file it is
+      # not running.
+      - ${CADDY_CONFIG:-./deploy/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
       # Certificates as MOUNTED FILES, never uploaded through the app and never
       # stored in the database (ADR-0013). The private key is readable by this
       # container and by nothing else in the stack — the api and web services do
@@ -258,6 +266,9 @@ services:
       # checkout: if the profile is enabled without setting this, failing at the
       # place the guide tells operators to look is more useful than failing in a
       # gitignored directory they have never heard of.
+      # Unused with Caddyfile.internal, which has no supplied certificate at
+      # all. Harmless: Docker creates a missing bind source, and Caddy simply
+      # never reads it.
       - ${CONSOLE_TLS_DIR:-/etc/nexuspuppet/tls}:/etc/caddy/certs:ro
       - caddy-data:/data
       - caddy-config:/config
