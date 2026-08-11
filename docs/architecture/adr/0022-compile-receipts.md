@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-08-08)
 - **Deciders:** Architect
 - **Amended:** 2026-08-10 — §7–§12 specify the receiving end.
+- **Amended:** 2026-08-11 — §13–§16 specify collection, and correct the premise that a co-located deployment was merely failing to collect receipts: it was never writing them.
 - **Related:** [ADR-0019](./0019-enc-tree-replication.md) (extends; amends its read-only claim), [ADR-0003](./0003-enc-generate-dont-serve.md), [ADR-0004](./0004-puppetdb-read-only-mtls.md)
 
 ## Context
