@@ -6,6 +6,11 @@
 #
 #   --certs <dir>   where client.pem/client.key/ca.pem live (default ./certs,
 #                   or /etc/nexuspuppet/certs if that is where they already are)
+#   --check         run the preflight checks and stop. Answers "will this work?"
+#                   before anything is built, and names the fix when it will not.
+#   --skip-preflight  deploy without checking. For automated environments that
+#                   deliberately have no real PuppetDB — CI uses it, after
+#                   asserting that --check REFUSES that same environment.
 #
 # WHY THIS EXISTS. DEPLOYMENT.md is a reference — it explains why each decision
 # is what it is, which is what you want at 2am and not what you want on a fresh
@@ -24,6 +29,8 @@ cd "$(dirname "$0")/.."
 PUPPETDB_URL=""
 ADMIN_EMAIL="admin@example.com"
 CERT_DIR_ARG=""
+CHECK_ONLY=""
+SKIP_PREFLIGHT=""
 
 # Where DEPLOYMENT.md §3 tells operators to install the certificates. The
 # .env.example default is ./certs, and those two disagreeing is a real trap:
@@ -36,6 +43,8 @@ while [ $# -gt 0 ]; do
         --puppetdb) PUPPETDB_URL="${2:-}"; shift 2 ;;
         --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
         --certs) CERT_DIR_ARG="${2:-}"; shift 2 ;;
+        --check) CHECK_ONLY=yes; shift ;;
+        --skip-preflight) SKIP_PREFLIGHT=yes; shift ;;
         -h | --help)
             sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -151,6 +160,149 @@ ${hint}
        that certname to PuppetDB's allowlist. Pass --certs <dir> to use a
        location other than ./certs. DEPLOYMENT.md §3 has the exact commands —
        including the allowlist, which is the step people miss."
+fi
+
+
+# ---------------------------------------------------------------------------
+# Preflight.
+#
+# Every check here corresponds to a failure somebody has actually had, and each
+# one names its fix. The two that matter most are invisible otherwise:
+#
+#   - a certificate the container cannot read starts the console perfectly and
+#     shows an empty estate, which reads as "the product does not work"
+#   - a certname missing from PuppetDB's allowlist returns 403, which reads as
+#     a broken certificate
+#
+# Shell tools only, and every one optional. DEPLOYMENT.md §0 asks operators for
+# Docker and nothing else, so a missing openssl must SKIP a check rather than
+# fail a deployment.
+# ---------------------------------------------------------------------------
+ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$*"; PREFLIGHT_WARN=$((PREFLIGHT_WARN + 1)); }
+bad() { printf '  \033[31m✗\033[0m %s\n' "$*"; PREFLIGHT_FAIL=$((PREFLIGHT_FAIL + 1)); }
+note() { printf '      %s\n' "$*"; }
+
+preflight() {
+    PREFLIGHT_FAIL=0
+    PREFLIGHT_WARN=0
+    step "Preflight"
+
+    # --- the certificate files -------------------------------------------
+    if [ -f "${CERT_DIR}/client.pem" ] && [ -f "${CERT_DIR}/client.key" ] && [ -f "${CERT_DIR}/ca.pem" ]; then
+        ok "certificate, key and CA present in ${CERT_DIR}"
+    else
+        bad "missing certificate files in ${CERT_DIR}"
+        note "need client.pem, client.key and ca.pem — see DEPLOYMENT.md §3"
+        return 1
+    fi
+
+    # --- readable by the container's uid ----------------------------------
+    #
+    # THE EMPTY-ESTATE BUG. The image runs as uid 100; root:root files are
+    # unreadable to it and nothing says so except an inventory that never fills.
+    owner=$(stat -c '%u' "${CERT_DIR}/client.key" 2>/dev/null || echo unknown)
+    if [ "$owner" = "100" ]; then
+        ok "key is owned by uid 100, which the container runs as"
+    else
+        bad "key is owned by uid ${owner}, not 100"
+        note "the container cannot read it, and the symptom is an EMPTY estate,"
+        note "not an error. Fix:"
+        note "  sudo chown 100 ${CERT_DIR}/client.key ${CERT_DIR}/client.pem ${CERT_DIR}/ca.pem"
+    fi
+
+    # --- what the certificate says ----------------------------------------
+    if command -v openssl >/dev/null; then
+        if ! openssl x509 -in "${CERT_DIR}/client.pem" -noout >/dev/null 2>&1; then
+            # Distinct from "expired": a truncated copy, a key pasted where the
+            # certificate should be, or an HTML error page saved by mistake all
+            # land here, and calling that an expiry sends somebody to re-issue a
+            # certificate that was never the problem.
+            bad "client.pem is not a readable X.509 certificate"
+            note "it may be truncated, or be the key rather than the certificate"
+            note "check with: openssl x509 -in ${CERT_DIR}/client.pem -noout -subject"
+            subject=""
+        else
+        subject=$(openssl x509 -in "${CERT_DIR}/client.pem" -noout -subject 2>/dev/null | sed 's/.*CN *= *//')
+        if [ -n "$subject" ]; then
+            ok "certname is ${subject}"
+            note "this exact string must be in PuppetDB's allowlist, if you use one"
+        fi
+        if openssl x509 -in "${CERT_DIR}/client.pem" -noout -checkend 0 >/dev/null 2>&1; then
+            expiry=$(openssl x509 -in "${CERT_DIR}/client.pem" -noout -enddate 2>/dev/null | cut -d= -f2)
+            ok "certificate is valid (expires ${expiry})"
+        else
+            bad "certificate has EXPIRED"
+            note "re-issue it: puppetserver ca generate --certname ${subject:-<fqdn>}"
+        fi
+        fi
+    else
+        warn "openssl not installed — skipped certificate inspection"
+    fi
+
+    # --- can we actually talk to PuppetDB? --------------------------------
+    url=$(grep -E '^PUPPETDB_URL=' .env | cut -d= -f2- || true)
+    if [ -z "$url" ]; then
+        warn "PUPPETDB_URL is not set in .env"
+    elif ! command -v curl >/dev/null; then
+        warn "curl not installed — skipped the PuppetDB probe"
+    else
+        # No `|| echo 000` — curl already writes 000 through -w when it cannot
+        # connect, and the fallback appended a second one, producing "000000"
+        # and a case label that never matched.
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            --cert "${CERT_DIR}/client.pem" --key "${CERT_DIR}/client.key" \
+            --cacert "${CERT_DIR}/ca.pem" "${url}/pdb/query/v4/nodes?limit=1" 2>/dev/null) || true
+        [ -n "$code" ] || code=000
+        case "$code" in
+            200)
+                ok "PuppetDB answered 200 — the certificate is accepted"
+                ;;
+            403)
+                # The single most misread failure in this product.
+                bad "PuppetDB answered 403 — the certificate is valid but NOT PERMITTED"
+                note "this is the allowlist, not a broken certificate. On the Puppet server:"
+                note "  echo '${subject:-<certname>}' >> /etc/puppetlabs/puppetdb/certificate-whitelist"
+                note "  systemctl restart puppetdb"
+                ;;
+            000)
+                bad "could not reach PuppetDB at ${url}"
+                note "check the host resolves from here, that 8081 is open, and that"
+                note "the URL names what the server certificate carries — an IP will"
+                note "fail verification unless the certificate has an IP SAN"
+                ;;
+            *)
+                warn "PuppetDB answered HTTP ${code}"
+                ;;
+        esac
+    fi
+
+    # --- ports ------------------------------------------------------------
+    if command -v ss >/dev/null; then
+        port=$(grep -E '^WEB_PORT=' .env | cut -d= -f2- || true)
+        port="${port:-3000}"
+        if ss -ltn 2>/dev/null | grep -q ":${port} "; then
+            warn "something is already listening on port ${port}"
+            note "docker will refuse to bind it; stop that service or change WEB_PORT"
+        else
+            ok "port ${port} is free"
+        fi
+    fi
+
+    [ "$PREFLIGHT_FAIL" -eq 0 ]
+}
+
+if [ -n "$SKIP_PREFLIGHT" ] && [ -z "$CHECK_ONLY" ]; then
+    step "Preflight skipped (--skip-preflight)"
+elif ! preflight; then
+    printf '\n\033[31mPreflight failed.\033[0m Nothing has been built or started.\n'
+    printf 'Fix the items marked ✗ above and run this again.\n\n'
+    exit 1
+fi
+
+if [ -n "$CHECK_ONLY" ]; then
+    printf '\n\033[32mPreflight passed.\033[0m Run without --check to deploy.\n\n'
+    exit 0
 fi
 
 step "Building images"

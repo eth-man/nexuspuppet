@@ -33,6 +33,23 @@ whole installation:
 ./scripts/deploy.sh --puppetdb https://puppetdb.example.com:8081
 ```
 
+Check first if you would rather know before anything is built:
+
+```bash
+./scripts/deploy.sh --check
+```
+
+That verifies the certificate is present, readable **by the container's uid**,
+valid and not expired; that PuppetDB answers it; and that the port is free. Each
+failure names its fix. Two of them are worth the run on their own, because
+neither announces itself otherwise: a certificate the container cannot read
+starts the console perfectly and shows an **empty estate**, and a certname
+missing from PuppetDB's allowlist returns **403**, which reads as a broken
+certificate.
+
+The deploy runs the same checks and stops if they fail, so nothing is built
+against an environment that cannot work.
+
 It generates the secrets, writes `.env`, builds, migrates and starts, then
 prints the console URL and the admin password once. **Re-run it to upgrade** —
 same command, keeps your `.env`, rebuilds and re-migrates in the right order.
