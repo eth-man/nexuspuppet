@@ -52,11 +52,21 @@ fail() {
 }
 
 ADMIN_EMAIL="admin@example.com"
-ADMIN_PASSWORD="install-smoke-only-password"
+ADMIN_PASSWORD=""   # deploy.sh generates it; read from .env below
+SMOKE_WEB_PORT="${SMOKE_WEB_PORT:-33000}"
+SMOKE_API_PORT="${SMOKE_API_PORT:-33001}"
+# EXPORTED, and before deploy.sh runs. Compose resolves shell environment ahead
+# of .env, so this is what its `up -d` binds — setting it in .env afterwards
+# would arrive one step too late, having already collided with whatever a
+# developer has on 3000. Same reason this job uses its own Compose project.
+export WEB_PORT="$SMOKE_WEB_PORT"
+export API_PORT="$SMOKE_API_PORT"
 
 cleanup() {
   docker compose down -v --remove-orphans >/dev/null 2>&1 || true
   rm -f .env
+  rm -f certs/client.pem certs/client.key certs/ca.pem
+  rmdir certs 2>/dev/null || true
   [ -f .env.install-smoke-backup ] && mv .env.install-smoke-backup .env
   return 0
 }
@@ -64,73 +74,42 @@ trap cleanup EXIT
 
 # --- §4. Configure .env -------------------------------------------------------
 
-step "Configuring .env (DEPLOYMENT.md §4)"
+step "Deploying the way an operator does"
 
-# From .env.example, as the documentation says, rather than a bespoke file. That
-# way a key documented there but not delivered by Compose is caught here.
-cp .env.example .env
-set_env() {
-  local key="$1" value="$2"
-  if grep -qE "^${key}=" .env; then
-    # `|` as the delimiter: values contain / and : (URLs, connection strings).
-    sed -i "s|^${key}=.*|${key}=${value}|" .env
-  else
-    printf '%s=%s\n' "$key" "$value" >> .env
-  fi
-}
+# THE SCRIPT ITSELF IS UNDER TEST. This job used to re-implement the install
+# sequence; two copies of one procedure drift, and the copy nobody runs is the
+# one that rots. scripts/deploy.sh is what DEPLOYMENT.md tells an operator to
+# run, so it is what CI runs.
+#
+# Throwaway certificate files: deploy.sh refuses to start without them, because
+# a missing client certificate is the most common first-install failure and its
+# symptom is an empty estate rather than an error. Nothing here connects to a
+# real PuppetDB — the URL below is deliberately unresolvable — so the contents
+# do not matter, only that the check is exercised rather than bypassed.
+mkdir -p certs
+for f in client.pem client.key ca.pem; do
+  [ -f "certs/$f" ] || echo "install-smoke placeholder" > "certs/$f"
+done
 
-set_env NODE_ENV production
-set_env POSTGRES_PASSWORD install-smoke-only-password
-set_env JWT_SECRET install-smoke-only-jwt-secret-not-used-anywhere-else
-set_env BOOTSTRAP_ADMIN_EMAIL "$ADMIN_EMAIL"
-set_env BOOTSTRAP_ADMIN_PASSWORD "$ADMIN_PASSWORD"
-# Deliberately unreachable. The API must still boot and report healthy: the
-# classification half of this product does not depend on PuppetDB, and a
-# certificate problem is documented as degrading inventory rather than taking
-# the console down. If that stops being true, this line catches it.
-set_env PUPPETDB_URL https://puppetdb.invalid:8081
+./scripts/deploy.sh --puppetdb https://puppetdb.invalid:8081 \
+  || fail "scripts/deploy.sh — the documented one-command install"
 
-# A key with a non-default value that nothing else in CI exercises. If Compose
-# goes back to enumerating environment, this is what notices.
-set_env PUPPETDB_PROJECTED_FACTS os,networking,kernel,install_smoke_marker
 
-# --- §5. Build, migrate, start ------------------------------------------------
-
-step "Building the images (DEPLOYMENT.md §5)"
-docker compose build || fail "docker compose build"
+# The projected-fact marker proves .env values reach the container. deploy.sh
+# does not set it (no operator would), so it is appended here and the stack
+# restarted to pick it up.
+step "Adding the marker this job asserts on"
+printf 'PUPPETDB_PROJECTED_FACTS=%s\n' "os,networking,kernel,install_smoke_marker" >> .env
+docker compose up -d api || fail "restart after editing .env"
 
 step "The commissioning probe is present in the image"
-# --no-deps matters. Without it this pulls up the database through depends_on
-# and blocks on a first-boot Postgres initialising, to answer a question about
-# a file in the image. Inspecting the image should not start the estate.
 docker compose run --rm --no-deps --entrypoint sh api -c 'test -f scripts/test-puppetdb.mjs' \
   || fail "scripts/test-puppetdb.mjs is missing from the runtime image"
-
-step "Migrating (DEPLOYMENT.md §5)"
-docker compose up -d db || fail "docker compose up -d db"
-# First boot initialises the cluster, which is slower than the healthcheck's
-# own interval allows for; wait on readiness rather than assuming it.
-ready=""
-for _ in $(seq 1 45); do
-  if docker compose exec -T db pg_isready -U nexuspuppet >/dev/null 2>&1; then
-    ready=yes
-    break
-  fi
-  sleep 2
-done
-[ -n "$ready" ] || fail "the database never became ready" 
-docker compose run --rm api npx prisma migrate deploy \
-  || fail "prisma migrate deploy — the image is missing something the CLI needs"
-
-step "Starting the stack (DEPLOYMENT.md §5)"
-docker compose up -d || fail "docker compose up -d"
-
-# --- The assertions that matter -----------------------------------------------
 
 step "The API becomes healthy"
 healthy=""
 for _ in $(seq 1 45); do
-  if curl -fsS http://127.0.0.1:3001/healthz >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${SMOKE_API_PORT}/healthz" >/dev/null 2>&1; then
     healthy=yes
     break
   fi
@@ -177,7 +156,7 @@ done
 step "Ports are bound to loopback, not every interface"
 # The default must stay safe: no TLS terminates in front of these services, so a
 # 0.0.0.0 bind puts login credentials on the wire in cleartext.
-if docker compose ps --format json api | grep -q '0\.0\.0\.0:3001'; then
+if docker compose ps --format json api | grep -q "0\\.0\\.0\\.0:${SMOKE_API_PORT}"; then
   fail "the api port is published on 0.0.0.0 — it must default to 127.0.0.1"
 fi
 echo "  ok"
@@ -196,11 +175,13 @@ docker compose exec -T api sh -c 'echo "$PUPPETDB_PROJECTED_FACTS"' \
 echo "  values are the ones from .env"
 
 step "The bootstrap admin can actually log in"
+ADMIN_EMAIL=$(grep -E '^BOOTSTRAP_ADMIN_EMAIL=' .env | cut -d= -f2-)
+ADMIN_PASSWORD=$(grep -E '^BOOTSTRAP_ADMIN_PASSWORD=' .env | cut -d= -f2-)
 # The end an operator cares about. A deployment that starts, reports healthy and
 # cannot be logged into is indistinguishable from a working one until someone
 # tries — which is exactly how the missing BOOTSTRAP_ADMIN_* pair shipped.
 code=$(curl -s -o /tmp/login.json -w '%{http_code}' \
-  -X POST http://127.0.0.1:3001/auth/login \
+  -X POST "http://127.0.0.1:${SMOKE_API_PORT}/auth/login" \
   -H 'Content-Type: application/json' \
   -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}")
 

@@ -24,6 +24,31 @@ you have not; the constraints below come from the ADRs and are not stylistic.
 
 ---
 
+## Quick start
+
+If you have Docker, a PuppetDB, and a client certificate for it, this is the
+whole installation:
+
+```bash
+./scripts/deploy.sh --puppetdb https://puppetdb.example.com:8081
+```
+
+It generates the secrets, writes `.env`, builds, migrates and starts, then
+prints the console URL and the admin password once. **Re-run it to upgrade** —
+same command, keeps your `.env`, rebuilds and re-migrates in the right order.
+
+CI runs that script on every commit, so it is the install path that is actually
+tested rather than one described in prose.
+
+You still need two things it cannot invent for you: a **client certificate**
+(§3 — including the allowlist step people miss) and, once the console is up,
+**TLS in front of it** (§7).
+
+Everything below is the reference: what each decision means and what breaks when
+it is wrong. Read it when something does not fit, not to get started.
+
+---
+
 ## 0. Before you touch the VM
 
 Collect these. Three of them cannot be generated on the box.
