@@ -859,9 +859,36 @@ sudo sed -i 's|^#NEXUSPUPPET_RECEIPTS_URL=.*|NEXUSPUPPET_RECEIPTS_URL=https://'"
 sudo systemctl enable --now nexuspuppet-receipts.timer
 ```
 
-It presents this node's own agent certificate, which the co-located origin
-already trusts — no new certificate, and nothing to add to an allowlist beyond
-the certname you set in `ENC_REPLICATION_ALLOWED_CERTNAMES` above.
+One more line is required, and it is the one that is easy to miss:
+
+```bash
+CN=$(sudo /opt/puppetlabs/bin/puppet config print certname)
+echo "NEXUSPUPPET_RECEIPTS_RESOLVE=${CN}:8443:127.0.0.1" \
+  | sudo tee -a /etc/default/nexuspuppet-receipts
+```
+
+The URL must name the **certname**, because mTLS verifies the hostname against
+the certificate — and that name resolves to this host's LAN address, where the
+loopback-bound listener is not. `NEXUSPUPPET_RECEIPTS_RESOLVE` verifies the name
+and connects to loopback, which is what `curl --resolve` is for. Without it the
+collector reports `curl 7` and keeps the receipts: correct, and it gets you
+nowhere.
+
+Do **not** solve this with an `/etc/hosts` entry pointing the Puppet server's
+own certname at `127.0.0.1`. It is a global change on a host whose agent
+resolves that same name to reach its master.
+
+The collector presents this node's own agent certificate, which the co-located
+origin already trusts — no new certificate, and nothing to add to an allowlist
+beyond the certname you set in `ENC_REPLICATION_ALLOWED_CERTNAMES` above.
+
+Confirm it end to end:
+
+```bash
+sudo systemctl start nexuspuppet-receipts.service
+sudo journalctl -u nexuspuppet-receipts -n 5 --no-pager
+# handed over N compile receipt(s)
+```
 
 ### Replicating the tree to a separate puppetserver (ADR-0019)
 

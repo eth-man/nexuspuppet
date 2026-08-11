@@ -52,6 +52,22 @@ CA_CERT="${NEXUSPUPPET_RECEIPTS_CA:-${NEXUSPUPPET_SYNC_CA:-${SSL_DIR}/certs/ca.p
 
 TIMEOUT="${NEXUSPUPPET_RECEIPTS_TIMEOUT:-30}"
 
+# Send the connection somewhere other than where the name resolves, without
+# weakening the certificate check. `<name>:<port>:<address>`, curl's --resolve.
+#
+# THIS IS WHAT MAKES THE CO-LOCATED LAYOUT REACHABLE (ADR-0022 §14). That
+# listener binds loopback, but the URL must name the certname or mTLS fails
+# hostname verification — and the certname resolves to the host's LAN address,
+# where nothing is listening. So the name is verified and the connection goes to
+# 127.0.0.1:
+#
+#   NEXUSPUPPET_RECEIPTS_RESOLVE=puppet.example.com:8443:127.0.0.1
+#
+# The alternative is a /etc/hosts entry pointing the Puppet server's own
+# certname at 127.0.0.1, which is a global change on a host whose agent resolves
+# that same name to reach its master. This affects one curl invocation.
+RESOLVE="${NEXUSPUPPET_RECEIPTS_RESOLVE:-}"
+
 # Oldest-first cap (§5). Applied here rather than on the compile path, because
 # capping there would mean rewriting a file concurrent compiles are appending
 # to. 0 disables it.
@@ -151,6 +167,7 @@ ${MAX_RECEIPTS} cap"
     status=$(curl --silent --show-error \
         --cert "$CLIENT_CERT" --key "$CLIENT_KEY" --cacert "$CA_CERT" \
         --max-time "$TIMEOUT" \
+        ${RESOLVE:+--resolve "$RESOLVE"} \
         --request POST \
         --header 'Content-Type: text/plain' \
         --data-binary "@${pending}" \
