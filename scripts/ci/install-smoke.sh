@@ -193,7 +193,7 @@ fi
 echo "  ok"
 
 step "The web tier is serving"
-curl -fsS -o /dev/null http://127.0.0.1:3000/ || fail "the web tier did not serve"
+curl -fsS -o /dev/null "http://127.0.0.1:${SMOKE_WEB_PORT}/" || fail "the web tier did not serve"
 echo "  ok"
 
 echo
