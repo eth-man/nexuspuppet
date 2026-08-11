@@ -1,0 +1,27 @@
+[Unit]
+Description=Hand NexusPuppet compile receipts to the origin periodically
+Documentation=https://github.com/eth-man/nexuspuppet/blob/main/DEPLOYMENT.md
+
+[Timer]
+# Five minutes, matching the sync timer.
+#
+# This interval is the resolution of "reported": a receipt can be up to one
+# interval old before the console sees it, and the console says "reported"
+# rather than "compiled at" precisely because of this gap (ADR-0022 §9).
+# Chasing a smaller number buys precision nobody acts on — agents run every
+# thirty minutes.
+OnBootSec=3min
+OnUnitActiveSec=5min
+
+# Spread across a fleet, and off the round minute.
+RandomizedDelaySec=60
+
+# Deliberately NOT Persistent=true, unlike the sync timer.
+#
+# Catching up matters for the tree, where being behind means compiling an old
+# classification. It does not matter here: a missed run leaves the receipts on
+# disk, and the next run takes them. Firing immediately at boot on a host that
+# has been off for a week would send a burst of receipts about compiles nobody
+# is still asking after.
+[Install]
+WantedBy=timers.target

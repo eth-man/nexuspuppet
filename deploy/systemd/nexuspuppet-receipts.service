@@ -1,0 +1,66 @@
+[Unit]
+Description=Hand NexusPuppet compile receipts to the origin
+Documentation=https://github.com/eth-man/nexuspuppet/blob/main/DEPLOYMENT.md
+
+# NOT ordered before puppetserver, and puppetserver does NOT require this.
+#
+# Receipts are bookkeeping about compiles that already happened. Catalogs, then
+# trees, then this (ADR-0022, binding constraint 2). If this unit has never run
+# or never succeeded, every compile still succeeds.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nexuspuppet-receipts.sh
+EnvironmentFile=-/etc/default/nexuspuppet-receipts
+# A replicated host has already configured the URL and certificates here; the
+# script reads both files so such a host restates nothing.
+EnvironmentFile=-/etc/default/nexuspuppet-sync
+
+# Root, because it rotates a file written by the puppetserver user. Everything
+# below narrows that back down.
+User=root
+
+# The Puppet server's private key is 0640 puppet:puppet, and this unit drops
+# CAP_DAC_OVERRIDE below — the only reason root can normally read a file it does
+# not own. Joining the group grants exactly the group-read the file already
+# offers, instead of handing back a capability covering every file on the host.
+#
+# It is also what lets this unit read a receipts file written under a
+# restrictive umask by the puppetserver user.
+#
+# On Puppet Enterprise the group is `pe-puppet`.
+SupplementaryGroups=puppet
+
+# systemd creates and owns the state directory rather than the script.
+#
+# The SAME directory the sync unit uses, because it is where the compile path
+# already appends: `nexuspuppet-enc.sh` defaults to
+# /var/lib/nexuspuppet-sync/receipts/current. Renaming it to match this unit
+# would orphan the receipts of every deployment that upgraded, to fix a word.
+StateDirectory=nexuspuppet-sync
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# Why the collector chmods 0770 and not 2770: with this set, a setgid chmod is
+# refused with EPERM and the feature would disable itself over a mode bit.
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+
+# Failing is a real event and should show in `systemctl status` rather than be
+# retried into silence. The timer brings the next attempt.
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
