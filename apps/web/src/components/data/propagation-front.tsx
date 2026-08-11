@@ -73,22 +73,32 @@ function Body({ front }: { front: Front }) {
           tone={front.pending === 0 ? 'ok' : 'working'}
         />
         <Arrow />
-        {front.replication.enabled ? (
+        {/*
+          PEERS DECIDE THIS STAGE, NOT THE FLAG.
+          `ENC_REPLICATION_ENABLED` means "the ENC listener is running"
+          (CONTEXT.md), and since ADR-0022 §14 a co-located deployment turns it
+          on purely to accept its OWN receipts over loopback — replicating to
+          nobody. Reading the flag showed such a deployment `replicated 0/0` in
+          amber, which says something is failing to arrive when nothing is meant
+          to be arriving.
+
+          A deployment that genuinely expects peers and has none is a real
+          problem, and it is already an open condition (`replication.no-peer`).
+          Raising it a second time here would double-count one fault and make
+          the routine co-located case look broken.
+        */}
+        {front.replication.total === 0 ? (
+          <Stage
+            label="replicated"
+            value={front.replication.enabled ? 'no peers' : 'not replicating'}
+            tone="muted"
+          />
+        ) : (
           <Stage
             label="replicated"
             value={`${String(front.replication.current)}/${String(front.replication.total)}`}
-            tone={
-              front.replication.total > 0 && front.replication.current === front.replication.total
-                ? 'ok'
-                : 'working'
-            }
+            tone={front.replication.current === front.replication.total ? 'ok' : 'working'}
           />
-        ) : (
-          /*
-           * Co-located: there is nothing to replicate to. Showing 0/0 would
-           * read as a failure of something that is not happening at all.
-           */
-          <Stage label="replicated" value="not replicating" tone="muted" />
         )}
         <Arrow />
         <Stage
