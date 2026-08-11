@@ -178,6 +178,24 @@ function Outstanding({ front }: { front: Front }) {
   const stale = front.outstanding.filter((n) => n.reportedRevision !== null);
   const silent = front.outstanding.filter((n) => n.reportedRevision === null);
 
+  /*
+   * Show a handful, not the whole cap.
+   *
+   * The list exists to LEAD SOMEWHERE, not to enumerate — an operator who wants
+   * all of them has the Nodes screen. A 48-node staging estate rendered 48
+   * hostnames here and pushed the estate totals off the fold, and the API cap
+   * of 50 would do the same on any estate mid-rollout. The dashboard's job is
+   * to fit on one screen (CLAUDE.md).
+   *
+   * Stale nodes get the larger share: they reported an OLDER revision, which
+   * points at a Puppet server to check. A node that has not reported is just
+   * waiting for its next run, and a dozen names are as diagnostic as fifty.
+   */
+  const STALE_SHOWN = 8;
+  const SILENT_SHOWN = 6;
+
+  const shown = Math.min(stale.length, STALE_SHOWN) + Math.min(silent.length, SILENT_SHOWN);
+
   return (
     <div className="space-y-1.5">
       <p className="text-[11px] text-ink-muted">
@@ -188,22 +206,26 @@ function Outstanding({ front }: { front: Front }) {
       {stale.length > 0 && (
         <NodeList
           hint="reported an older revision"
-          nodes={stale.map((n) => ({
+          nodes={stale.slice(0, STALE_SHOWN).map((n) => ({
             certname: n.certname,
             detail: shortHash(n.reportedRevision),
           }))}
+          hidden={stale.length - Math.min(stale.length, STALE_SHOWN)}
         />
       )}
       {silent.length > 0 && (
         <NodeList
           hint="not reported yet"
-          nodes={silent.map((n) => ({ certname: n.certname, detail: '—' }))}
+          nodes={silent.slice(0, SILENT_SHOWN).map((n) => ({ certname: n.certname, detail: '—' }))}
+          hidden={silent.length - Math.min(silent.length, SILENT_SHOWN)}
         />
       )}
 
-      {front.outstandingTotal > front.outstanding.length && (
+      {front.outstandingTotal > shown && (
         <p className="text-[11px] text-ink-faint">
-          and {front.outstandingTotal - front.outstanding.length} more
+          <Link href="/nodes" className="hover:text-accent">
+            {front.outstandingTotal - shown} more in the estate →
+          </Link>
         </p>
       )}
     </div>
@@ -213,13 +235,18 @@ function Outstanding({ front }: { front: Front }) {
 function NodeList({
   hint,
   nodes,
+  hidden,
 }: {
   hint: string;
   nodes: Array<{ certname: string; detail: string }>;
+  hidden: number;
 }) {
   return (
     <div>
-      <p className="text-[11px] text-ink-faint">{hint}</p>
+      <p className="text-[11px] text-ink-faint">
+        {hint}
+        {hidden > 0 && <span> · showing {nodes.length}</span>}
+      </p>
       <ul className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px]">
         {nodes.map((node) => (
           <li key={node.certname}>
