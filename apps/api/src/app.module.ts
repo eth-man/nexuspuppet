@@ -33,6 +33,7 @@ import { NodeProjectionService } from './puppetdb/node-projection.service';
 import { PosixEncStorage } from './materialization/posix-enc-storage';
 import { EncDocumentReader } from './materialization/enc-document-reader';
 import { EncReplicationService } from './replication/enc-replication.service';
+import { CompileReceiptsService } from './replication/compile-receipts.service';
 import {
   DEFAULT_EVALUATOR_PACING,
   NotificationEvaluatorService,
@@ -330,6 +331,7 @@ export class AppModule {
             new LogLevelService(prisma, env.LOG_LEVEL, undefined, env.SETTINGS_SOURCE === 'env'),
         },
         encReplicationProvider(env),
+        CompileReceiptsService,
         // Core, not capability-gated: what keeps ADR-0021 §1 honest is the
         // content constraint, not a licence check.
         NotificationWebhookTransport,
@@ -630,11 +632,12 @@ export class AppModule {
         // relied on the default — which is the default deployment.
         {
           provide: ClassificationService,
-          inject: [PrismaService, MaterializationService, AUDIT_SINK],
+          inject: [PrismaService, MaterializationService, AUDIT_SINK, CompileReceiptsService],
           useFactory: (
             prisma: PrismaService,
             materialization: MaterializationService,
             audit: IAuditSink,
+            receipts: CompileReceiptsService,
           ): ClassificationService =>
             new ClassificationService(
               prisma,
@@ -645,6 +648,7 @@ export class AppModule {
               // rather than injected via ENC_FILE_WRITER: reading needs none
               // of the writer's guarantees, and that seam is published.
               new EncDocumentReader(env.ENC_OUTPUT_DIR),
+              receipts,
             ),
         },
         {
@@ -669,12 +673,19 @@ export class AppModule {
           // Starts the drain and reconcile loops on module init, and writes
           // default.yaml before puppetserver can ask for an unknown node.
           provide: ReconcilerService,
-          inject: [PrismaService, MaterializerService, ENC_FILE_WRITER, EncReplicationService],
+          inject: [
+            PrismaService,
+            MaterializerService,
+            ENC_FILE_WRITER,
+            EncReplicationService,
+            CompileReceiptsService,
+          ],
           useFactory: (
             prisma: PrismaService,
             materializer: MaterializerService,
             writer: IEncFileWriter,
             replication: EncReplicationService,
+            receipts: CompileReceiptsService,
           ): ReconcilerService =>
             new ReconcilerService(
               prisma,
@@ -691,6 +702,7 @@ export class AppModule {
               // Provided regardless of ENC_REPLICATION_ENABLED — that flag
               // governs whether the tree is SERVED, not whether it has a name.
               async () => (await replication.readTree()).etag,
+              receipts,
             ),
         },
         // Global, so a new controller is protected by default and forgetting

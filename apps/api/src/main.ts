@@ -80,6 +80,7 @@ async function bootstrap(): Promise<void> {
     } else {
       const { createReplicationServer } = await import('./replication/replication.server');
       const { EncReplicationService } = await import('./replication/enc-replication.service');
+      const { CompileReceiptsService } = await import('./replication/compile-receipts.service');
 
       try {
         const server = createReplicationServer(
@@ -92,6 +93,7 @@ async function bootstrap(): Promise<void> {
             allowedCertnames: env.ENC_REPLICATION_ALLOWED_CERTNAMES,
           },
           app.get(EncReplicationService),
+          app.get(CompileReceiptsService),
         );
 
         server.listen(env.ENC_REPLICATION_PORT, env.ENC_REPLICATION_BIND, () => {

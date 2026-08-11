@@ -24,9 +24,31 @@ export class EncDocumentReader {
   private readonly nodesDir: string;
   private readonly defaultFile: string;
 
+  private readonly revisionFile: string;
+
   constructor(outputDir: string) {
     this.nodesDir = join(outputDir, 'nodes');
     this.defaultFile = join(outputDir, 'default.yaml');
+    this.revisionFile = join(outputDir, '.revision');
+  }
+
+  /**
+   * The revision the tree on disk is currently carrying (ADR-0022 §2).
+   *
+   * READ FROM `.revision`, not recomputed. That file is what the ENC script
+   * actually reads and what it stamps on every receipt, so comparing a receipt
+   * against it is comparing like with like. Recomputing the tree hash here
+   * would answer "what would the identity be now", which is a different
+   * question and re-reads every file in the estate on a page view.
+   *
+   * Null when the tree has never been stamped — a deployment older than the
+   * stamp, or one whose materializer has not run. Not an error: it means the
+   * comparison cannot be made, which the console must say rather than guess.
+   */
+  async readRevision(): Promise<string | null> {
+    const raw = await this.readIfPresent(this.revisionFile);
+    const trimmed = raw?.trim();
+    return trimmed === undefined || trimmed === '' ? null : trimmed;
   }
 
   /**

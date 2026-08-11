@@ -1,16 +1,20 @@
 import { EncDocumentReader } from '../materialization/enc-document-reader';
+import type { CompileReceiptsService } from '../replication/compile-receipts.service';
+import { compileCurrency } from './pure/compile-currency';
 import {
   BadRequestException,
   ConflictException,
   Inject,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { AUDIT_SINK } from '@nexuspuppet/contracts';
 import type {
   AssignClass,
   AuthenticatedPrincipal,
   ClassificationWriteResult,
+  CompileReceiptView,
   CreateNodeGroup,
   NodeGroupDetail,
   ReplaceRules,
@@ -69,6 +73,8 @@ import {
  */
 @Injectable()
 export class ClassificationService {
+  private readonly logger = new Logger(ClassificationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly materialization: MaterializationService,
@@ -85,11 +91,74 @@ export class ClassificationService {
     private readonly projectedFacts: readonly string[],
     /** Reads the ENC document back from disk (#143). */
     private readonly reader: EncDocumentReader,
+    /**
+     * What each Puppet server reported this node compiling (ADR-0022).
+     *
+     * Optional so a deployment assembled without receipts still explains a
+     * classification. An absent service reads as "nothing reported", which is
+     * the same thing the console shows before any collector runs.
+     */
+    private readonly receipts?: CompileReceiptsService,
   ) {}
 
   // -------------------------------------------------------------------------
   // Reads
   // -------------------------------------------------------------------------
+
+  /**
+   * What each Puppet server reported this node compiling (ADR-0022 §12).
+   *
+   * The origin revision is READ FROM `.revision`, not recomputed. That file is
+   * what the ENC script actually reads and stamps onto every receipt, so this
+   * compares like with like — and it is one small read rather than repacking
+   * the whole tree on a page view.
+   *
+   * Best-effort throughout. A classification explanation that fails because the
+   * bookkeeping is unavailable would trade the answer somebody needs for the
+   * footnote they do not.
+   */
+  private async explainReceipts(certname: string): Promise<CompileReceiptView[]> {
+    if (this.receipts === undefined) return [];
+
+    try {
+      const rows = await this.receipts.forNode(certname);
+      if (rows.length === 0) return [];
+
+      const origin = await this.reader.readRevision().catch(() => null);
+
+      const peers = await this.prisma.encReplicationPeer.findMany({
+        where: { certname: { in: rows.map((r) => r.peerCertname) } },
+        select: { certname: true, lastEtag: true, lastChangedAt: true },
+      });
+
+      /*
+       * lastChangedAt null means the peer has never had a 200 — it has never
+       * actually received a tree, so lastEtag describes nothing it holds. Co-
+       * located deployments have no peer row at all. Both cases are "no peer
+       * position", which the verdict reports as unattributed rather than
+       * guessing at (§16).
+       */
+      const peerRevision = new Map(
+        peers.filter((p) => p.lastChangedAt !== null).map((p) => [p.certname, p.lastEtag] as const),
+      );
+
+      return rows.map((row) => {
+        const peer = peerRevision.get(row.peerCertname) ?? null;
+        return {
+          peerCertname: row.peerCertname,
+          revision: row.revision,
+          reportedAt: row.reportedAt.toISOString(),
+          peerRevision: peer,
+          currency: compileCurrency({ reported: row.revision, origin, peer }),
+        };
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not read compile receipts for ${certname}: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+      return [];
+    }
+  }
 
   async list(): Promise<NodeGroupDetail[]> {
     const rows = await this.prisma.nodeGroup.findMany({
@@ -135,6 +204,8 @@ export class ClassificationService {
       this.reader.readNode(certname).catch(() => null),
     ]);
 
+    const compileReceipts = await this.explainReceipts(certname);
+
     const appliedGroupIds = materialization?.appliedGroupIds ?? [];
     const groups =
       appliedGroupIds.length === 0
@@ -176,6 +247,10 @@ export class ClassificationService {
       ...(Array.isArray(materialization?.matchReasons) && materialization.matchReasons.length > 0
         ? { matchReasons: materialization.matchReasons as unknown as GroupMatchExplanation[] }
         : {}),
+      // Omitted when nothing has reported, for the same reason: "not reported"
+      // and "reported nothing" are different, and only the first is true before
+      // a collector is running.
+      ...(compileReceipts.length > 0 ? { compileReceipts } : {}),
       materialization:
         materialization === null
           ? null

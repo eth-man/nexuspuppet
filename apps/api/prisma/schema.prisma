@@ -526,6 +526,43 @@ model SavedQuery {
 /// polls are unchanged 304s, so an append-only log would grow without bound to
 /// record that nothing happened. What the console needs is "did classification
 /// reach the server, and when" — which is the LAST fetch, not every fetch.
+/// A node was served a particular tree revision, as reported by the Puppet
+/// server that served it (ADR-0022 §7-§8, §11).
+///
+/// CURRENT STATE, NOT HISTORY. One row per node per serving Puppet server,
+/// overwritten. Growth is bounded by the size of the estate rather than by the
+/// compile rate, so there is no retention sweeper to get wrong.
+///
+/// NO RELATION TO ManagedNode, deliberately. A receipt for a node the console
+/// cannot see is the most useful fact available about exactly the node somebody
+/// is debugging, and a foreign key would reject it (§11).
+model CompileReceipt {
+  /// The Puppet server that served the compile, from ITS verified client
+  /// certificate. Never taken from the request body (§4, binding constraint 1).
+  /// Not a relation: a receipt names a peer, it does not create one (§16).
+  peerCertname    String   @db.VarChar(255)
+  /// The managed node that compiled.
+  certname        String   @db.VarChar(255)
+  /// The tree revision served. A content hash, so it is comparable for equality
+  /// and nothing else — never for recency.
+  revision        String   @db.VarChar(64)
+  /// When the ORIGIN received this, not when the node compiled. No compile time
+  /// exists: the receipt line carries none, by design (§9). The console must
+  /// never present this as a compile time.
+  reportedAt      DateTime
+  /// Whether a ManagedNode existed for this certname at ingest.
+  ///
+  /// The only thing that lets the sweep tell debris from a finding (§11): a
+  /// receipt that once matched and no longer does is a decommissioned node,
+  /// while one that never matched is evidence about a node the projection has
+  /// not caught up with, and must be kept.
+  matchedAtIngest Boolean
+
+  @@id([peerCertname, certname])
+  @@index([certname])
+  @@map("compile_receipts")
+}
+
 model EncReplicationPeer {
   /// The certname from the client certificate, verified against the Puppet CA.
   /// Never taken from a header or a query parameter.
