@@ -91,7 +91,18 @@ for f in client.pem client.key ca.pem; do
   [ -f "certs/$f" ] || echo "install-smoke placeholder" > "certs/$f"
 done
 
-./scripts/deploy.sh --puppetdb https://puppetdb.invalid:8081 \
+# THE GUARD IS UNDER TEST FIRST. This environment is deliberately wrong —
+# placeholder certificates, an unresolvable PuppetDB — so --check MUST refuse
+# it. A preflight that passes here would be a preflight that passes anything.
+step "Preflight refuses a deliberately broken environment"
+if ./scripts/deploy.sh --puppetdb https://puppetdb.invalid:8081 --check >/dev/null 2>&1; then
+  fail "--check PASSED an environment with placeholder certs and no PuppetDB"
+fi
+echo "  ok — it refused, as it must"
+
+# Then the mechanics, which is what the rest of this job is about: does the
+# image build, does the migration run, does the admin exist, does it serve.
+./scripts/deploy.sh --puppetdb https://puppetdb.invalid:8081 --skip-preflight \
   || fail "scripts/deploy.sh — the documented one-command install"
 
 
