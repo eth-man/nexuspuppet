@@ -59,6 +59,25 @@ RECEIPTS_URL="${NEXUSPUPPET_SYNC_RECEIPTS_URL:-}"
 # nobody queries. 0 disables the cap.
 MAX_RECEIPTS="${NEXUSPUPPET_SYNC_MAX_RECEIPTS:-20000}"
 
+# How recently the collector must have run for this script to leave receipts
+# alone (ADR-0022 §15).
+#
+# `nexuspuppet-receipts.sh` owns the receipt lifecycle now. This script keeps
+# its copy for one release so that upgrading it without installing the
+# collector does not silently end collection — the characteristic failure of
+# this whole feature is silence, and it is the wrong thing to economise on.
+#
+# A WINDOW, not a flag. If the collector is removed or its timer stops, the
+# marker goes stale and this script resumes: deferring forever to something
+# that stopped running is the failure being avoided, not a state worth
+# recording. 0 disables deferral entirely.
+COLLECTOR_MAX_AGE="${NEXUSPUPPET_SYNC_COLLECTOR_MAX_AGE:-3600}"
+
+marker="${RECEIPTS_DIR}/.collector"
+# Under /run so it clears on reboot: "once" means once per boot, and a stale
+# announcement should not outlive the thing it described.
+announced="${NEXUSPUPPET_SYNC_ANNOUNCE_FILE:-/run/nexuspuppet-sync.collector-announced}"
+
 log() { echo "nexuspuppet-sync: $*" >&2; }
 die() { log "$*"; exit 1; }
 
@@ -99,6 +118,36 @@ ${CONFIG} to the group puppetserver runs as (pe-puppet on Puppet Enterprise)."
         log "warning: cannot set permissions on ${RECEIPTS_DIR}; compile receipts are disabled"
         return 1
     }
+}
+
+# Whether nexuspuppet-receipts.sh is handling these instead (ADR-0022 §15).
+#
+# The collector stamps a unix timestamp into this file on every run. Two
+# drainers on one file would race for the rotate, so exactly one may act — and
+# the tie is broken by evidence that the collector is actually running, not by
+# whether somebody remembered to install it.
+collector_is_running() {
+    [ "$COLLECTOR_MAX_AGE" -gt 0 ] || return 1
+    [ -r "$marker" ] || return 1
+
+    stamp=$(cat "$marker" 2>/dev/null) || return 1
+    # A non-numeric or empty marker is not evidence of anything; fall through
+    # and keep collecting rather than trusting it.
+    case "$stamp" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+
+    now=$(date +%s)
+    [ "$((now - stamp))" -lt "$COLLECTOR_MAX_AGE" ]
+}
+
+# Say it once per boot, not once per poll. A timer that runs every five minutes
+# would otherwise write this line 288 times a day about a correct setup.
+announce_collector_once() {
+    [ -e "$announced" ] && return 0
+    : >"$announced" 2>/dev/null || true
+    log "compile receipts are being handled by nexuspuppet-receipts.sh; this script is \
+leaving them alone"
 }
 
 # Hand the accumulated receipts over, then discard them.
@@ -275,7 +324,9 @@ case "$status" in
 esac
 
 if [ "$fresh" = no ]; then
-    if ensure_receipts_dir; then
+    if collector_is_running; then
+        announce_collector_once
+    elif ensure_receipts_dir; then
         hand_over_receipts || true
     fi
     exit 0
@@ -343,6 +394,8 @@ fi
 
 log "installed ${new_count} node file(s), etag ${etag}"
 
-if ensure_receipts_dir; then
+if collector_is_running; then
+    announce_collector_once
+elif ensure_receipts_dir; then
     hand_over_receipts || true
 fi

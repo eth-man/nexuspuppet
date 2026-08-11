@@ -830,8 +830,8 @@ before going further — on a Puppet server this is the check people skip:
 systemctl is-active puppetserver puppetdb
 ```
 
-**Compile receipts** (ADR-0022) are not yet available in this layout, and the
-reason is worth knowing rather than discovering.
+**Compile receipts** (ADR-0022) work in this layout, with one component to
+install that a replicated deployment gets for free.
 
 The tree names itself: the materializer writes `.revision` alongside the
 documents, using the same identity the replication endpoint would serve as an
@@ -839,21 +839,56 @@ ETag — so a receipt means the same thing whether the tree was materialized
 locally or pulled from another instance. The ENC script appends receipt lines as
 it serves.
 
-Two things are missing, and they are independent.
+Co-located, nothing writes them until you install the collector. The receipts
+directory is what makes the compile path's append succeed, and it is created by
+`nexuspuppet-receipts.sh` — which is also what drains it. Without the collector
+there is no directory, every append fails silently, and the compile is served
+correctly with nothing to show for it.
 
-The far end does not exist in **any** layout: `nexuspuppet-sync.sh` POSTs to
-`/enc-receipts` and the API implements no such route, so ADR-0022 §4 is
-specified but unbuilt (#146). Today that upload returns 405 and the puller
-discards the batch, exactly as designed.
+Install it, and the loopback listener above:
 
-Co-located, there is also nothing to upload. The receipts directory is created
-by the sync script, which does not run here, and the ENC script's append is
-swallowed so that a receipt can never fail a compile — so no receipt is written
-at all, silently. A collector that owns creating the directory and draining it
-is specified in ADR-0022 §13–§16 and tracked at #190.
+```bash
+sudo install -m 0755 scripts/nexuspuppet-receipts.sh /usr/local/bin/
+sudo install -m 0644 deploy/systemd/nexuspuppet-receipts.* /etc/systemd/system/
+sudo install -m 0644 deploy/systemd/nexuspuppet-receipts.env.example \
+  /etc/default/nexuspuppet-receipts
+# Co-located: point it at your own listener, by CERTNAME not by IP — the
+# name has to match the certificate.
+sudo sed -i 's|^#NEXUSPUPPET_RECEIPTS_URL=.*|NEXUSPUPPET_RECEIPTS_URL=https://'"$(sudo /opt/puppetlabs/bin/puppet config print certname)"':8443/enc-receipts|' \
+  /etc/default/nexuspuppet-receipts
+sudo systemctl enable --now nexuspuppet-receipts.timer
+```
 
-Practical effect until both land: compile receipts cost you nothing and tell you
-nothing in this layout, and there is no file to manage.
+One more line is required, and it is the one that is easy to miss:
+
+```bash
+CN=$(sudo /opt/puppetlabs/bin/puppet config print certname)
+echo "NEXUSPUPPET_RECEIPTS_RESOLVE=${CN}:8443:127.0.0.1" \
+  | sudo tee -a /etc/default/nexuspuppet-receipts
+```
+
+The URL must name the **certname**, because mTLS verifies the hostname against
+the certificate — and that name resolves to this host's LAN address, where the
+loopback-bound listener is not. `NEXUSPUPPET_RECEIPTS_RESOLVE` verifies the name
+and connects to loopback, which is what `curl --resolve` is for. Without it the
+collector reports `curl 7` and keeps the receipts: correct, and it gets you
+nowhere.
+
+Do **not** solve this with an `/etc/hosts` entry pointing the Puppet server's
+own certname at `127.0.0.1`. It is a global change on a host whose agent
+resolves that same name to reach its master.
+
+The collector presents this node's own agent certificate, which the co-located
+origin already trusts — no new certificate, and nothing to add to an allowlist
+beyond the certname you set in `ENC_REPLICATION_ALLOWED_CERTNAMES` above.
+
+Confirm it end to end:
+
+```bash
+sudo systemctl start nexuspuppet-receipts.service
+sudo journalctl -u nexuspuppet-receipts -n 5 --no-pager
+# handed over N compile receipt(s)
+```
 
 ### Replicating the tree to a separate puppetserver (ADR-0019)
 
@@ -996,9 +1031,36 @@ ETag verbatim — and `nexuspuppet-enc.sh` appends one line per compile:
 <revision> <certname>
 ```
 
-Those lines are carried back on the next poll and discarded once accepted, which
-is what turns "did this node get my change?" into an equality check on a
-revision instead of arithmetic on two hosts' clocks.
+Those lines are carried back and discarded once accepted, which is what turns
+"did this node get my change?" into an equality check on a revision instead of
+arithmetic on two hosts' clocks.
+
+**Carried back by `nexuspuppet-receipts.sh`**, on its own timer (ADR-0022 §13).
+Receipts are not replication: a NexusPuppet co-located with puppetserver has no
+puller, and while the hand-over lived in the sync script that layout could not
+collect them at all. One collector now serves both.
+
+`nexuspuppet-sync.sh` still knows how to do it, for one release, so that
+upgrading the script without installing the collector does not silently end
+collection. It defers to whichever collector stamped `receipts/.collector`
+within the last hour, and resumes if that stops — deferring forever to something
+that is no longer running is the failure being avoided. You will see this once
+per boot in `systemctl status nexuspuppet-sync`:
+
+```
+nexuspuppet-sync: compile receipts are being handled by nexuspuppet-receipts.sh;
+this script is leaving them alone
+```
+
+Install it alongside the sync unit; a replicated host needs no configuration of
+its own, because the collector reads `/etc/default/nexuspuppet-sync` for the URL
+and certificates:
+
+```bash
+sudo install -m 0755 scripts/nexuspuppet-receipts.sh /usr/local/bin/
+sudo install -m 0644 deploy/systemd/nexuspuppet-receipts.* /etc/systemd/system/
+sudo systemctl enable --now nexuspuppet-receipts.timer
+```
 
 **It needs one thing from you: the group puppetserver runs as.** The receipts
 directory is created `0770 root:<group>` so the puppetserver user can append and
