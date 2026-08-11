@@ -316,10 +316,17 @@ Two mechanisms are commonly suggested. Neither works:
   service is wired only to the metrics endpoints — PuppetDB's own
   `bootstrap.cfg` says so in a comment. The shipped `auth.conf` ends with an
   explicit `deny: "*"` on path `/`, and queries succeed regardless.
-- **`certificate-whitelist` no longer exists.** It was removed after PuppetDB 6.
-  In OpenVoxDB 8 it is not a valid `jetty.ini` key: the string appears nowhere in
-  the shipped jar, and adding it stops the service from starting with
-  `{:certificate-whitelist disallowed-key}`.
+- **`certificate-whitelist` is not a `jetty.ini` key.** Adding it there stops the
+  service from starting with `{:certificate-whitelist disallowed-key}`, which is
+  what an operator hits first, because `jetty.ini` is where the other TLS
+  settings live.
+
+  It belongs in **`config.ini`, under `[puppetdb]`** — and there it works. An
+  earlier version of this section concluded from the `jetty.ini` failure that the
+  mechanism had been removed after PuppetDB 6, and told operators that nothing
+  could restrict access. That was wrong, and wrong in the dangerous direction:
+  it described a mitigation as unavailable when it is available, effective, and
+  two lines long. See "What to do instead" below.
 
 Verified against OpenVoxDB 8.15.0, with the shipped `auth.conf` in place:
 
@@ -332,14 +339,39 @@ Verified against OpenVoxDB 8.15.0, with the shipped `auth.conf` in place:
 The command submissions were accepted *and persisted*: a node that does not
 exist, carrying a fact that was never reported, appeared in the estate.
 
-So the honest statement is: **any certificate the Puppet CA has ever signed —
-including every agent in your estate — can read all of PuppetDB and write to
-it.** That is a property of PuppetDB, not of NexusPuppet, and it is not something
-this project can fix.
+So the honest statement, **for a PuppetDB with no certname allowlist
+configured**, is: any certificate the Puppet CA has ever signed — including every
+agent in your estate — can read all of PuppetDB and write to it. `auth.conf` does
+not change that, and NexusPuppet cannot.
+
+A certname allowlist does change it, and configuring one is the first item below.
+Verified on the same OpenVoxDB 8.15.0 server as the table above:
+
+| Client certificate | With an allowlist configured |
+| --- | --- |
+| A certname on the list | 200 |
+| Any other CA-signed certificate | **403** |
 
 #### What to do instead
 
-1. **Check `client-auth` in `jetty.ini`.** Some images ship `want`, which
+1. **Configure a certname allowlist.** This is the control that actually bounds
+   who may talk to PuppetDB, and it is the one this section previously told you
+   did not exist. In `/etc/puppetlabs/puppetdb/conf.d/config.ini`:
+
+   ```ini
+   [puppetdb]
+   certificate-whitelist = /etc/puppetlabs/puppetdb/certificate-whitelist
+   ```
+
+   One certname per line in that file — your Puppet server(s), and the certname
+   NexusPuppet presents. Restart PuppetDB. Anything else the CA has signed then
+   gets a 403 rather than your whole estate.
+
+   The name is the file's, not ours; OpenVoxDB still reads this key. Adding a
+   client later means appending a line and restarting — so this is also the step
+   to remember when a second NexusPuppet, a replica, or a new Puppet server
+   appears and starts getting 403s that look like a certificate problem.
+2. **Check `client-auth` in `jetty.ini`.** Some images ship `want`, which
    accepts requests with *no client certificate at all* — the first row above.
    Set `need`, then confirm there is exactly one such line:
 
@@ -350,11 +382,11 @@ this project can fix.
    `puppetdb ssl-setup` appends its own `client-auth = want` without checking
    for an existing entry, so running it after you have set `need` silently
    leaves two — and the file no longer says what you think it says.
-2. **Restrict `/pdb/*` at the network layer.** A firewall rule or a reverse proxy
+3. **Restrict `/pdb/*` at the network layer.** A firewall rule or a reverse proxy
    is the only thing that actually bounds who can reach it. Do not publish port
    8081 beyond the hosts that need it, and do not publish the cleartext port 8080
    at all.
-3. **Treat the NexusPuppet certificate as a full-access credential** when
+4. **Treat the NexusPuppet certificate as a full-access credential** when
    deciding where to store it and who can read the file.
 
 Check your own estate rather than trusting the table above:
