@@ -51,6 +51,7 @@ import { ClassificationPlanner } from './classification/plan/classification-plan
 import { ConflictReportService } from './classification/conflict-report.service';
 import { SystemController } from './system/system.controller';
 import { SystemStatusService } from './system/system-status.service';
+import { PropagationService } from './system/propagation.service';
 import { LogLevelService } from './system/log-level.service';
 import { ConsoleTlsService } from './system/console-tls.service';
 import { readFileSync } from 'node:fs';
@@ -329,6 +330,19 @@ export class AppModule {
           inject: [PrismaService],
           useFactory: (prisma: PrismaService): LogLevelService =>
             new LogLevelService(prisma, env.LOG_LEVEL, undefined, env.SETTINGS_SOURCE === 'env'),
+        },
+        {
+          // The reader is constructed with the path rather than injected via
+          // ENC_FILE_WRITER: reading `.revision` needs none of the writer's
+          // guarantees, and that seam is published (#143).
+          provide: PropagationService,
+          inject: [PrismaService],
+          useFactory: (prisma: PrismaService): PropagationService =>
+            new PropagationService(
+              prisma,
+              new EncDocumentReader(env.ENC_OUTPUT_DIR),
+              env.ENC_REPLICATION_ENABLED,
+            ),
         },
         encReplicationProvider(env),
         CompileReceiptsService,

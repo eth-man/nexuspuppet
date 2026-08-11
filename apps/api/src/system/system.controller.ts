@@ -17,10 +17,12 @@ import type {
   SetLogLevel,
   SystemStatus,
   UpdateCheck,
+  PropagationFront,
 } from '@nexuspuppet/contracts';
 import { setLogLevelSchema } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SystemStatusService } from './system-status.service';
+import { PropagationService } from './propagation.service';
 import { ConsoleTlsService } from './console-tls.service';
 import { ConsoleTlsGrantService } from './console-tls-grant.service';
 import { DeploymentService } from './deployment.service';
@@ -47,6 +49,7 @@ export class SystemController {
     private readonly deploymentService: DeploymentService,
     private readonly prisma: PrismaService,
     private readonly logLevels: LogLevelService,
+    private readonly propagation: PropagationService,
   ) {}
 
   /**
@@ -85,6 +88,19 @@ export class SystemController {
   @Get('status')
   get(@Req() request: AuthenticatedRequest): Promise<SystemStatus> {
     return this.status.status(request.principal?.role === 'ADMIN');
+  }
+
+  /**
+   * Where the current classification has actually got to (#147).
+   *
+   * `inventory:read` rather than `settings:manage`: this answers "did my change
+   * reach the estate", which is an operator's question during a rollout, not an
+   * administrator's during configuration.
+   */
+  @RequirePermission('inventory:read')
+  @Get('propagation')
+  propagationFront(): Promise<PropagationFront> {
+    return this.propagation.front();
   }
 
   /**
