@@ -50,8 +50,14 @@ architectural decision the deployment cannot defer, and it is covered in
 - 2 vCPU / 4 GB RAM is comfortable for a few thousand nodes; the workload is
   mostly idle between projection ticks
 - Disk: Postgres growth is driven by report retention, not node count
-- Outbound TCP to PuppetDB on 8081. **No inbound access from puppetserver is
-  required — and none should be permitted** (ADR-0003)
+- Outbound TCP to PuppetDB on 8081.
+- **Nothing here ever connects INTO puppetserver**, and nothing should be
+  permitted to (ADR-0003). Catalog compilation must never wait on this host.
+- One inbound port is needed *only* if you replicate the ENC tree to a separate
+  Puppet server (§6) or collect compile receipts: that server pulls from this one
+  on 8443. It is an out-of-band poll on its own timer, not part of a catalog
+  compile — stop this host and the Puppet server keeps serving the tree it
+  already has. Co-located deployments need no inbound access at all.
 
 ### Puppet or OpenVox
 
