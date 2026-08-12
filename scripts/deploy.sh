@@ -8,6 +8,10 @@
 #                   or /etc/nexuspuppet/certs if that is where they already are)
 #   --check         run the preflight checks and stop. Answers "will this work?"
 #                   before anything is built, and names the fix when it will not.
+#                   NOTE: on a first run it writes .env first, because the checks
+#                   read the URL and certificate paths from it. So the generated
+#                   admin password is printed by that run, not by the deploy that
+#                   follows — every later run reports where to find it instead.
 #   --tls <hostname>  publish the console on 443 with TLS, using a certificate
 #                   Caddy issues itself. The console stays on loopback behind
 #                   it. Browsers warn (that CA is not in their trust store);
@@ -134,6 +138,11 @@ else
     fi
 
     echo "    secrets generated; .env is 0600"
+    # SAID HERE AS WELL AS AT THE END. If any later step fails — a preflight
+    # check, a build, a migration — the summary never runs, and the operator is
+    # left with a generated password they have never seen and no idea one
+    # exists. That happened on a real install.
+    echo "    first-login password is BOOTSTRAP_ADMIN_PASSWORD in .env"
 fi
 
 # ---------------------------------------------------------------------------
@@ -473,9 +482,19 @@ else
 fi
 
 if [ -n "${ADMIN_PASSWORD:-}" ]; then
-    # Shown ONCE, and only on the run that generated it. It is in .env if this
-    # scrolls past, and DEPLOYMENT.md §5 says to change it at first login.
+    # Printed only on the run that generated it.
     printf '  Sign in:  %s\n  Password: %s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD"
     printf '\n  Change that password at first login. Put TLS in front before\n'
     printf '  anyone else uses it — DEPLOYMENT.md §7.\n'
+else
+    # .env already existed, so this run did not generate anything.
+    #
+    # DELIBERATELY NOT PRINTING THE STORED PASSWORD. Re-running is the upgrade
+    # path, and echoing a live credential into terminal scrollback, a CI log or
+    # a screen-share on every upgrade is a worse habit than the inconvenience it
+    # saves. Say where it is instead.
+    stored_email=$(grep -E '^BOOTSTRAP_ADMIN_EMAIL=' .env | cut -d= -f2- || true)
+    printf '  Sign in:  %s\n' "${stored_email:-admin@example.com}"
+    printf '            first-login password: grep BOOTSTRAP_ADMIN_PASSWORD .env\n'
+    printf '            (if you have already changed it, that value is stale)\n'
 fi
