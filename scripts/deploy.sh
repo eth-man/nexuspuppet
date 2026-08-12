@@ -208,6 +208,12 @@ preflight() {
     #
     # THE EMPTY-ESTATE BUG. The image runs as uid 100; root:root files are
     # unreadable to it and nothing says so except an inventory that never fills.
+    if head -1 "${CERT_DIR}/client.key" 2>/dev/null | grep -qE "CERTIFICATE|PUBLIC KEY"; then
+        bad "client.key is not a private key"
+        note "it looks like the certificate or the public key. The private key is"
+        note "  /etc/puppetlabs/puppet/ssl/private_keys/<certname>.pem"
+    fi
+
     owner=$(stat -c '%u' "${CERT_DIR}/client.key" 2>/dev/null || echo unknown)
     if [ "$owner" = "100" ]; then
         ok "key is owned by uid 100, which the container runs as"
@@ -225,9 +231,24 @@ preflight() {
             # certificate should be, or an HTML error page saved by mistake all
             # land here, and calling that an expiry sends somebody to re-issue a
             # certificate that was never the problem.
-            bad "client.pem is not a readable X.509 certificate"
-            note "it may be truncated, or be the key rather than the certificate"
-            note "check with: openssl x509 -in ${CERT_DIR}/client.pem -noout -subject"
+            # NAME THE LIKELY MISTAKE. Puppet keeps three files with the SAME
+            # filename in three directories — certs/, public_keys/ and
+            # private_keys/ — and only certs/ holds a certificate. Copying
+            # <fqdn>.pem from the wrong one is the easiest error to make in the
+            # whole install, and "not a readable X.509 certificate" does not
+            # point at it.
+            bad "client.pem is not an X.509 certificate"
+            if head -1 "${CERT_DIR}/client.pem" 2>/dev/null | grep -q "PUBLIC KEY"; then
+                note "it is a PUBLIC KEY. You copied it from public_keys/ —"
+                note "the certificate is the same filename under certs/:"
+                note "  /etc/puppetlabs/puppet/ssl/certs/<certname>.pem"
+            elif head -1 "${CERT_DIR}/client.pem" 2>/dev/null | grep -q "PRIVATE KEY"; then
+                note "it is a PRIVATE KEY. client.pem must be the certificate,"
+                note "from /etc/puppetlabs/puppet/ssl/certs/<certname>.pem"
+            else
+                note "it may be truncated, or not a PEM file at all"
+                note "check with: openssl x509 -in ${CERT_DIR}/client.pem -noout -subject"
+            fi
             subject=""
         else
         subject=$(openssl x509 -in "${CERT_DIR}/client.pem" -noout -subject 2>/dev/null | sed 's/.*CN *= *//')
