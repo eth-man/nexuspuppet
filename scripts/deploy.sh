@@ -257,9 +257,14 @@ preflight() {
         # No `|| echo 000` — curl already writes 000 through -w when it cannot
         # connect, and the fallback appended a second one, producing "000000"
         # and a case label that never matched.
-        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+        # KEEP curl's stderr. Discarding it collapsed "the CA is wrong", "the
+        # name is not on the certificate" and "nothing is listening" into one
+        # useless verdict — and the first two are what an operator hits once the
+        # port is open, which is when they most need telling apart.
+        curl_err="$(mktemp)"
+        code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
             --cert "${CERT_DIR}/client.pem" --key "${CERT_DIR}/client.key" \
-            --cacert "${CERT_DIR}/ca.pem" "${url}/pdb/query/v4/nodes?limit=1" 2>/dev/null) || true
+            --cacert "${CERT_DIR}/ca.pem" "${url}/pdb/query/v4/nodes?limit=1" 2>"$curl_err") || true
         [ -n "$code" ] || code=000
         case "$code" in
             200)
@@ -273,16 +278,45 @@ preflight() {
                 note "  systemctl restart puppetdb"
                 ;;
             000)
-                bad "could not reach PuppetDB at ${url}"
-                note "check the host resolves from here, that 8081 is open, and that"
-                note "the URL names what the server certificate carries — an IP will"
-                note "fail verification unless the certificate has an IP SAN"
+                # Name the failure from what curl said, rather than listing
+                # every possibility and leaving the operator to guess.
+                detail="$(head -1 "$curl_err" 2>/dev/null)"
+                case "$detail" in
+                    *"unable to get local issuer"* | *"self-signed certificate"* | *"self signed certificate"*)
+                        bad "TLS refused: ca.pem did not sign PuppetDB's certificate"
+                        note "the port is open and TLS started — this is the WRONG CA file."
+                        note "copy it from the Puppet server:"
+                        note "  /etc/puppetlabs/puppet/ssl/certs/ca.pem"
+                        note "not PuppetDB's own /etc/puppetlabs/puppetdb/ssl/ca.pem, which"
+                        note "may differ if that host was ever re-issued"
+                        ;;
+                    *"subject name"* | *"subjectAltName"* | *"doesn't match"*)
+                        bad "TLS refused: ${url} is not a name on PuppetDB's certificate"
+                        note "the port is open and TLS started — the NAME is wrong."
+                        note "use the certname the server presents, not an IP or an alias:"
+                        note "  openssl s_client -connect <host>:8081 </dev/null 2>/dev/null \\"
+                        note "    | openssl x509 -noout -subject -ext subjectAltName"
+                        ;;
+                    *"Connection refused"* | *"Failed to connect"* | *"timed out"* | *"Could not resolve"*)
+                        bad "could not connect to ${url}"
+                        note "${detail}"
+                        note "check DNS from THIS host, and any firewall between it and 8081"
+                        ;;
+                    *)
+                        bad "could not reach PuppetDB at ${url}"
+                        [ -n "$detail" ] && note "${detail}"
+                        note "the URL must name what the server certificate carries — an IP"
+                        note "fails verification unless the certificate has an IP SAN"
+                        ;;
+                esac
                 ;;
             *)
                 warn "PuppetDB answered HTTP ${code}"
                 ;;
         esac
     fi
+
+    rm -f "${curl_err:-}" 2>/dev/null || true
 
     # --- ports ------------------------------------------------------------
     if command -v ss >/dev/null; then
