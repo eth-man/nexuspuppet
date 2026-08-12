@@ -7,6 +7,7 @@ import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import {
   puppetValueSchema,
   type ClassificationWriteResult,
+  type MatchStrategy,
   type NodeRule,
   type PuppetValue,
   type RuleOperator,
@@ -253,12 +254,14 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
   const [rank, setRank] = useState(String(detail.rank));
   const [environment, setEnvironment] = useState(detail.environment ?? '');
   const [enabled, setEnabled] = useState(detail.isEnabled);
+  const [strategy, setStrategy] = useState<MatchStrategy>(detail.strategy);
 
   const dirty =
     name !== detail.name ||
     Number(rank) !== detail.rank ||
     (environment === '' ? null : environment) !== detail.environment ||
-    enabled !== detail.isEnabled;
+    enabled !== detail.isEnabled ||
+    strategy !== detail.strategy;
 
   return (
     <Card>
@@ -276,9 +279,12 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
             rank: Number(rank),
             environment: environment === '' ? null : environment,
             isEnabled: enabled,
+            strategy,
           };
-          // Rank changes merge ORDER and enablement changes membership, so
-          // both move documents an operator may not have been thinking about.
+          // Rank changes merge ORDER, enablement changes membership, and
+          // strategy swaps which side of the group decides membership at all —
+          // all three move documents an operator may not have been thinking
+          // about.
           review(
             {
               operation: 'update-group',
@@ -286,6 +292,7 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
               rank: Number(rank),
               environment: environment === '' ? null : environment,
               isEnabled: enabled,
+              strategy,
             },
             'Group settings',
             () => update.mutate(payload, { onSuccess: onWrite, onError }),
@@ -324,6 +331,30 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
             placeholder="leave blank to inherit"
             disabled={!writable}
           />
+        </div>
+
+        {/* EDITABLE, not a badge. This was read-only until an operator removed
+            every pin, added a rule, and was told by the warning to "switch the
+            strategy to ALL_RULES" — an instruction the console offered no way
+            to follow. The only escape was deleting the group and rebuilding it,
+            losing its classes, parameters and history. */}
+        <div className="space-y-1">
+          <Label htmlFor="strategy">Strategy</Label>
+          <Select
+            id="strategy"
+            value={strategy}
+            onChange={(e) => setStrategy(e.target.value as MatchStrategy)}
+            disabled={!writable}
+          >
+            <option value="ALL_RULES">ALL_RULES — every rule must match</option>
+            <option value="ANY_RULE">ANY_RULE — any one rule matches</option>
+            <option value="PINNED">PINNED — static list, rules ignored</option>
+          </Select>
+          <p className="text-[11px] text-ink-faint">
+            {strategy === 'PINNED'
+              ? 'Membership comes from the pinned list; rules decide nothing.'
+              : 'Membership comes from the rules; pinned nodes decide nothing.'}
+          </p>
         </div>
 
         <label className="flex items-center gap-1.5 text-xs text-ink-muted">

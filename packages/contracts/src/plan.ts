@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { puppetClassNameSchema, type ClassificationConflict } from './enc';
+import { matchStrategySchema, puppetClassNameSchema, type ClassificationConflict } from './enc';
 
 /**
  * "Plan before apply" — what a classification change would do, before it does it.
@@ -78,6 +78,13 @@ export const planRequestSchema = z.discriminatedUnion('operation', [
     rank: z.number().int().optional(),
     environment: z.string().nullable().optional(),
     isEnabled: z.boolean().optional(),
+    /**
+     * Switching between PINNED and a rule-based strategy swaps which side of
+     * the group decides membership, so it can empty or fill a group outright.
+     * It is previewed like any other membership change rather than applied
+     * blind.
+     */
+    strategy: matchStrategySchema.optional(),
   }),
   z.object({ operation: z.literal('delete-group'), groupId: z.string().uuid() }),
   z.object({

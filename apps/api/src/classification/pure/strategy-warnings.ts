@@ -26,12 +26,22 @@ export interface GroupShape {
 export function strategyWarnings(group: GroupShape): string[] {
   const warnings: string[] = [];
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // Agreement follows the count, rather than being hardcoded plural. "its 1
+  // rule currently decide nothing ... to use them" was shipped, and read as
+  // broken English by the operator who hit it.
+  const decide = (n: number) => (n === 1 ? 'decides' : 'decide');
+  const them = (n: number) => (n === 1 ? 'it' : 'them');
 
   if (group.strategy === 'PINNED') {
     if (group.ruleCount > 0) {
       warnings.push(
-        `This group matches by pinned node, so its ${plural(group.ruleCount, 'rule')} ` +
-          'currently decide nothing. Switch the strategy to ALL_RULES or ANY_RULE to use them.',
+        // Names the STRATEGY, not the membership. "This group matches by pinned
+        // node" was read as "there are still pinned nodes" by someone who had
+        // just deleted every pin and was looking at "No nodes pinned." on the
+        // same screen.
+        `This group's strategy is PINNED, so its ${plural(group.ruleCount, 'rule')} ` +
+          `currently ${decide(group.ruleCount)} nothing. Change the strategy to ALL_RULES ` +
+          `or ANY_RULE to use ${them(group.ruleCount)}.`,
       );
     }
     return warnings;
@@ -40,8 +50,9 @@ export function strategyWarnings(group: GroupShape): string[] {
   // Rule-based from here: ALL_RULES or ANY_RULE.
   if (group.pinCount > 0) {
     warnings.push(
-      `This group matches by rule, so its ${plural(group.pinCount, 'pinned node')} ` +
-        'currently decide nothing. Switch the strategy to PINNED to use them.',
+      `This group's strategy is ${group.strategy}, so its ${plural(group.pinCount, 'pinned node')} ` +
+        `currently ${decide(group.pinCount)} nothing. Change the strategy to PINNED to use ` +
+        `${them(group.pinCount)}.`,
     );
   }
 

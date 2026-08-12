@@ -13,7 +13,9 @@ describe('strategyWarnings', () => {
         pinCount: 2,
       });
 
-      expect(warning).toContain('matches by pinned node');
+      // Names the STRATEGY. "matches by pinned node" was read as "there are
+      // still pinned nodes" by an operator who had just deleted every pin.
+      expect(warning).toContain("strategy is PINNED");
       expect(warning).toContain('3 rules');
       expect(warning).toContain('ALL_RULES');
       expect(rest).toEqual([]);
@@ -35,7 +37,7 @@ describe('strategyWarnings', () => {
       const warnings = strategyWarnings({ strategy, ruleCount: 2, pinCount: 1 });
 
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('matches by rule');
+      expect(warnings[0]).toContain(`strategy is ${strategy}`);
       expect(warnings[0]).toContain('1 pinned node');
       expect(warnings[0]).toContain('PINNED');
     });
@@ -61,11 +63,42 @@ describe('strategyWarnings', () => {
     });
   });
 
-  it('pluralises so the message reads as English either way', () => {
-    const one = strategyWarnings({ strategy: 'PINNED', ruleCount: 1, pinCount: 0 })[0] ?? '';
-    const many = strategyWarnings({ strategy: 'PINNED', ruleCount: 2, pinCount: 0 })[0] ?? '';
+  /*
+   * THE BUG THIS EXISTS FOR. The old test asserted only the NOUN, so
+   * "its 1 rule currently decide nothing ... to use them" passed and shipped.
+   * The verb and the pronoun have to agree too, which means asserting the whole
+   * clause rather than a fragment of it.
+   */
+  describe('agreement', () => {
+    it('reads as English with one rule', () => {
+      const [warning] = strategyWarnings({ strategy: 'PINNED', ruleCount: 1, pinCount: 0 });
 
-    expect(one).toContain('1 rule ');
-    expect(many).toContain('2 rules ');
+      expect(warning).toContain('its 1 rule currently decides nothing');
+      expect(warning).toContain('to use it.');
+      expect(warning).not.toContain('decide nothing');
+      expect(warning).not.toContain('use them');
+    });
+
+    it('reads as English with several rules', () => {
+      const [warning] = strategyWarnings({ strategy: 'PINNED', ruleCount: 2, pinCount: 0 });
+
+      expect(warning).toContain('its 2 rules currently decide nothing');
+      expect(warning).toContain('to use them.');
+      expect(warning).not.toContain('decides nothing');
+    });
+
+    it('reads as English with one pinned node', () => {
+      const [warning] = strategyWarnings({ strategy: 'ALL_RULES', ruleCount: 1, pinCount: 1 });
+
+      expect(warning).toContain('its 1 pinned node currently decides nothing');
+      expect(warning).toContain('to use it.');
+    });
+
+    it('reads as English with several pinned nodes', () => {
+      const [warning] = strategyWarnings({ strategy: 'ALL_RULES', ruleCount: 1, pinCount: 3 });
+
+      expect(warning).toContain('its 3 pinned nodes currently decide nothing');
+      expect(warning).toContain('to use them.');
+    });
   });
 });

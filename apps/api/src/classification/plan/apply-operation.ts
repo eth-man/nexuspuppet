@@ -89,6 +89,7 @@ export function applyOperation(groups: GroupSet, request: PlanRequest): GroupSet
       if (request.rank !== undefined) evaluable.rank = request.rank;
       if (request.isEnabled !== undefined) evaluable.isEnabled = request.isEnabled;
       if (request.environment !== undefined) mergeable.environment = request.environment;
+      if (request.strategy !== undefined) evaluable.strategy = request.strategy;
       return next;
 
     case 'delete-group':
@@ -141,8 +142,10 @@ export function changesMembership(request: PlanRequest): boolean {
       return false;
     case 'update-group':
       // Rank changes merge ORDER, which changes documents for existing members
-      // only — but enablement changes membership outright.
-      return request.isEnabled !== undefined;
+      // only — but enablement changes membership outright, and so does strategy:
+      // it swaps which side of the group decides who belongs, so a group can
+      // empty or fill in one edit.
+      return request.isEnabled !== undefined || request.strategy !== undefined;
     default:
       return true;
   }
