@@ -41,6 +41,19 @@ export class NotificationEmailTransport {
         // wearing a confusingly similar name.
         secure: settings.encryption === 'tls',
         ...(settings.encryption === 'starttls' ? { requireTLS: true } : {}),
+        /*
+         * `none` MUST MEAN NONE.
+         *
+         * Without ignoreTLS, nodemailer upgrades opportunistically whenever the
+         * relay advertises STARTTLS — so an operator who deliberately chose no
+         * encryption still got a TLS handshake, and a plaintext internal relay
+         * with a self-signed certificate failed with `self-signed certificate`.
+         * A setting that does not do what it says sends people hunting for a
+         * fault in their relay.
+         *
+         * Reported from a real deployment against a port-25 relay.
+         */
+        ...(settings.encryption === 'none' ? { ignoreTLS: true } : {}),
         ...(settings.username === undefined
           ? {}
           : { auth: { user: settings.username, pass: settings.password ?? '' } }),
