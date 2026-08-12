@@ -84,6 +84,23 @@ internet-facing.
 You still need one thing the script cannot invent: a **client certificate** for
 PuppetDB (§3 — including the allowlist step people miss).
 
+### Classifying nodes takes one more command, on the Puppet server
+
+The above gives you a read-only console. To have NexusPuppet actually classify
+nodes, run this **on the Puppet server**, from a checkout of this repo:
+
+```bash
+sudo ./scripts/setup-enc.sh --origin https://nexuspuppet.example.com:8443 --wire
+```
+
+It checks, installs the puller and the ENC script, proves the script serves a
+node, and only then puts it on the compile path. Drop `--wire` to stop before
+that last step. Full walkthrough in §6.
+
+It is a second command on a second host because nothing may make Puppet depend
+on NexusPuppet at runtime (ADR-0003) — there is no channel from the console into
+your Puppet server, by design.
+
 Everything below is the reference: what each decision means and what breaks when
 it is wrong. Read it when something does not fit, not to get started.
 
@@ -770,6 +787,49 @@ users table, but there is no reason to leave a working credential in a file.
 
 This is the step where a deployment most often goes wrong, and the failure is
 quiet: catalogs compile, nodes just get the default classification.
+
+### Do this first — the short version
+
+On the **NexusPuppet** host, turn the ENC listener on and let the Puppet server
+in, then redeploy:
+
+```bash
+cat >> .env <<'EOF'
+ENC_REPLICATION_ENABLED=true
+ENC_REPLICATION_ALLOWED_CERTNAMES=puppet.example.com   # your Puppet server's certname
+EOF
+./scripts/deploy.sh
+```
+
+Then on the **Puppet server**, from a checkout of this repo:
+
+```bash
+cd nexuspuppet/scripts
+sudo ./setup-enc.sh --check --origin https://nexuspuppet.example.com:8443   # look before you leap
+sudo ./setup-enc.sh --origin https://nexuspuppet.example.com:8443           # install
+sudo ./setup-enc.sh --origin https://nexuspuppet.example.com:8443 --wire    # put it on the compile path
+```
+
+`--check` verifies the certificates, that the origin will actually serve *this*
+certname, and that no other classifier is already installed. The plain run
+installs the puller and the ENC script, fetches the tree, and **serves a node as
+puppetserver would** — but changes nothing about how catalogs are compiled.
+`--wire` is the step that does, and it is separate on purpose: with
+`node_terminus = exec` there is no fallback to `site.pp`, so an ENC script that
+cannot run fails compilation for every node. Add `--receipts` to have compiles
+report back (ADR-0022).
+
+Re-running is safe and is the normal upgrade path — existing settings in
+`/etc/default/nexuspuppet-*` are preserved, and `puppet.conf` is not touched
+without `--wire`.
+
+**Why there is no single command that does both halves.** Nothing may make
+Puppet depend on NexusPuppet at runtime, so there is no channel from the console
+into your Puppet server, and there will not be one. The Puppet-server half is
+yours to run, on that host.
+
+The rest of this section is the reference: what each piece does, and what to
+check when something is wrong. You do not need to read it to get this working.
 
 ### The rule that governs everything here
 
