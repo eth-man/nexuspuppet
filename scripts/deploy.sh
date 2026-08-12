@@ -48,6 +48,11 @@ TLS_HOSTNAME=""
 # is no certificate in ./certs.
 GUIDE_CERT_DIR="/etc/nexuspuppet/certs"
 
+# Kept before the parse loop consumes them, so a "re-run with sudo" suggestion
+# can repeat what the operator actually typed. Suggesting a bare `sudo deploy.sh`
+# to somebody who ran `--check` would tell them to deploy.
+INVOCATION="$0${*:+ $*}"
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --puppetdb) PUPPETDB_URL="${2:-}"; shift 2 ;;
@@ -155,6 +160,33 @@ fi
 # ---------------------------------------------------------------------------
 CERT_DIR="$(grep -E '^PUPPETDB_CERT_DIR=' .env | cut -d= -f2- || true)"
 CERT_DIR="${CERT_DIR:-./certs}"
+
+# UNREADABLE IS NOT MISSING, and saying so cost a real afternoon.
+#
+# DEPLOYMENT.md §3 tells operators to install the certificates 0500, owned by
+# uid 100 — so the container can read them and nothing else can. That is
+# correct, and it means a `[ -f ... ]` from an ordinary account cannot even
+# traverse the directory: the test is false, and the script reported the
+# certificate as MISSING.
+#
+# The operator is then sent to reissue a certificate that was perfectly good,
+# on advice that cannot work, by a check that was looking at a directory it
+# could not see. The fix it actually needs is `sudo`.
+#
+# `-d` succeeds on a directory this user cannot enter; `-x` is what says whether
+# we may look inside. Both, in that order, so "no such directory" and "cannot
+# look in it" stay distinct.
+if [ -d "$CERT_DIR" ] && [ ! -x "$CERT_DIR" ]; then
+    die "Cannot read ${CERT_DIR} as $(id -un) — the certificates may well be fine.
+
+       That directory is deliberately 0500 and owned by the container's uid, so
+       only root and the container may look inside it. This check cannot tell
+       whether the files are there, and refuses to guess.
+
+       Re-run with sudo:
+         sudo ${INVOCATION}"
+fi
+
 if [ ! -f "${CERT_DIR}/client.pem" ] || [ ! -f "${CERT_DIR}/client.key" ] || [ ! -f "${CERT_DIR}/ca.pem" ]; then
     hint=""
     if [ -f "${GUIDE_CERT_DIR}/client.pem" ]; then
@@ -235,7 +267,21 @@ preflight() {
 
     # --- what the certificate says ----------------------------------------
     if command -v openssl >/dev/null; then
-        if ! openssl x509 -in "${CERT_DIR}/client.pem" -noout >/dev/null 2>&1; then
+        # SAME TRAP, ONE LEVEL DOWN. The directory check above catches a
+        # directory this user cannot enter; a file inside a readable directory
+        # can still be unreadable on its own (0400, owned by the container's
+        # uid — which is exactly what §3 asks for the KEY, and what a cautious
+        # operator sometimes does to the certificate too).
+        #
+        # openssl then fails, and every branch below would call a perfectly good
+        # certificate malformed. Checked first so the message says the one thing
+        # that is actually true.
+        if [ ! -r "${CERT_DIR}/client.pem" ]; then
+            bad "client.pem cannot be read by $(id -un)"
+            note "the file is there; this account may not read it. That is not"
+            note "necessarily wrong — the container reads it as uid 100, not you."
+            note "To check it here, re-run with sudo."
+        elif ! openssl x509 -in "${CERT_DIR}/client.pem" -noout >/dev/null 2>&1; then
             # Distinct from "expired": a truncated copy, a key pasted where the
             # certificate should be, or an HTML error page saved by mistake all
             # land here, and calling that an expiry sends somebody to re-issue a
