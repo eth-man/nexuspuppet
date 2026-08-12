@@ -270,8 +270,35 @@ preflight() {
 
     # --- can we actually talk to PuppetDB? --------------------------------
     url=$(grep -E '^PUPPETDB_URL=' .env | cut -d= -f2- || true)
+
+    # CHECK THE SCHEME BEFORE CONNECTING. A URL with no scheme makes curl
+    # default to http://, which on PuppetDB's TLS port returns binary and the
+    # error `curl: (1) Received HTTP/0.9 when not allowed`. That message is
+    # accurate and tells an operator nothing — it reads as a protocol bug, and
+    # the cause is six missing characters. Reported from a real install where
+    # openssl and telnet both passed, which is exactly the confusion it creates.
+    case "$url" in
+        "") : ;;
+        https://*) : ;;
+        http://*)
+            bad "PUPPETDB_URL uses http:// — PuppetDB speaks TLS on 8081"
+            note "change it to https:// in .env. Plain HTTP is only ever served"
+            note "on 8080, which is localhost-only and cannot be used from here."
+            url=""
+            ;;
+        *)
+            bad "PUPPETDB_URL has no scheme: ${url}"
+            note "it must begin with https:// — without one, curl assumes http://"
+            note "and the failure reads as 'Received HTTP/0.9', which is a TLS"
+            note "port answering a plaintext request."
+            note "  PUPPETDB_URL=https://${url}"
+            url=""
+            ;;
+    esac
+
     if [ -z "$url" ]; then
-        warn "PUPPETDB_URL is not set in .env"
+        [ -n "$(grep -E '^PUPPETDB_URL=' .env | cut -d= -f2- || true)" ] || \
+            warn "PUPPETDB_URL is not set in .env"
     elif ! command -v curl >/dev/null; then
         warn "curl not installed — skipped the PuppetDB probe"
     else
