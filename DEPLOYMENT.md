@@ -129,6 +129,11 @@ architectural decision the deployment cannot defer, and it is covered in
 Both are supported, and NexusPuppet needs no configuration change to tell them
 apart.
 
+> **PuppetDB must have its TLS listener enabled.** Port 8081 exists only once
+> PuppetDB has a keystore; a fresh install may be listening on 8080 alone, which
+> is plaintext and localhost-only and cannot be used. If `ss -ltn | grep 8081`
+> shows nothing, run `puppetdb ssl-setup` and restart it.
+>
 > **You need a PuppetDB before you start.** The console reads its inventory from
 > one; without it the stack comes up healthy and shows nothing, which is hard to
 > tell from a broken install. If you do not have one yet,
@@ -344,6 +349,27 @@ That produces three files you need:
 | `client.pem` | `/etc/puppetlabs/puppet/ssl/certs/nexuspuppet.internal.pem` |
 | `client.key` | `/etc/puppetlabs/puppet/ssl/private_keys/nexuspuppet.internal.pem` |
 | `ca.pem` | `/etc/puppetlabs/puppet/ssl/certs/ca.pem` |
+
+### Three files share one filename — take the right one
+
+`puppetserver ca generate` writes **three** files with the *same name* into three
+directories, and only one of them is a certificate:
+
+| Path | Contents | Copy it to |
+| --- | --- | --- |
+| `ssl/certs/<certname>.pem` | `BEGIN CERTIFICATE` | `client.pem` |
+| `ssl/private_keys/<certname>.pem` | `BEGIN RSA PRIVATE KEY` | `client.key` |
+| `ssl/public_keys/<certname>.pem` | `BEGIN PUBLIC KEY` | **nothing — never used** |
+
+Taking `<certname>.pem` from `public_keys/` instead of `certs/` is the easiest
+mistake in this whole procedure: same filename, adjacent directory, and the file
+looks plausible. `./scripts/deploy.sh --check` names it if you do.
+
+Confirm before copying, rather than after:
+
+```bash
+head -1 /etc/puppetlabs/puppet/ssl/certs/<certname>.pem   # BEGIN CERTIFICATE
+```
 
 ### Installing them on the NexusPuppet VM
 
