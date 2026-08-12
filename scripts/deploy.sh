@@ -370,9 +370,24 @@ preflight() {
     if command -v ss >/dev/null; then
         port=$(grep -E '^WEB_PORT=' .env | cut -d= -f2- || true)
         port="${port:-3000}"
-        if ss -ltn 2>/dev/null | grep -q ":${port} "; then
-            warn "something is already listening on port ${port}"
-            note "docker will refuse to bind it; stop that service or change WEB_PORT"
+        # OUR OWN CONTAINER IS NOT A CONFLICT. On an upgrade the web container
+        # is already running and holding this port, and `up -d` replaces it
+        # cleanly. Warning about it would fire on every re-run — and a check
+        # that cries wolf on the normal path is one people stop reading, which
+        # costs more than the case it was meant to catch.
+        mine=""
+        if command -v docker >/dev/null; then
+            mine=$(docker compose ps -q web 2>/dev/null || true)
+        fi
+
+        if [ -n "$mine" ]; then
+            ok "port ${port} is held by this deployment's own web container"
+        elif ss -ltn 2>/dev/null | grep -q ":${port} "; then
+            warn "something else is already listening on port ${port}"
+            note "docker will refuse to bind it. Either stop that service, or"
+            note "change WEB_PORT in .env — with --tls the console is served on"
+            note "443 and this port is only an internal bind, so the number is"
+            note "arbitrary. See what holds it: ss -ltnp | grep :${port}"
         else
             ok "port ${port} is free"
         fi
