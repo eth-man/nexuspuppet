@@ -1,6 +1,6 @@
 {
   "name": "nexuspuppet",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "description": "Puppet estate console \u2014 read-only visibility plus native ENC classification",
   "license": "Apache-2.0",
   "private": true,
