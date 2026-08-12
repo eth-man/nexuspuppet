@@ -86,7 +86,7 @@ export default function ReportsPage() {
               onClick={() => toggle(status)}
               aria-pressed={statuses.includes(status)}
               className={cn(
-                'rounded border px-1.5 py-0.5 text-[11px] transition-colors',
+                'rounded border px-1.5 py-0.5 text-2xs transition-colors',
                 statuses.includes(status)
                   ? 'border-accent bg-accent/15 text-ink'
                   : 'border-line text-ink-muted hover:bg-panel-raised',
@@ -96,7 +96,7 @@ export default function ReportsPage() {
             </button>
           ))}
         </div>
-        <span className="text-[11px] text-ink-faint">
+        <span className="text-2xs text-ink-faint">
           {statuses.length === 0 || statuses.length === STATUSES.length
             ? 'all states'
             : `${statuses.length} of ${STATUSES.length} states`}

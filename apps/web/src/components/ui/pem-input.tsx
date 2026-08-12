@@ -96,7 +96,7 @@ export function PemInput({
         <button
           type="button"
           onClick={() => setMode(mode === 'file' ? 'paste' : 'file')}
-          className="text-[11px] text-ink-faint underline-offset-2 hover:text-ink hover:underline"
+          className="text-2xs text-ink-faint underline-offset-2 hover:text-ink hover:underline"
         >
           {mode === 'file' ? 'Paste text instead' : 'Choose a file instead'}
         </button>
@@ -151,14 +151,14 @@ export function PemInput({
               <span className="text-xs text-ink">
                 Drop the file here, or <span className="text-accent">browse</span>
               </span>
-              <span className="text-[11px] text-ink-faint">{accept.split(',').join(' · ')}</span>
+              <span className="text-2xs text-ink-faint">{accept.split(',').join(' · ')}</span>
             </button>
           )}
         </div>
       ) : (
         <Textarea
           rows={5}
-          className="font-mono text-[11px]"
+          className="font-mono text-2xs"
           placeholder={placeholder}
           value={value}
           onChange={(event) => {
@@ -170,7 +170,7 @@ export function PemInput({
       )}
 
       {problem !== null && (
-        <p role="alert" className="text-[11px] text-state-failed">
+        <p role="alert" className="text-2xs text-state-failed">
           {problem}
         </p>
       )}
@@ -178,7 +178,7 @@ export function PemInput({
       {constraints.length > 0 && (
         <ul className="space-y-0.5">
           {constraints.map((line) => (
-            <li key={line} className="flex gap-1.5 text-[11px] text-ink-faint">
+            <li key={line} className="flex gap-1.5 text-2xs text-ink-faint">
               <span aria-hidden>·</span>
               {line}
             </li>

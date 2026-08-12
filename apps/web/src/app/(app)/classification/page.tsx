@@ -119,7 +119,7 @@ export default function ClassificationPage() {
       <Card>
         <CardHeader>
           <CardTitle>Node groups</CardTitle>
-          <span className="text-[11px] text-ink-faint">
+          <span className="text-2xs text-ink-faint">
             {groups.isSuccess
               ? `${groups.data.length} group${groups.data.length === 1 ? '' : 's'}`
               : ''}
@@ -157,7 +157,7 @@ export default function ClassificationPage() {
                       {group.name}
                     </Link>
                     {!group.isEnabled && (
-                      <span className="ml-1.5 text-[10px] uppercase text-ink-faint">disabled</span>
+                      <span className="ml-1.5 text-3xs uppercase text-ink-faint">disabled</span>
                     )}
                   </TD>
                   <TD>
@@ -253,7 +253,7 @@ export default function ClassificationPage() {
                 onChange={(event) => setRank(event.target.value)}
                 className="font-mono"
               />
-              <p className="text-[11px] text-ink-faint">Higher is applied later and wins.</p>
+              <p className="text-2xs text-ink-faint">Higher is applied later and wins.</p>
             </div>
 
             <div className="space-y-1">

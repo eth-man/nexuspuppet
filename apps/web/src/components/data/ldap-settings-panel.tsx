@@ -329,7 +329,7 @@ export function LdapSettingsPanel() {
                     value={form.bindDn ?? ''}
                     onChange={(e) => field('bindDn', e.target.value)}
                     placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -424,7 +424,7 @@ export function LdapSettingsPanel() {
                     value={form.searchBase}
                     onChange={(e) => field('searchBase', e.target.value)}
                     placeholder="ou=people,dc=example,dc=com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -446,7 +446,7 @@ export function LdapSettingsPanel() {
                     value={form.groupSearchBase ?? ''}
                     onChange={(e) => field('groupSearchBase', e.target.value)}
                     placeholder="ou=groups,dc=example,dc=com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -510,10 +510,10 @@ export function LdapSettingsPanel() {
           */}
           {editing && changes.length > 0 && (
             <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
-              <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+              <p className="text-2xs font-semibold text-ink">Pending changes</p>
               <ul className="mt-1 space-y-0.5">
                 {changes.map((line) => (
-                  <li key={line} className="text-[11px] text-ink-muted">
+                  <li key={line} className="text-2xs text-ink-muted">
                     {line}
                   </li>
                 ))}
@@ -609,7 +609,7 @@ function NotConfigured({ onConfigure }: { onConfigure: () => void }) {
           Configure directory
         </Button>
 
-        <p className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+        <p className="flex items-center gap-1.5 text-2xs text-ink-faint">
           <Info className="size-3 shrink-0" aria-hidden />
           Local accounts keep working either way.
         </p>
@@ -701,7 +701,7 @@ function ActionBar({
   return (
     <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
       {updatedAt !== null && (
-        <span className="text-[11px] text-ink-faint">
+        <span className="text-2xs text-ink-faint">
           Last changed {absolute(updatedAt)}
           {updatedByEmail !== null && ` by ${updatedByEmail}`}
         </span>
@@ -769,9 +769,7 @@ function Notice({ tone, children }: { tone: 'info' | 'warn'; children: React.Rea
       ) : (
         <Info className="mt-px size-3.5 shrink-0 text-ink-faint" aria-hidden />
       )}
-      <p className={warn ? 'text-[11px] text-state-pending' : 'text-[11px] text-ink-muted'}>
-        {children}
-      </p>
+      <p className={warn ? 'text-2xs text-state-pending' : 'text-2xs text-ink-muted'}>{children}</p>
     </div>
   );
 }
@@ -805,7 +803,7 @@ function TestResult({ result }: { result: ProviderVerification }) {
           {result.details !== undefined && result.details.length > 0 && (
             <dl className="mt-1 space-y-0.5">
               {result.details.map((detail) => (
-                <div key={detail.label} className="flex gap-2 text-[11px]">
+                <div key={detail.label} className="flex gap-2 text-2xs">
                   <dt className="text-ink-faint">{detail.label}</dt>
                   <dd className="min-w-0 truncate font-mono text-ink-muted">{detail.value}</dd>
                 </div>
@@ -877,12 +875,12 @@ function RoleMappings({
             role="alert"
             className="rounded border border-state-pending/40 bg-state-pending/10 p-2"
           >
-            <p className="text-[11px] font-semibold text-ink">
+            <p className="text-2xs font-semibold text-ink">
               {broken.length === 1
                 ? '1 mapping names a role that does not exist'
                 : `${broken.length} mappings name roles that do not exist`}
             </p>
-            <p className="mt-1 max-w-prose text-[11px] text-ink-muted">
+            <p className="mt-1 max-w-prose text-2xs text-ink-muted">
               {'Anybody in '}
               {broken.map((m) => m.groupDn).join(', ')}
               {' signs in successfully and is then denied everything, because the role named here '}
@@ -893,7 +891,7 @@ function RoleMappings({
         )}
 
         {mappings.length === 0 ? (
-          <p className="rounded border border-dashed border-line-soft px-3 py-4 text-center text-[11px] text-ink-muted">
+          <p className="rounded border border-dashed border-line-soft px-3 py-4 text-center text-2xs text-ink-muted">
             No mappings yet. Anybody who authenticates will be refused for having no mapped group.
           </p>
         ) : (
@@ -920,7 +918,7 @@ function RoleMappings({
                           )
                         }
                         placeholder="cn=puppet-admins,ou=groups,dc=example,dc=com"
-                        className="h-7 font-mono text-[11px]"
+                        className="h-7 font-mono text-2xs"
                         aria-label={`Directory group for mapping ${index + 1}`}
                       />
                     </td>

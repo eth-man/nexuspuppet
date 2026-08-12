@@ -66,7 +66,7 @@ export function RolesPanel() {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <p className="max-w-prose text-[11px] text-ink-faint">
+        <p className="max-w-prose text-2xs text-ink-faint">
           {'A role is a set of permissions. The API enforces these; the console only uses them '}
           {'to hide controls that would be refused.'}
           {!editable &&
@@ -163,13 +163,13 @@ function RoleRow({
           {role.name}
         </span>
         {role.description !== null && (
-          <span className="text-[11px] text-ink-faint">{role.description}</span>
+          <span className="text-2xs text-ink-faint">{role.description}</span>
         )}
       </td>
 
       <td className="py-2 pr-3">
         {held.length === 0 ? (
-          <span className="text-[11px] text-state-pending">grants nothing</span>
+          <span className="text-2xs text-state-pending">grants nothing</span>
         ) : (
           <div className="flex flex-wrap gap-1">
             {held.map((permission) => (
@@ -177,7 +177,7 @@ function RoleRow({
                 key={permission}
                 title={PERMISSION_CATALOG[permission].summary}
                 className={
-                  'rounded border px-1.5 py-0.5 font-mono text-[10px] ' +
+                  'rounded border px-1.5 py-0.5 font-mono text-3xs ' +
                   (PERMISSION_CATALOG[permission].impact === 'admin'
                     ? 'border-state-failed/40 bg-state-failed/10 text-ink'
                     : 'border-line-soft bg-panel-raised text-ink-muted')
@@ -405,24 +405,22 @@ function RoleEditor({
                 placeholder="auditor"
                 aria-invalid={name !== '' && (!shaped || clash)}
               />
-              <p className="text-[11px] text-ink-faint">
+              <p className="text-2xs text-ink-faint">
                 {'Letters, digits, dot, underscore and hyphen. No spaces — the name goes into '}
                 {'directory mappings, which are delimited by semicolons and equals signs.'}
               </p>
               {name !== '' && !shaped && (
-                <p className="text-[11px] text-state-failed">
+                <p className="text-2xs text-state-failed">
                   Only letters, digits, dot, underscore and hyphen.
                 </p>
               )}
-              {clash && (
-                <p className="text-[11px] text-state-failed">That name is already taken.</p>
-              )}
+              {clash && <p className="text-2xs text-state-failed">That name is already taken.</p>}
             </>
           ) : (
             <p className="flex items-center gap-1 font-mono text-xs text-ink">
               {role.builtIn && <Lock className="size-3 text-ink-faint" aria-hidden />}
               {role.name}
-              <span className="ml-2 font-sans text-[11px] text-ink-faint">
+              <span className="ml-2 font-sans text-2xs text-ink-faint">
                 {role.builtIn
                   ? 'built-in — fixed by the product'
                   : 'names are fixed once created; they appear in directory mappings and audit history'}
@@ -469,18 +467,16 @@ function RoleEditor({
                       <span className="text-xs font-medium text-ink">{info.summary}</span>
                       <span
                         className={
-                          'rounded border px-1 py-px text-[10px] ' + IMPACT_STYLE[info.impact]
+                          'rounded border px-1 py-px text-3xs ' + IMPACT_STYLE[info.impact]
                         }
                       >
                         {impactLabel(info.impact)}
                       </span>
                     </span>
-                    <span className="block font-mono text-[10px] text-ink-faint">{permission}</span>
-                    <span className="block max-w-prose text-[11px] text-ink-muted">
-                      {info.detail}
-                    </span>
+                    <span className="block font-mono text-3xs text-ink-faint">{permission}</span>
+                    <span className="block max-w-prose text-2xs text-ink-muted">{info.detail}</span>
                     {info.caution !== undefined && (
-                      <span className="mt-0.5 flex max-w-prose items-start gap-1 text-[11px] text-state-pending">
+                      <span className="mt-0.5 flex max-w-prose items-start gap-1 text-2xs text-state-pending">
                         <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
                         {info.caution}
                       </span>
@@ -493,7 +489,7 @@ function RoleEditor({
         </div>
 
         {draft.length === 0 && !readOnly && (
-          <p className="flex items-start gap-1 text-[11px] text-state-pending">
+          <p className="flex items-start gap-1 text-2xs text-state-pending">
             <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
             {'This role would grant nothing. That is allowed — a placeholder to fill in later — '}
             {'but anybody holding it can do nothing at all.'}
@@ -505,15 +501,15 @@ function RoleEditor({
         )}
 
         {error !== null && (
-          <p role="alert" className="text-[11px] text-state-failed">
+          <p role="alert" className="text-2xs text-state-failed">
             {error}
           </p>
         )}
 
         {!readOnly && !creating && !role.builtIn && (
           <div className="space-y-1.5 rounded border border-state-failed/30 p-2.5">
-            <p className="text-[11px] font-semibold text-ink">Delete this role</p>
-            <p className="max-w-prose text-[11px] text-ink-muted">
+            <p className="text-2xs font-semibold text-ink">Delete this role</p>
+            <p className="max-w-prose text-2xs text-ink-muted">
               {role.userCount > 0
                 ? `${role.userCount} user${role.userCount === 1 ? '' : 's'} currently hold this role and will need another one.`
                 : 'No users hold this role.'}
@@ -582,7 +578,7 @@ function PendingChanges({
 
   return (
     <div className="space-y-1 rounded border border-accent/40 bg-accent/10 p-2.5">
-      <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+      <p className="text-2xs font-semibold text-ink">Pending changes</p>
       {/*
        * Marked with glyphs rather than colour. The palette's state tokens mean
        * Puppet run states (changed / unchanged / failed) and borrowing one to
@@ -590,7 +586,7 @@ function PendingChanges({
        * read by somebody who cannot tell the two colours apart.
        */}
       {added.length > 0 && (
-        <p className="text-[11px] text-ink-muted">
+        <p className="text-2xs text-ink-muted">
           <span aria-hidden className="font-mono text-ink">
             +
           </span>{' '}
@@ -599,7 +595,7 @@ function PendingChanges({
         </p>
       )}
       {removed.length > 0 && (
-        <p className="text-[11px] text-ink-muted">
+        <p className="text-2xs text-ink-muted">
           <span aria-hidden className="font-mono text-ink">
             −
           </span>{' '}
@@ -608,7 +604,7 @@ function PendingChanges({
         </p>
       )}
       {escalating.length > 0 && (
-        <p className="mt-1 flex max-w-prose items-start gap-1 text-[11px] text-state-failed">
+        <p className="mt-1 flex max-w-prose items-start gap-1 text-2xs text-state-failed">
           <ShieldAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
           {'This grants administrative access. Everybody already holding this role gets it too, '}
           {'including anybody mapped in from a directory group.'}
@@ -628,16 +624,16 @@ function PendingChanges({
 function BlockingMappings({ role, mappings }: { role: string; mappings: BlockingRoleMapping[] }) {
   return (
     <div role="alert" className="rounded border border-state-failed/40 bg-state-failed/10 p-2">
-      <p className="text-[11px] font-semibold text-ink">
+      <p className="text-2xs font-semibold text-ink">
         {`"${role}" is still mapped from ${mappings.length} directory group${mappings.length === 1 ? '' : 's'}`}
       </p>
-      <p className="mt-1 max-w-prose text-[11px] text-ink-muted">
+      <p className="mt-1 max-w-prose text-2xs text-ink-muted">
         {'Remove or repoint these first. Anybody in them would otherwise sign in with no '}
         {'permissions, and the role explaining why would no longer exist.'}
       </p>
       <ul className="mt-1.5 space-y-0.5">
         {mappings.map((mapping) => (
-          <li key={`${mapping.source}:${mapping.groupDn}`} className="text-[11px]">
+          <li key={`${mapping.source}:${mapping.groupDn}`} className="text-2xs">
             <span className="font-mono text-ink">{mapping.groupDn}</span>
             <span className="ml-2 text-ink-faint">
               {mapping.source === 'database'

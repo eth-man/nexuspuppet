@@ -69,7 +69,7 @@ export function AttributionCard({
         <CardHeader>
           <CardTitle>Where it came from</CardTitle>
         </CardHeader>
-        <p className="px-3 py-2 text-[11px] text-ink-faint">
+        <p className="px-3 py-2 text-2xs text-ink-faint">
           Nothing was set, so there is nothing to attribute.
         </p>
       </Card>
@@ -80,7 +80,7 @@ export function AttributionCard({
     <Card>
       <CardHeader>
         <CardTitle>Where it came from</CardTitle>
-        <span className="text-[11px] text-ink-faint">group that set each value</span>
+        <span className="text-2xs text-ink-faint">group that set each value</span>
       </CardHeader>
 
       <div className="divide-y divide-line-soft">
@@ -149,7 +149,7 @@ function Overridden({
   if (attr.overridden.length === 0) return null;
 
   return (
-    <span className="text-[11px] text-ink-faint">
+    <span className="text-2xs text-ink-faint">
       over{' '}
       {attr.overridden.map((loser, index) => (
         <span key={`${loser.groupId}-${index}`}>
@@ -164,7 +164,7 @@ function Overridden({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="px-3 py-2">
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-ink-faint">{title}</p>
+      <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-ink-faint">{title}</p>
       <div className="space-y-1">{children}</div>
     </div>
   );
@@ -216,7 +216,7 @@ export function MatchReason({
 
   if (reason.strategy === 'PINNED') {
     return (
-      <p className="ml-6 mt-0.5 text-[11px] text-ink-faint">
+      <p className="ml-6 mt-0.5 text-2xs text-ink-faint">
         pinned — this node is named on the group, no rule was evaluated
       </p>
     );
@@ -229,7 +229,7 @@ export function MatchReason({
       {reason.rules.map((rule, index) => (
         <li
           key={`${rule.factPath}-${index}`}
-          className={rule.matched ? 'text-[11px] text-ink-muted' : 'text-[11px] text-ink-faint'}
+          className={rule.matched ? 'text-2xs text-ink-muted' : 'text-2xs text-ink-faint'}
         >
           <span className="font-mono">{rule.factPath}</span>{' '}
           <span className="text-ink-faint">{rule.operator.toLowerCase().replace(/_/g, ' ')}</span>

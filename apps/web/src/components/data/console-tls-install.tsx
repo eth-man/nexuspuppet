@@ -222,7 +222,7 @@ export function ConsoleTlsInstall() {
           */}
           <div className="flex items-start gap-2 rounded border border-accent/30 bg-accent/10 p-2">
             <Info className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
-            <p className="text-[11px] text-ink-muted">
+            <p className="text-2xs text-ink-muted">
               <span className="font-semibold text-ink">Keep this tab open.</span>
               {' The new certificate is installed immediately but kept only if this browser can '}
               {'reach the console over it. If it cannot — an incomplete chain, a CA your machine '}
@@ -272,14 +272,14 @@ function Confirming({ remaining, reconnecting }: { remaining: number; reconnecti
         </span>
       </div>
 
-      <p className="mt-2 max-w-prose text-[11px] text-ink-muted">
+      <p className="mt-2 max-w-prose text-2xs text-ink-muted">
         {reconnecting
           ? 'The connection dropped when the proxy reloaded, which is expected. If your browser ' +
             'shows a certificate warning, accept it in another tab — this will finish on its own ' +
             'once it can reach the console again.'
           : 'The certificate is in place and being checked from this browser.'}
       </p>
-      <p className="mt-1 text-[11px] text-ink-faint">
+      <p className="mt-1 text-2xs text-ink-faint">
         If the countdown reaches zero, the previous certificate is restored automatically.
       </p>
     </div>
@@ -296,7 +296,7 @@ function Installed({ identity }: { identity: CertificateIdentity }) {
         <CheckCircle2 className="size-4 text-state-unchanged" aria-hidden />
         <p className="text-xs font-semibold text-ink">Certificate installed and confirmed</p>
       </div>
-      <dl className="mt-2 grid grid-cols-[7rem_1fr] gap-y-1 text-[11px]">
+      <dl className="mt-2 grid grid-cols-[7rem_1fr] gap-y-1 text-2xs">
         <dt className="text-ink-faint">Subject</dt>
         <dd className="font-mono text-ink">{identity.subject}</dd>
         <dt className="text-ink-faint">Expires</dt>
@@ -332,9 +332,9 @@ function Failed({
           {severe ? 'The console may be unreachable' : 'Certificate not installed'}
         </p>
       </div>
-      <p className="mt-2 max-w-prose text-[11px] text-ink-muted">{message}</p>
+      <p className="mt-2 max-w-prose text-2xs text-ink-muted">{message}</p>
       {detail !== undefined && detail !== '' && (
-        <p className="mt-1 max-w-prose text-[11px] text-state-failed">{detail}</p>
+        <p className="mt-1 max-w-prose text-2xs text-state-failed">{detail}</p>
       )}
       <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>
         Try again

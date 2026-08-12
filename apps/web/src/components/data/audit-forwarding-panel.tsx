@@ -131,7 +131,7 @@ export function AuditForwardingPanel() {
       */}
       {licensed && view.active !== 'none' && (
         <div className="flex items-center justify-between gap-3 rounded border border-line-soft bg-panel px-3 py-2">
-          <p className="min-w-0 text-[11px] text-ink-faint">
+          <p className="min-w-0 text-2xs text-ink-faint">
             Forwarding is on, via <span className="font-mono text-ink-muted">{view.active}</span>.
             Records are written and retained here either way — this only stops them being sent on.
           </p>
@@ -342,7 +342,7 @@ function SyslogCard({
                     value={form.host}
                     onChange={(e) => field('host', e.target.value)}
                     placeholder="siem.example.com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -360,7 +360,7 @@ function SyslogCard({
                     onChange={(e) => field('port', e.target.value)}
                     placeholder="6514"
                     inputMode="numeric"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                     aria-invalid={form.port !== '' && !portValid}
                   />
                 )}
@@ -467,7 +467,7 @@ function SyslogCard({
                     value={form.facility}
                     onChange={(e) => field('facility', e.target.value)}
                     inputMode="numeric"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -478,7 +478,7 @@ function SyslogCard({
                     id={id}
                     value={form.appName}
                     onChange={(e) => field('appName', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -649,7 +649,7 @@ function WebhookCard({
                       setResult(null);
                     }}
                     placeholder="https://collector.example.com/ingest"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                     aria-invalid={url !== '' && !urlValid}
                   />
                 )}
@@ -793,7 +793,7 @@ function TransportActions({
   return (
     <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
       {updatedAt !== null && (
-        <span className="text-[11px] text-ink-faint">
+        <span className="text-2xs text-ink-faint">
           Last changed {absolute(updatedAt)}
           {updatedByEmail !== null && ` by ${updatedByEmail}`}
         </span>
@@ -847,10 +847,10 @@ function TransportActions({
 function PendingChanges({ lines }: { lines: string[] }) {
   return (
     <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
-      <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+      <p className="text-2xs font-semibold text-ink">Pending changes</p>
       <ul className="mt-1 space-y-0.5">
         {lines.map((line) => (
-          <li key={line} className="text-[11px] text-ink-muted">
+          <li key={line} className="text-2xs text-ink-muted">
             {line}
           </li>
         ))}
@@ -934,9 +934,7 @@ function Notice({ tone, children }: { tone: 'info' | 'warn'; children: React.Rea
       ) : (
         <Info className="mt-px size-3.5 shrink-0 text-ink-faint" aria-hidden />
       )}
-      <p className={warn ? 'text-[11px] text-state-pending' : 'text-[11px] text-ink-muted'}>
-        {children}
-      </p>
+      <p className={warn ? 'text-2xs text-state-pending' : 'text-2xs text-ink-muted'}>{children}</p>
     </div>
   );
 }
@@ -965,7 +963,7 @@ function TestResult({ result }: { result: ProviderVerification }) {
           {result.details !== undefined && result.details.length > 0 && (
             <dl className="mt-1 space-y-0.5">
               {result.details.map((detail) => (
-                <div key={detail.label} className="flex gap-2 text-[11px]">
+                <div key={detail.label} className="flex gap-2 text-2xs">
                   <dt className="text-ink-faint">{detail.label}</dt>
                   <dd className="min-w-0 truncate font-mono text-ink-muted">{detail.value}</dd>
                 </div>

@@ -41,7 +41,7 @@ export default function GeneralSettingsPage() {
               <dd className="text-ink">{principal?.authSource}</dd>
             </dl>
 
-            <p className="mt-2 text-[11px] text-ink-faint">
+            <p className="mt-2 text-2xs text-ink-faint">
               What your role permits. The API enforces these independently — hidden controls are a
               convenience, not a boundary.
             </p>
@@ -57,7 +57,7 @@ export default function GeneralSettingsPage() {
               {permissions.map((permission) => (
                 <span
                   key={permission}
-                  className="rounded border border-line bg-panel-raised px-1.5 py-0.5 font-mono text-[10px] text-ink-muted"
+                  className="rounded border border-line bg-panel-raised px-1.5 py-0.5 font-mono text-3xs text-ink-muted"
                 >
                   {permission}
                 </span>

@@ -70,7 +70,7 @@ export function CompileReceipts({ receipts }: { receipts: CompileReceiptView[] |
     <Card>
       <CardHeader>
         <CardTitle>Last reported compile</CardTitle>
-        <span className="text-[11px] text-ink-faint">what was served, not what was applied</span>
+        <span className="text-2xs text-ink-faint">what was served, not what was applied</span>
       </CardHeader>
 
       {receipts === undefined || receipts.length === 0 ? (
@@ -91,17 +91,17 @@ export function CompileReceipts({ receipts }: { receipts: CompileReceiptView[] |
               <li key={receipt.peerCertname} className="space-y-1 px-3 py-2">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className={`text-xs font-medium ${verdict.tone}`}>{verdict.label}</span>
-                  <span className="text-[11px] text-ink-faint">
+                  <span className="text-2xs text-ink-faint">
                     reported {ago(receipt.reportedAt)}
                   </span>
                 </div>
 
-                <p className="text-[11px] text-ink-muted">{verdict.detail}</p>
+                <p className="text-2xs text-ink-muted">{verdict.detail}</p>
 
                 {/* Monospace, and truncated to a prefix: a full SHA-256 is
                     unreadable and never retyped, but the first characters are
                     what someone compares against another screen. */}
-                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-2xs">
                   <dt className="text-ink-faint">compiled</dt>
                   <dd className="text-ink">{shortHash(receipt.revision)}</dd>
                   {receipt.peerRevision !== null && (

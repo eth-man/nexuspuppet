@@ -32,7 +32,7 @@ export function EffectiveDocument({
             gone stale is detectable rather than merely wrong.
           */}
           {materialization !== null && <Badge>rev {materialization.revision}</Badge>}
-          {pending && <span className="text-[11px] text-state-pending">queued</span>}
+          {pending && <span className="text-2xs text-state-pending">queued</span>}
         </div>
       </CardHeader>
 
@@ -51,13 +51,13 @@ export function EffectiveDocument({
             document must never make the page body scroll horizontally.
           */}
           <div className="overflow-x-auto px-3 py-2">
-            <pre className="whitespace-pre font-mono text-[11px] leading-relaxed text-ink">
+            <pre className="whitespace-pre font-mono text-2xs leading-relaxed text-ink">
               {document}
             </pre>
           </div>
 
           {materialization !== null && (
-            <p className="border-t border-line px-3 py-1.5 font-mono text-[11px] text-ink-faint">
+            <p className="border-t border-line px-3 py-1.5 font-mono text-2xs text-ink-faint">
               {materialization.relativePath} · {materialization.contentHash.slice(0, 12)}
             </p>
           )}

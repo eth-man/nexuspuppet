@@ -70,9 +70,7 @@ export function PuppetDbDown({ error }: { error: unknown }) {
         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-state-pending" aria-hidden />
         <div className="min-w-0">
           <p className="text-sm font-medium text-state-pending">PuppetDB unreachable</p>
-          <p className="mt-0.5 break-words font-mono text-[11px] text-state-pending/80">
-            {message}
-          </p>
+          <p className="mt-0.5 break-words font-mono text-2xs text-state-pending/80">{message}</p>
           {lastSuccess !== null && lastSuccess !== undefined && (
             <p className="mt-1 text-xs text-ink-muted">
               Last successful contact: <span className="font-mono">{lastSuccess}</span>
@@ -141,7 +139,7 @@ export function QueryError({ error }: { error: unknown }) {
   return (
     <div role="alert" className="m-3 rounded border border-state-failed/40 bg-state-failed/10 p-3">
       <p className="text-sm font-medium text-state-failed">Request failed</p>
-      <p className="mt-0.5 font-mono text-[11px] text-state-failed/80">
+      <p className="mt-0.5 font-mono text-2xs text-state-failed/80">
         {error instanceof Error ? error.message : String(error)}
       </p>
     </div>

@@ -34,7 +34,7 @@ export function ConflictReport() {
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Overrides in effect</CardTitle>
-        <span className="text-[11px] text-ink-faint">
+        <span className="text-2xs text-ink-faint">
           {nodesAffected === 0
             ? `no overrides across ${nodesMaterialized} node${nodesMaterialized === 1 ? '' : 's'}`
             : `${nodesAffected} of ${nodesMaterialized} node${nodesMaterialized === 1 ? '' : 's'}`}
@@ -67,7 +67,7 @@ export function ConflictReport() {
             </TBody>
           </Table>
 
-          <p className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
+          <p className="border-t border-line px-3 py-2 text-2xs text-ink-faint">
             Higher-ranked groups win, and the losing value is discarded — there is no deep merge
             (ADR-0009). Read this as a list of decisions, not failures.
           </p>
@@ -87,7 +87,7 @@ function Row({ conflict }: { conflict: AggregatedConflict }) {
   return (
     <TR className={cn(isEnvironment && 'bg-state-pending/5')}>
       <TD>
-        <span className="font-mono text-[11px] text-ink">{conflict.key}</span>
+        <span className="font-mono text-2xs text-ink">{conflict.key}</span>
         {isEnvironment && (
           <Badge className="ml-2 border-state-pending/40 text-state-pending">environment</Badge>
         )}
@@ -111,7 +111,7 @@ function Row({ conflict }: { conflict: AggregatedConflict }) {
       <TD className="text-right">
         <span className="font-mono tabular-nums text-ink">{conflict.nodeCount}</span>
         {conflict.exampleCertnames.length > 0 && (
-          <div className="mt-0.5 text-[10px] text-ink-faint">
+          <div className="mt-0.5 text-3xs text-ink-faint">
             {conflict.exampleCertnames.slice(0, 2).map((certname, index) => (
               <span key={certname}>
                 {index > 0 && ', '}

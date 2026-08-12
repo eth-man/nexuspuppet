@@ -50,7 +50,7 @@ export function AuthProviderPanel() {
         <CardTitle>Directory role mappings</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="mb-2 text-[11px] text-ink-faint">
+        <p className="mb-2 text-2xs text-ink-faint">
           {'Applied at every login by the '}
           <span className="font-mono text-ink">{description.source}</span>
           {/* String expressions, not bare text: JSX drops the space between an
@@ -87,7 +87,7 @@ export function AuthProviderPanel() {
           </tbody>
         </table>
 
-        <p className="mt-2 text-[11px] text-ink-faint">
+        <p className="mt-2 text-2xs text-ink-faint">
           {description.refusesUnmappedUsers
             ? 'Someone in none of these groups is refused, even with a correct password.'
             : 'Someone in none of these groups is still admitted with a default role.'}{' '}
@@ -95,7 +95,7 @@ export function AuthProviderPanel() {
         </p>
 
         {description.details.length > 0 && (
-          <dl className="mt-3 grid grid-cols-[8rem_1fr] gap-y-1 border-t border-edge pt-2 text-[11px]">
+          <dl className="mt-3 grid grid-cols-[8rem_1fr] gap-y-1 border-t border-edge pt-2 text-2xs">
             {description.details.map((detail) => (
               <div key={detail.label} className="contents">
                 <dt className="text-ink-faint">{detail.label}</dt>
@@ -107,7 +107,7 @@ export function AuthProviderPanel() {
           </dl>
         )}
 
-        <p className="mt-2 text-[11px] text-ink-faint">
+        <p className="mt-2 text-2xs text-ink-faint">
           Read-only. These are set in the deployment&rsquo;s configuration and change on restart.
         </p>
       </CardContent>

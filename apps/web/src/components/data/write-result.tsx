@@ -55,7 +55,7 @@ export function WriteResult({
                 {certnames.map((certname) => (
                   <li
                     key={certname}
-                    className="rounded border border-line bg-panel-raised px-1 font-mono text-[10px] text-ink-muted"
+                    className="rounded border border-line bg-panel-raised px-1 font-mono text-3xs text-ink-muted"
                   >
                     {certname}
                   </li>

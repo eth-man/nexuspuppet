@@ -205,11 +205,9 @@ export function UsersPanel() {
                     >
                       {user.email}
                     </button>
-                    {self && (
-                      <span className="ml-1.5 text-[10px] uppercase text-ink-faint">you</span>
-                    )}
+                    {self && <span className="ml-1.5 text-3xs uppercase text-ink-faint">you</span>}
                     {!user.isActive && (
-                      <span className="ml-1.5 text-[10px] uppercase text-state-pending">
+                      <span className="ml-1.5 text-3xs uppercase text-state-pending">
                         deactivated
                       </span>
                     )}
@@ -494,10 +492,10 @@ export function UsersPanel() {
               />
               {/* Length, not composition. Character-class rules mostly produce
                   `Password1!` — memorised, reused, and no stronger. */}
-              <p className="text-[11px] text-ink-faint">At least 12 characters.</p>
+              <p className="text-2xs text-ink-faint">At least 12 characters.</p>
             </div>
           ) : (
-            <p className="text-[11px] text-ink-faint">
+            <p className="text-2xs text-ink-faint">
               No password is set here. The email above must match the directory entry, or the person
               will authenticate successfully and still be refused.
             </p>
@@ -648,13 +646,13 @@ function ResetPasswordDialog({
               Generate
             </Button>
           </div>
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-2xs text-ink-faint">
             At least 12 characters. Copy it before saving — it is not shown again.
           </p>
         </div>
 
         {user !== null && user.authSource !== 'local' && (
-          <p className="rounded border border-state-pending/40 bg-state-pending/10 p-2 text-[11px] text-state-pending">
+          <p className="rounded border border-state-pending/40 bg-state-pending/10 p-2 text-2xs text-state-pending">
             This account is authenticated by {user.authSource}. Setting a local password here will
             not change what the directory accepts, and may not let them in at all.
           </p>
@@ -746,7 +744,7 @@ function UserDetailDialog({ id, onClose }: { id: string | null; onClose: () => v
             <span title={absolute(user.data.createdAt)}>{ago(user.data.createdAt)}</span>
           </Detail>
           <Detail label="Identifier">
-            <span className="font-mono text-[11px] text-ink-muted">{user.data.id}</span>
+            <span className="font-mono text-2xs text-ink-muted">{user.data.id}</span>
           </Detail>
         </dl>
       )}
@@ -879,7 +877,7 @@ function ConfirmRoleChange({
         </>
       }
     >
-      <div className="space-y-2 text-[11px]">
+      <div className="space-y-2 text-2xs">
         {gained.length === 0 && lost.length === 0 ? (
           <p className="text-ink-muted">
             These two roles grant exactly the same permissions, so nothing about what{' '}
@@ -905,7 +903,7 @@ function ConfirmRoleChange({
         )}
 
         {losesAdministration && (
-          <p role="alert" className="text-[11px] text-state-failed">
+          <p role="alert" className="text-2xs text-state-failed">
             {'This removes administrative access. If they are the last person who can administer '}
             {'this deployment, the change will be refused rather than applied.'}
           </p>
@@ -937,7 +935,7 @@ function PermissionDelta({
             <span className="text-ink">
               {PERMISSION_CATALOG[permission]?.summary ?? permission}
             </span>{' '}
-            <span className="font-mono text-[10px] text-ink-faint">{permission}</span>
+            <span className="font-mono text-3xs text-ink-faint">{permission}</span>
           </li>
         ))}
       </ul>

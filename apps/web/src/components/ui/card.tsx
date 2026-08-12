@@ -49,9 +49,7 @@ export function CardDescription({
   className,
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return (
-    <p className={cn('mt-0.5 max-w-prose text-[11px] text-ink-muted', className)} {...props} />
-  );
+  return <p className={cn('mt-0.5 max-w-prose text-2xs text-ink-muted', className)} {...props} />;
 }
 
 /**

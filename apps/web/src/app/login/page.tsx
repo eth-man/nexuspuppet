@@ -123,7 +123,7 @@ export default function LoginPage() {
             className="mb-4 rounded border border-state-pending/40 bg-state-pending/10 p-2.5"
           >
             <p className="text-xs font-medium text-state-pending">API unreachable</p>
-            <p className="mt-0.5 font-mono text-[11px] text-state-pending/80">{modeError}</p>
+            <p className="mt-0.5 font-mono text-2xs text-state-pending/80">{modeError}</p>
           </div>
         )}
 
@@ -193,7 +193,7 @@ export default function LoginPage() {
               // reads as two ways to do the same thing.
               <div className="mb-3 flex items-center gap-2" aria-hidden>
                 <span className="h-px flex-1 bg-line-soft" />
-                <span className="text-[10px] uppercase tracking-wider text-ink-faint">or</span>
+                <span className="text-3xs uppercase tracking-wider text-ink-faint">or</span>
                 <span className="h-px flex-1 bg-line-soft" />
               </div>
             )}
@@ -232,14 +232,14 @@ export default function LoginPage() {
             <p className="text-xs text-state-failed">
               This deployment has no way to sign in configured.
             </p>
-            <p className="mt-1 text-[11px] text-ink-faint">
+            <p className="mt-1 text-2xs text-ink-faint">
               Nothing is registered to authenticate against. An operator has to restore a provider
               on the host.
             </p>
           </div>
         )}
 
-        <p className="mt-3 text-center text-[11px] text-ink-faint">
+        <p className="mt-3 text-center text-2xs text-ink-faint">
           Sessions are held in HttpOnly cookies and refresh automatically.
         </p>
       </div>
