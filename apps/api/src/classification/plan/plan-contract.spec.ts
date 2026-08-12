@@ -1,4 +1,8 @@
-import { assignClassSchema, planRequestSchema } from '@nexuspuppet/contracts';
+import {
+  assignClassSchema,
+  planRequestSchema,
+  updateNodeGroupSchema,
+} from '@nexuspuppet/contracts';
 
 /**
  * The plan must accept exactly what the write accepts — no more.
@@ -75,5 +79,47 @@ describe('plan contract: remove-class', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * The write has accepted `strategy` since groups existed; the plan did not.
+ *
+ * That is the LESS permissive direction, which fails quietly rather than
+ * loudly: the preview parsed, dropped the field, and forecast the change
+ * without it. An operator switching a group from PINNED to ALL_RULES would have
+ * been shown the node set of the strategy they were leaving.
+ *
+ * It never surfaced because the console had no strategy control at all, so the
+ * field was unreachable — the missing UI hid the divergence rather than
+ * excusing it.
+ */
+describe('plan contract: update-group', () => {
+  const planUpdate = (patch: Record<string, unknown>) =>
+    planRequestSchema.safeParse({ operation: 'update-group', groupId: GROUP, ...patch }).success;
+
+  const writeUpdate = (patch: Record<string, unknown>) =>
+    updateNodeGroupSchema.safeParse(patch).success;
+
+  describe.each([
+    [{ strategy: 'ALL_RULES' }, true],
+    [{ strategy: 'ANY_RULE' }, true],
+    [{ strategy: 'PINNED' }, true],
+    [{ strategy: 'SOMETIMES' }, false],
+    [{ strategy: 'all_rules' }, false],
+  ])('%o', (patch, expected) => {
+    it(`is ${expected ? 'accepted' : 'rejected'} by the plan`, () => {
+      expect(planUpdate(patch)).toBe(expected);
+    });
+
+    it('is treated identically by both', () => {
+      expect(planUpdate(patch)).toBe(writeUpdate(patch));
+    });
+  });
+
+  it('still allows an update that does not mention strategy', () => {
+    // Every field is optional; a rank-only edit must not be forced to restate
+    // the strategy it is not changing.
+    expect(planUpdate({ rank: 50 })).toBe(true);
   });
 });

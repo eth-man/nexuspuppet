@@ -488,7 +488,7 @@ describe('classification plan (integration)', () => {
         certnames: ['node0.test'],
       });
 
-      expect(plan.warnings.join(' ')).toContain('matches by rule');
+      expect(plan.warnings.join(' ')).toContain('strategy is ALL_RULES');
     });
 
     it('does not warn when the pin lands on a PINNED group', async () => {
