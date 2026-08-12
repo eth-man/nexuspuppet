@@ -1,6 +1,6 @@
 {
   "name": "@nexuspuppet/api",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "NexusPuppet API — business logic, PuppetDB proxy, ENC materializer",
   "license": "Apache-2.0",
   "private": true,
