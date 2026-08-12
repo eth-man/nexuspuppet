@@ -2,6 +2,38 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-08-13
+
+Assigning a class stops being an act of memory. NexusPuppet can now read the class list from puppetserver and offer it, with each class's parameters, types and defaults (ADR-0024). Optional, off by default, and it degrades to exactly today's behaviour when unreachable. No migrations.
+
+### Added
+
+**The class list, read from puppetserver (ADR-0024).** `PUPPETSERVER_URL` enables a read-only client against `/puppet/v3/environment_classes`. The class name field suggests what exists; a class whose signature we have gets a real form — required parameters marked, `Enum` types rendered as a select with their own options, defaults shown. Assigning a class was previously two acts of memory: the name, and its parameter names. A typo in either is not a validation message — `node_terminus = exec` has no fallback to `site.pp`, so a class that does not exist fails catalog compilation for every node the group matches.
+
+**This is not the dependency ADR-0003 forbids.** That rule is directional: nothing may make *Puppet* depend on *NexusPuppet* at runtime. This reads *from* puppetserver, out of band, and every part of it degrades to free text when unavailable. Agent runs are unaffected either way — the compile path is still `cat` on a local file.
+
+**It cannot block a write.** No `PUPPETSERVER_URL` is silent and identical to before. A 403 — the usual case, since the endpoint is denied by default even to puppetserver's own certificate — falls back to free text and names the `auth.conf` rule to add. A timeout, a 50x, an unknown class, a parameter the form cannot express: all still assignable, with **Edit as JSON** reachable for every class at all times.
+
+**Defaults are placeholders, never values.** Prefilling a class's default as a real value would send it back as an override — pinning the module's own default into every document the group produces, and freezing it so it stops tracking the module when that default later changes. A blank field means "let the class decide" and produces no key at all.
+
+**Per-environment, and it says so.** The cache is keyed by environment and the picker is scoped to the environment that group will actually use. Showing `production`'s classes to a group pinned to `development` is wrong in the way hardest to notice: every name is real, just not there, and the failure surfaces later as a compile error.
+
+**A Refresh that tells the truth.** An operator who has just deployed code can discard the cache and refetch. If the refetch returns an identical list, the console says so and names the likely cause — with `environment-class-cache-enabled` set, puppetserver serves its own cached classes until r10k flushes its environment cache. Flushing it is a mutation this ADR forbids us, so the honest move is to explain rather than appear broken.
+
+### Changed
+
+**The match strategy is editable after a group is created.** It was a read-only badge, so a group created as `PINNED` could never become rule-based — and the warning told operators to "switch the strategy to ALL_RULES", which the console offered no way to do. The plan contract had drifted the same way and would have previewed such a change against the node set of the strategy being left behind.
+
+**Setting up the ENC is one command.** `scripts/setup-enc.sh` replaces the manual walkthrough: it checks the host, installs the puller and the ENC script, and proves the script serves a node before `--wire` puts it on the catalog compile path. `--remote` runs the whole thing over the operator's own SSH session, so there is nothing to clone on the Puppet server, and it leaves no key behind.
+
+### Fixed
+
+**Warnings about inert configuration name the strategy, not the membership.** "This group matches by pinned node" was read as "there are still pinned nodes" by an operator who had just deleted every pin. They also agree in the singular.
+
+**`apps/web` has unit tests.** It had none; pure frontend logic was reachable only through the browser suite.
+
+> Releases 1.5.2–1.5.13 are recorded in the GitHub releases rather than here.
+
 ## [1.4.0] — 2026-08-06
 
 Classification learns to reach a puppetserver on another host (ADR-0019), and the first real ENC round-trip is done: a class assigned from the console reached a live agent's catalog. One migration, `enc_replication_peers`.
