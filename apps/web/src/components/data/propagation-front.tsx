@@ -101,16 +101,38 @@ function Body({ front }: { front: Front }) {
           />
         )}
         <Arrow />
-        <Stage
-          label="compiled"
-          value={`${String(front.compiled.current)}/${String(front.compiled.total)}`}
-          tone={
-            front.compiled.total > 0 && front.compiled.current === front.compiled.total
-              ? 'ok'
-              : 'working'
-          }
-        />
+        {/*
+          NOTHING HAS EVER REPORTED IS NOT A STALLED ROLLOUT.
+          Receipts need the ENC wired into puppet.conf and the collector timer
+          on the Puppet server (§6). Until both exist, no node can report — and
+          rendering that as `0/2` with an empty progress bar reads as a rollout
+          that has got nowhere, which is a different and alarming claim.
+          Distinguished by `reported`, which counts nodes that have EVER sent
+          one, rather than nodes on the current revision.
+        */}
+        {front.compiled.reported === 0 ? (
+          <Stage label="compiled" value="not reported" tone="muted" />
+        ) : (
+          <Stage
+            label="compiled"
+            value={`${String(front.compiled.current)}/${String(front.compiled.total)}`}
+            tone={
+              front.compiled.total > 0 && front.compiled.current === front.compiled.total
+                ? 'ok'
+                : 'working'
+            }
+          />
+        )}
       </div>
+
+      {front.compiled.reported === 0 && (
+        <p className="text-[11px] text-ink-muted">
+          No node has reported a compile yet. Receipts need the ENC script wired into{' '}
+          <span className="font-mono">puppet.conf</span> and{' '}
+          <span className="font-mono">nexuspuppet-receipts.timer</span> installed on your Puppet
+          server — until then this stage cannot fill, and that is not a fault.
+        </p>
+      )}
 
       {/* Progress, not a gauge of health — deliberately unlabelled by colour. */}
       <div
@@ -167,6 +189,11 @@ function Body({ front }: { front: Front }) {
  * older classification — which points at a Puppet server, not at the node.
  */
 function Outstanding({ front }: { front: Front }) {
+  // Every node is "outstanding" when none can report. Listing them all would
+  // be a wall of names that means only "the feature is not set up", which the
+  // line above already says better.
+  if (front.compiled.reported === 0) return null;
+
   if (front.outstandingTotal === 0) {
     return (
       <p className="text-[11px] text-ink-muted">
