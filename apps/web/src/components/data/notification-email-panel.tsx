@@ -30,6 +30,7 @@ type Form = {
   host: string;
   port: string;
   encryption: NotificationEmailSettings['encryption'];
+  rejectUnauthorized: boolean;
   username: string;
   from: string;
   to: string;
@@ -39,6 +40,7 @@ const BLANK: Form = {
   host: '',
   port: '587',
   encryption: 'starttls',
+  rejectUnauthorized: true,
   username: '',
   from: '',
   to: '',
@@ -75,6 +77,7 @@ export function NotificationEmailPanel() {
             host: config.host,
             port: String(config.port),
             encryption: config.encryption,
+            rejectUnauthorized: config.rejectUnauthorized ?? true,
             username: config.username ?? '',
             from: config.from,
             to: config.to,
@@ -103,7 +106,7 @@ export function NotificationEmailPanel() {
     encryption: form.encryption,
     from: form.from,
     to: form.to,
-    rejectUnauthorized: stored.data.config?.rejectUnauthorized ?? true,
+    rejectUnauthorized: form.rejectUnauthorized,
     timeoutMs: stored.data.config?.timeoutMs ?? 10_000,
     ...(form.username === '' ? {} : { username: form.username }),
     ...(password === '' ? {} : { password }),
@@ -182,6 +185,43 @@ export function NotificationEmailPanel() {
                 )}
               </Field>
             </FieldRow>
+
+            {/*
+              Only where TLS happens. With encryption `none` there is no
+              certificate to accept or reject, and offering the choice would
+              imply otherwise.
+
+              It exists at all because on-prem relays with self-signed
+              certificates are ordinary, and an operator with no way to accept
+              one reaches for `none` instead — which drops the encryption
+              entirely rather than just the identity check. This is the smaller
+              concession, so it is the one the console offers.
+            */}
+            {form.encryption !== 'none' && (
+              <FieldRow>
+                <Field
+                  className="min-w-52 flex-1"
+                  label="Relay certificate"
+                  hint={
+                    <InfoHint
+                      label="About relay certificates"
+                      text="Accepting an unverified certificate still encrypts the connection — it stops checking who is on the other end. That is a reasonable trade on a relay you control on your own network, and a bad one across anything you do not."
+                    />
+                  }
+                >
+                  {(id) => (
+                    <Select
+                      id={id}
+                      value={form.rejectUnauthorized ? 'verify' : 'accept'}
+                      onChange={(e) => field('rejectUnauthorized', e.target.value === 'verify')}
+                    >
+                      <option value="verify">Verify (recommended)</option>
+                      <option value="accept">Accept self-signed</option>
+                    </Select>
+                  )}
+                </Field>
+              </FieldRow>
+            )}
 
             <FieldRow>
               <Field className="min-w-52 flex-1" required label="From address">
