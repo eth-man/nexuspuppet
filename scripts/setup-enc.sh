@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+# Wire this Puppet server to a NexusPuppet ENC. Run it ON the Puppet server.
+#
+#   ./setup-enc.sh --origin https://nexuspuppet.example.com:8443            # check + install
+#   ./setup-enc.sh --origin https://nexuspuppet.example.com:8443 --wire     # and edit puppet.conf
+#   ./setup-enc.sh --check --origin https://nexuspuppet.example.com:8443    # check only
+#
+# WHY THIS EXISTS. DEPLOYMENT.md §6 is 500 lines and 34 commands across two
+# hosts, and it is a reference — it explains why at every turn, which is what you
+# want during an incident and not what you want on a Tuesday afternoon.
+#
+# WHY IT CANNOT BE ONE COMMAND FROM THE CONSOLE. Nothing may make Puppet depend
+# on NexusPuppet at runtime (ADR-0003), so there is no channel from the console
+# into this host and there never will be. The Puppet-server half is yours to run.
+# This makes that half one command instead of a dozen.
+#
+# WHAT IT WILL NOT DO WITHOUT --wire. Editing puppet.conf is the step that puts
+# an ENC on the catalog compile path for every node. If the tree is ever missing
+# the ENC script exits non-zero, and the `exec` terminus has NO fallback to
+# site.pp — compilation fails. So that edit is opt-in, after the checks pass, and
+# it backs the file up first.
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+ORIGIN=""
+CHECK_ONLY=""
+WIRE=""
+RECEIPTS=""
+ENC_DIR="/etc/puppetlabs/nexuspuppet"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --origin) ORIGIN="${2:-}"; shift 2 ;;
+        --check) CHECK_ONLY=yes; shift ;;
+        --wire) WIRE=yes; shift ;;
+        --receipts) RECEIPTS=yes; shift ;;
+        -h | --help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+bad() { printf '  \033[31m✗\033[0m %s\n' "$*"; FAILED=$((FAILED + 1)); }
+note() { printf '      %s\n' "$*"; }
+die() { printf '\n\033[31mFAILED:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Update one key in an env file, preserving every other line.
+#
+# NOT `printf ... > file`. Re-running this script is normal — after an upgrade,
+# to add --receipts, to point at a new origin — and a truncating write silently
+# drops settings the operator put there by hand. The co-located case is the one
+# that bites: NEXUSPUPPET_RECEIPTS_RESOLVE lives in this file and nothing else
+# recreates it, so clobbering it breaks receipts with no error anywhere.
+set_env_key() {
+    local file=$1 key=$2 value=$3 tmp
+    [ -e "$file" ] || : >"$file"
+    if grep -qE "^[[:space:]]*${key}=" "$file"; then
+        tmp=$(mktemp)
+        sed "s|^[[:space:]]*${key}=.*|${key}=${value}|" "$file" >"$tmp"
+        cat "$tmp" >"$file"
+        rm -f "$tmp"
+    else
+        printf '%s=%s\n' "$key" "$value" >>"$file"
+    fi
+}
+
+[ "$(id -u)" -eq 0 ] || die "run this with sudo — it installs into /usr/local/bin and /etc"
+
+# Puppet installs to /opt/puppetlabs/bin, which is NOT in sudo's secure_path on
+# Debian or Ubuntu. So under the sudo this script requires, `puppet` is not on
+# PATH even on a perfectly good Puppet server — and a bare `command -v puppet`
+# reports "no puppet on this host", which is wrong and sends you hunting.
+PUPPET=$(command -v puppet 2>/dev/null || true)
+if [ -z "$PUPPET" ]; then
+    for candidate in /opt/puppetlabs/bin/puppet /usr/local/bin/puppet /usr/bin/puppet; do
+        [ -x "$candidate" ] && PUPPET="$candidate" && break
+    done
+fi
+[ -n "$PUPPET" ] || die "no puppet binary found (checked PATH and /opt/puppetlabs/bin).
+       Run this ON the Puppet server."
+
+CERTNAME=$("$PUPPET" config print certname 2>/dev/null || hostname -f)
+SSL_DIR=$("$PUPPET" config print ssldir --section server 2>/dev/null || echo /etc/puppetlabs/puppet/ssl)
+
+# ---------------------------------------------------------------------------
+# Checks first, always. Every one corresponds to a way this goes wrong that is
+# invisible until agents start failing.
+# ---------------------------------------------------------------------------
+FAILED=0
+step "Checking this host"
+
+# THE ONE THAT COSTS AN INSTALLATION. Puppet Enterprise runs a classifier of its
+# own; node_terminus names exactly one, so wiring an ENC REPLACES it and PE's
+# own classes stop being applied to every node, including its infrastructure.
+terminus=$("$PUPPET" config print node_terminus --section server 2>/dev/null || echo unknown)
+if [ "$terminus" = "classifier" ]; then
+    bad "node_terminus is 'classifier' — Puppet Enterprise is classifying this estate"
+    note "wiring this ENC REPLACES PE's classifier. Its own classes, including the"
+    note "infrastructure groups it created at install, stop being applied to every"
+    note "node. Do not continue without reading DEPLOYMENT.md §6."
+elif [ "$terminus" = "exec" ]; then
+    ok "node_terminus is already 'exec'"
+    note "external_nodes = $("$PUPPET" config print external_nodes --section server 2>/dev/null || echo '?')"
+else
+    ok "node_terminus is '${terminus}' — no classifier to displace"
+fi
+
+# Labelled, not basenamed: the certificate and the private key are both
+# <certname>.pem and differ only by directory, so a basename prints the same
+# line twice and tells you nothing about which one is missing.
+check_ssl_file() {
+    if [ -r "${SSL_DIR}/$1" ]; then
+        ok "$2 present"
+    else
+        bad "missing $2 — ${SSL_DIR}/$1"
+        note "this host's own agent certificate is what authenticates it to the origin"
+    fi
+}
+check_ssl_file "certs/${CERTNAME}.pem" "certificate"
+check_ssl_file "private_keys/${CERTNAME}.pem" "private key"
+check_ssl_file "certs/ca.pem" "CA certificate"
+
+# A separate flag rather than blanking ORIGIN: blanking it makes the reachability
+# branch below fall through to "no --origin given", which is false — one mistake
+# reported as two failures, the second of them wrong.
+ORIGIN_USABLE=""
+if [ -z "$ORIGIN" ]; then
+    bad "no --origin given"
+    note "  --origin https://<nexuspuppet-host>:8443"
+else
+    case "$ORIGIN" in
+        https://*) ORIGIN_USABLE=yes ;;
+        http://*)
+            bad "--origin is http:// — the tree is served over mTLS only"
+            note "  --origin https://<nexuspuppet-host>:8443"
+            ;;
+        *)
+            bad "--origin must begin with https:// (got '${ORIGIN}')"
+            note "  --origin https://<nexuspuppet-host>:8443"
+            ;;
+    esac
+fi
+
+if [ -n "$ORIGIN_USABLE" ]; then
+    err=$(mktemp)
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+        --cert "${SSL_DIR}/certs/${CERTNAME}.pem" \
+        --key "${SSL_DIR}/private_keys/${CERTNAME}.pem" \
+        --cacert "${SSL_DIR}/certs/ca.pem" \
+        "${ORIGIN}/enc-tree.tar" 2>"$err") || true
+    [ -n "$code" ] || code=000
+    case "$code" in
+        200) ok "the origin served the tree to ${CERTNAME}" ;;
+        403)
+            bad "the origin refused ${CERTNAME} (403)"
+            note "add it to ENC_REPLICATION_ALLOWED_CERTNAMES on the NexusPuppet host:"
+            note "  echo 'ENC_REPLICATION_ALLOWED_CERTNAMES=${CERTNAME}' >> .env && ./scripts/deploy.sh"
+            ;;
+        000)
+            detail=$(head -1 "$err" 2>/dev/null)
+            bad "could not reach ${ORIGIN}"
+            [ -n "$detail" ] && note "${detail}"
+            note "is ENC_REPLICATION_ENABLED=true there, and 8443 open from this host?"
+            ;;
+        *) bad "the origin answered HTTP ${code}" ;;
+    esac
+    rm -f "$err"
+fi
+
+for f in nexuspuppet-sync.sh nexuspuppet-enc.sh; do
+    if [ -r "./${f}" ]; then
+        ok "${f} found beside this script"
+    else
+        bad "${f} is not in $(pwd)"
+    fi
+done
+
+# The units are a directory up, in the repo. Checked HERE rather than at install
+# time: a missing unit only shows up as `systemctl start` failing with "unit not
+# found", long after the script has reported progress and started changing things.
+UNIT_DIR="../deploy/systemd"
+if [ -d "$UNIT_DIR" ]; then
+    ok "systemd units found in ${UNIT_DIR}"
+else
+    bad "no ${UNIT_DIR} — run this from a repo checkout, not a directory of copied scripts"
+    note "  git clone https://github.com/eth-man/nexuspuppet && cd nexuspuppet/scripts"
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+    printf '\n\033[31m%s check(s) failed.\033[0m Nothing has been installed.\n\n' "$FAILED"
+    exit 1
+fi
+
+if [ -n "$CHECK_ONLY" ]; then
+    printf '\n\033[32mAll checks passed.\033[0m Run without --check to install.\n\n'
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Install. Nothing here touches the compile path yet.
+# ---------------------------------------------------------------------------
+puppet_user=$("$PUPPET" config print user --section server 2>/dev/null || echo puppet)
+puppet_group=$("$PUPPET" config print group --section server 2>/dev/null || echo puppet)
+
+step "Installing the puller"
+install -m 0755 ./nexuspuppet-sync.sh /usr/local/bin/nexuspuppet-sync.sh
+for unit in nexuspuppet-sync.service nexuspuppet-sync.timer; do
+    install -m 0644 "${UNIT_DIR}/${unit}" /etc/systemd/system/ \
+        || die "could not install ${unit} from ${UNIT_DIR}"
+done
+
+set_env_key /etc/default/nexuspuppet-sync NEXUSPUPPET_SYNC_URL "${ORIGIN}/enc-tree.tar"
+# Wrong or missing and receipts silently never appear — the ENC script may not
+# complain, because a catalog must never fail over bookkeeping. Written from what
+# Puppet reports rather than left to the `puppet` default, which is wrong on
+# Puppet Enterprise (`pe-puppet`).
+set_env_key /etc/default/nexuspuppet-sync NEXUSPUPPET_SYNC_RECEIPTS_GROUP "$puppet_group"
+ok "configured for ${ORIGIN}"
+
+# The shipped unit hardcodes SupplementaryGroups=puppet, which is how it reads a
+# 0640 puppet:puppet private key with CAP_DAC_OVERRIDE dropped. On Puppet
+# Enterprise that group is pe-puppet and the unit cannot read the key at all.
+if [ "$puppet_group" != "puppet" ]; then
+    mkdir -p /etc/systemd/system/nexuspuppet-sync.service.d
+    printf '[Service]\nSupplementaryGroups=%s\n' "$puppet_group" \
+        >/etc/systemd/system/nexuspuppet-sync.service.d/group.conf
+    ok "overrode the unit's group to ${puppet_group}"
+fi
+
+systemctl daemon-reload
+
+step "Fetching the tree"
+systemctl start nexuspuppet-sync.service || die "the first sync failed — journalctl -u nexuspuppet-sync"
+[ -f "${ENC_DIR}/default.yaml" ] || die "no ${ENC_DIR}/default.yaml after the sync.
+       The tree did not arrive. journalctl -u nexuspuppet-sync -n 30"
+ok "tree installed at ${ENC_DIR}"
+systemctl enable --now nexuspuppet-sync.timer >/dev/null 2>&1 || true
+ok "sync timer enabled"
+
+step "Installing the ENC script"
+install -m 0755 ./nexuspuppet-enc.sh /usr/local/bin/nexuspuppet-enc.sh
+ok "/usr/local/bin/nexuspuppet-enc.sh"
+
+# ---------------------------------------------------------------------------
+# THE GATE. This is exactly what puppetserver will run, as the user it runs as.
+# ---------------------------------------------------------------------------
+step "Serving a node, as puppetserver will"
+if out=$(sudo -u "$puppet_user" /usr/local/bin/nexuspuppet-enc.sh "$CERTNAME" 2>&1) \
+    && printf '%s' "$out" | head -1 | grep -q -- '---'; then
+    ok "valid YAML, exit 0"
+    printf '%s\n' "$out" | sed 's/^/      /' | head -6
+else
+    die "the ENC script did not serve ${CERTNAME}:
+$(printf '%s' "$out" | sed 's/^/       /')
+
+       puppet.conf has NOT been changed. Fix this first — with node_terminus
+       set to exec, this failure would fail catalog compilation for every node."
+fi
+
+if [ -n "$RECEIPTS" ]; then
+    step "Installing the receipts collector"
+    install -m 0755 ./nexuspuppet-receipts.sh /usr/local/bin/nexuspuppet-receipts.sh
+    for unit in nexuspuppet-receipts.service nexuspuppet-receipts.timer; do
+        install -m 0644 "${UNIT_DIR}/${unit}" /etc/systemd/system/ \
+            || die "could not install ${unit} from ${UNIT_DIR}"
+    done
+    set_env_key /etc/default/nexuspuppet-receipts NEXUSPUPPET_RECEIPTS_GROUP "$puppet_group"
+    systemctl daemon-reload
+    systemctl enable --now nexuspuppet-receipts.timer >/dev/null 2>&1 || true
+    ok "collector enabled — compiles will report back"
+fi
+
+# ---------------------------------------------------------------------------
+# The compile path. Opt-in, and reversible.
+# ---------------------------------------------------------------------------
+CONF=$("$PUPPET" config print config --section server 2>/dev/null || echo /etc/puppetlabs/puppet/puppet.conf)
+
+if [ -z "$WIRE" ]; then
+    printf '\n\033[32mReady.\033[0m The tree is here and the ENC script serves it.\n\n'
+    # Re-running on an already-wired host is the normal upgrade path, and telling
+    # that operator "nothing classifies yet" is simply false.
+    if [ "$terminus" = "exec" ]; then
+        printf 'This server was already wired, and still is — puppet.conf was not touched.\n'
+        printf 'The scripts and the tree are now up to date.\n\n'
+    else
+        printf 'Nothing classifies through NexusPuppet yet. To make it, add to %s:\n\n' "$CONF"
+        printf '  [server]\n  node_terminus  = exec\n  external_nodes = /usr/local/bin/nexuspuppet-enc.sh\n\n'
+        printf 'then restart puppetserver. Or re-run this with --wire to do both.\n'
+        printf 'Verify with one node before the fleet:  puppet agent -t --noop\n\n'
+    fi
+    exit 0
+fi
+
+step "Wiring ${CONF}"
+cp -a "$CONF" "${CONF}.bak.$(date +%Y%m%d%H%M%S)"
+ok "backed up"
+
+# `[server]`, not `[master]`. Puppet 8 renamed the section; the old name is a
+# deprecated alias that still works and gives no hint it is obsolete.
+"$PUPPET" config set node_terminus exec --section server
+"$PUPPET" config set external_nodes /usr/local/bin/nexuspuppet-enc.sh --section server
+ok "node_terminus = exec"
+
+systemctl restart puppetserver || die "puppetserver did not restart — restore ${CONF}.bak.* and try again"
+ok "puppetserver restarted"
+
+printf '\n\033[32mWired.\033[0m NexusPuppet is now classifying this estate.\n\n'
+printf '  Verify on ONE node before trusting the fleet:\n    puppet agent -t --noop\n\n'
+printf '  With no node groups defined, every node gets default.yaml — an empty\n'
+printf '  classification. That is additive: site.pp and hiera keep applying.\n\n'
+printf '  To undo: restore %s.bak.* and restart puppetserver.\n\n' "$CONF"

@@ -254,6 +254,11 @@ jobs:
       - name: Shellcheck
         run: shellcheck -s sh scripts/nexuspuppet-enc.sh scripts/nexuspuppet-sync.sh scripts/nexuspuppet-receipts.sh scripts/test/*.sh
 
+      # bash, not sh: setup-enc.sh is an operator tool run interactively with an
+      # explicit bash shebang, not something puppetserver invokes through dash.
+      - name: Shellcheck the ENC setup script
+        run: shellcheck -s bash scripts/setup-enc.sh
+
       # dash, not bash: puppetserver invokes the ENC script through /bin/sh, and
       # on Debian and Ubuntu that is dash. A bashism here would pass every local
       # run and fail on the estate.
