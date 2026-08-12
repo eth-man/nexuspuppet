@@ -77,6 +77,7 @@ marker="${RECEIPTS_DIR}/.collector"
 # Under /run so it clears on reboot: "once" means once per boot, and a stale
 # announcement should not outlive the thing it described.
 announced="${NEXUSPUPPET_SYNC_ANNOUNCE_FILE:-/run/nexuspuppet-sync.collector-announced}"
+pe_warned="${NEXUSPUPPET_SYNC_PE_WARN_FILE:-/run/nexuspuppet-sync.pe-warned}"
 
 log() { echo "nexuspuppet-sync: $*" >&2; }
 die() { log "$*"; exit 1; }
@@ -118,6 +119,36 @@ ${CONFIG} to the group puppetserver runs as (pe-puppet on Puppet Enterprise)."
         log "warning: cannot set permissions on ${RECEIPTS_DIR}; compile receipts are disabled"
         return 1
     }
+}
+
+# Puppet Enterprise runs a classifier of its own, and this integration replaces
+# it (DEPLOYMENT.md §6).
+#
+# `node_terminus` names exactly one classifier, so pointing it at the ENC script
+# is a SWAP, not an addition: PE's own classes — pe_repo, agent configuration,
+# the infrastructure groups it created at install — stop being applied to every
+# node, including PE's own. Nothing announces that; catalogs keep compiling and
+# quietly lose their PE classification.
+#
+# So this says it out loud on the host where the mistake is made. Once per boot,
+# because a timer firing every five minutes would otherwise print it 288 times a
+# day and teach everyone to ignore it.
+#
+# `puppet config print` forks a Ruby process, which is why this is gated behind
+# the marker and why it is HERE and never in nexuspuppet-enc.sh — that script is
+# on the catalog compile path for every node and must stay a shell and a `cat`.
+warn_if_puppet_enterprise() {
+    [ -e "$pe_warned" ] && return 0
+    command -v puppet >/dev/null 2>&1 || return 0
+
+    terminus=$(puppet config print node_terminus --section server 2>/dev/null) || return 0
+    [ "$terminus" = "classifier" ] || return 0
+
+    : >"$pe_warned" 2>/dev/null || true
+    log "WARNING: node_terminus is 'classifier', which means Puppet Enterprise is \
+classifying this estate. Setting it to 'exec' for NexusPuppet REPLACES that — PE's own \
+classes, including its infrastructure groups, stop being applied. See DEPLOYMENT.md §6 \
+before changing it."
 }
 
 # Whether nexuspuppet-receipts.sh is handling these instead (ADR-0022 §15).
@@ -281,6 +312,8 @@ mkdir -p "${STATE_DIR}/trees"
 etag_file="${STATE_DIR}/etag"
 previous_etag=''
 [ -r "$etag_file" ] && previous_etag=$(cat "$etag_file")
+
+warn_if_puppet_enterprise
 
 work=$(mktemp -d "${STATE_DIR}/.sync.XXXXXX")
 # Runs on every exit path, including the error ones. A failed sync must not
