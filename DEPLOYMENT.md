@@ -1248,6 +1248,26 @@ node_terminus  = exec
 external_nodes = /usr/local/bin/nexuspuppet-enc.sh
 ```
 
+> **DO NOT DO THIS ON PUPPET ENTERPRISE.** PE ships its own node classifier —
+> `node_terminus = classifier`, backed by the PE console — and that classifier
+> is how PE manages *itself*: `pe_repo`, agent configuration, the infrastructure
+> node groups it created at install time. Pointing `node_terminus` at this ENC
+> replaces it wholesale, and those classes stop being applied to every node
+> including PE's own infrastructure.
+>
+> There is no merge between the two. `node_terminus` names exactly one
+> classifier, so this is a swap, not an addition.
+>
+> Open-source Puppet and OpenVox have **no** built-in classifier — the default is
+> `plain`, and classification comes from `site.pp` and hiera, which continue to
+> apply alongside an ENC. That is the case this guide is written for. Check
+> which you have before touching the setting:
+>
+> ```bash
+> puppet config print node_terminus --section server   # `classifier` means PE
+> dpkg -l | grep -c '^ii  pe-'                          # non-zero means PE
+> ```
+
 > **`[server]`, not `[master]`.** Puppet 8 and OpenVox 8 renamed the section.
 > `[master]` is still honoured as a deprecated alias, so a hand-edit using the
 > old name works and gives no hint that it is obsolete — and `puppet config set
