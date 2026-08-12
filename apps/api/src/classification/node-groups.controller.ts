@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -29,6 +30,7 @@ import {
   type SetParameter,
   type UpdateNodeGroup,
   type FactPathIndex,
+  type ClassIndex,
   planRequestSchema,
   type PlanRequest,
   type PlanResponse,
@@ -39,6 +41,7 @@ import { UuidParam } from '../common/uuid-param';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { ClassificationPlanner } from './plan/classification-planner.service';
 import { ConflictReportService } from './conflict-report.service';
+import { EnvironmentClassesService } from '../puppetserver/environment-classes.service';
 import { ClassificationService, type AuditContext } from './classification.service';
 
 /**
@@ -201,6 +204,7 @@ export class MaterializationController {
     private readonly classification: ClassificationService,
     private readonly planner: ClassificationPlanner,
     private readonly conflicts: ConflictReportService,
+    private readonly environmentClasses: EnvironmentClassesService,
   ) {}
 
   /**
@@ -230,6 +234,38 @@ export class MaterializationController {
   @Get('fact-paths')
   factPaths(): Promise<FactPathIndex> {
     return this.classification.listFactPaths();
+  }
+
+  /**
+   * Classes available to assign, for one environment (ADR-0024).
+   *
+   * ALWAYS 200. Every failure — no `PUPPETSERVER_URL`, a missing `auth.conf`
+   * rule, a timeout, a broken manifest — is a `status` and a `message` in the
+   * body, never an HTTP error. This is a suggestion source, and a suggestion
+   * source that can fail a request would be able to block a classification
+   * write, which §9 forbids.
+   *
+   * `environment` is a query parameter rather than deployment config because
+   * classes differ per environment and a group may set its own. The caller
+   * passes the environment THAT GROUP will use; showing production's classes to
+   * a development group is wrong in the way hardest to notice (§7).
+   *
+   * `refresh=true` discards the cached entry and refetches — the operator has
+   * just deployed code and wants to classify it now (§8).
+   *
+   * Read permission, like fact-paths: an operator choosing a class needs to see
+   * what exists without being able to change anything.
+   */
+  @RequirePermission('classification:read')
+  @Get('class-names')
+  classNames(
+    @Query('environment') environment?: string,
+    @Query('refresh') refresh?: string,
+  ): Promise<ClassIndex> {
+    // Undefined is passed through deliberately: the service owns the default,
+    // so a group that inherits its environment and one that names it explicitly
+    // resolve through the same path.
+    return this.environmentClasses.index(environment, refresh === 'true');
   }
 
   /**

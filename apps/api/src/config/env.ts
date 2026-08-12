@@ -121,6 +121,39 @@ export const envSchema = z.object({
   PUPPETDB_KEY_PATH: z.string().min(1),
   PUPPETDB_CA_PATH: z.string().min(1),
   PUPPETDB_TIMEOUT_MS: durationMs(10_000),
+
+  /**
+   * ADR-0024 — reading the class list from puppetserver, for suggestions only.
+   *
+   * OPTIONAL, AND OFF WHEN UNSET. No client is constructed, no connection is
+   * attempted, and the class field behaves exactly as it did before the feature
+   * existed. An operator who does not want NexusPuppet talking to their Puppet
+   * server does nothing.
+   *
+   * Enabling it also needs an `auth.conf` rule on the Puppet server allowing
+   * this deployment's certname to GET /puppet/v3/environment_classes — the
+   * endpoint is denied by default, even to puppetserver's own certificate.
+   */
+  PUPPETSERVER_URL: z.string().url().optional(),
+  /**
+   * Defaults to the PuppetDB client certificate. It is signed by the Puppet CA
+   * and already trusted by puppetserver's TLS, so nothing new is issued,
+   * distributed or rotated.
+   */
+  PUPPETSERVER_CERT_PATH: z.string().min(1).optional(),
+  PUPPETSERVER_KEY_PATH: z.string().min(1).optional(),
+  PUPPETSERVER_CA_PATH: z.string().min(1).optional(),
+  /**
+   * Generous on purpose. Without `environment-class-cache-enabled` on the
+   * Puppet server, every fetch reparses the whole environment — a minutes
+   * operation on a large estate. Foreman's proxy allows up to 300s for the same
+   * call.
+   */
+  PUPPETSERVER_TIMEOUT_MS: durationMs(120_000),
+  /** How long a fetched class list is served before refetching (ADR-0024 §8). */
+  PUPPETSERVER_CLASS_CACHE_TTL_MS: durationMs(300_000),
+  /** Environment used when a group does not set one of its own. */
+  PUPPETSERVER_DEFAULT_ENVIRONMENT: z.string().min(1).default('production'),
   /**
    * Allow-list of facts projected into ManagedNode for rule evaluation.
    *

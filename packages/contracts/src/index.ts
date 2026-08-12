@@ -17,6 +17,7 @@ export * from './tokens';
 export * from './auth';
 export * from './enc';
 export * from './puppetdb';
+export * from './puppetserver';
 export * from './enterprise';
 export * from './classification';
 export * from './system';

@@ -29,6 +29,9 @@ import {
 } from './classification/node-groups.controller';
 import { ClassificationService } from './classification/classification.service';
 import { PuppetDbClient } from './puppetdb/puppetdb.client';
+import { PUPPETSERVER_CLIENT } from '@nexuspuppet/contracts';
+import { PuppetServerClient } from './puppetserver/puppetserver.client';
+import { EnvironmentClassesService } from './puppetserver/environment-classes.service';
 import { NodeProjectionService } from './puppetdb/node-projection.service';
 import { PosixEncStorage } from './materialization/posix-enc-storage';
 import { EncDocumentReader } from './materialization/enc-document-reader';
@@ -316,6 +319,11 @@ export class AppModule {
         AuditForwardingController,
       ],
       providers: [
+        // Class suggestions from puppetserver (ADR-0024). Both registered
+        // unconditionally; the client factory returns null when
+        // PUPPETSERVER_URL is unset, and the service reports `disabled`.
+        puppetServerProvider(env),
+        environmentClassesProvider(env),
         // Read-only view of the ENC tree for pullers (ADR-0019). Registered
         // unconditionally so the service is testable and injectable; whether a
         // listener is actually opened is main.ts's decision, from config.
@@ -754,6 +762,47 @@ function puppetDbProvider(env: Env): Provider {
         keyPath: env.PUPPETDB_KEY_PATH,
         caPath: env.PUPPETDB_CA_PATH,
         timeoutMs: env.PUPPETDB_TIMEOUT_MS,
+      }),
+  };
+}
+
+/**
+ * Class suggestions from puppetserver (ADR-0024).
+ *
+ * NOT a capability token, and deliberately absent rather than stubbed when
+ * PUPPETSERVER_URL is unset: `null` is the honest value for "the operator did
+ * not configure this", and EnvironmentClassesService reports `disabled` rather
+ * than pretending an empty class list is an answer.
+ *
+ * Certificates default to the PuppetDB pair, which is already signed by the
+ * Puppet CA and already trusted by puppetserver — nothing new to issue or
+ * rotate. Reaching the endpoint still requires an auth.conf rule on the Puppet
+ * server, which is the operator's opt-in and cannot be granted from here.
+ */
+function puppetServerProvider(env: Env): Provider {
+  return {
+    provide: PUPPETSERVER_CLIENT,
+    useFactory: (): PuppetServerClient | null => {
+      if (env.PUPPETSERVER_URL === undefined) return null;
+      return new PuppetServerClient({
+        baseUrl: env.PUPPETSERVER_URL,
+        certPath: env.PUPPETSERVER_CERT_PATH ?? env.PUPPETDB_CERT_PATH,
+        keyPath: env.PUPPETSERVER_KEY_PATH ?? env.PUPPETDB_KEY_PATH,
+        caPath: env.PUPPETSERVER_CA_PATH ?? env.PUPPETDB_CA_PATH,
+        timeoutMs: env.PUPPETSERVER_TIMEOUT_MS,
+      });
+    },
+  };
+}
+
+function environmentClassesProvider(env: Env): Provider {
+  return {
+    provide: EnvironmentClassesService,
+    inject: [PUPPETSERVER_CLIENT],
+    useFactory: (client: PuppetServerClient | null): EnvironmentClassesService =>
+      new EnvironmentClassesService(client, {
+        ttlMs: env.PUPPETSERVER_CLASS_CACHE_TTL_MS,
+        defaultEnvironment: env.PUPPETSERVER_DEFAULT_ENVIRONMENT,
       }),
   };
 }
