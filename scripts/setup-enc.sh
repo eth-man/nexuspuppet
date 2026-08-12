@@ -23,6 +23,21 @@
 # into this host and there never will be. The Puppet-server half is yours to run.
 # This makes that half one command instead of a dozen.
 #
+# YOU PROBABLY DO NOT WANT --receipts. Compile receipts already work without it
+# on a REPLICATED host: nexuspuppet-sync.sh creates the receipts directory and
+# hands the accumulated receipts over on each poll, deriving the URL from the
+# tree URL. Installing this script's puller is all it takes.
+#
+# --receipts installs nexuspuppet-receipts.sh, a separate collector, and is for
+# the CO-LOCATED case (ADR-0022 §15) where there is no sync config to carry
+# them. Passing it on a replicated host is not harmful but is redundant: the
+# collector stamps a marker, the sync script sees it and stands aside, and the
+# same work happens in a second timer instead of the one already running.
+#
+# This distinction cost real debugging time — `compiled 0/N` in the console was
+# read as "receipts are not installed" when it only ever meant "no agent has
+# compiled since the tree last changed". Agents run on their own schedule.
+#
 # WHAT IT WILL NOT DO WITHOUT --wire. Editing puppet.conf is the step that puts
 # an ENC on the catalog compile path for every node. If the tree is ever missing
 # the ENC script exits non-zero, and the `exec` terminus has NO fallback to
@@ -30,11 +45,19 @@
 # it backs the file up first.
 
 set -euo pipefail
+
+# Resolved BEFORE the cd, and absolute. After `cd $(dirname $0)` a relative $0
+# like scripts/setup-enc.sh no longer resolves from the new directory, which is
+# what silently broke --help when invoked from the repo root.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")"
 
 ORIGIN=""
 CHECK_ONLY=""
 WIRE=""
+# OFF BY DEFAULT, AND THAT IS CORRECT — see the note in the header. On a
+# replicated host nexuspuppet-sync.sh already carries receipts; this flag is for
+# the co-located case, which has no sync config to carry them.
 RECEIPTS=""
 REMOTE=""
 ENC_DIR="/etc/puppetlabs/nexuspuppet"
@@ -46,7 +69,15 @@ while [ $# -gt 0 ]; do
         --check) CHECK_ONLY=yes; shift ;;
         --wire) WIRE=yes; shift ;;
         --receipts) RECEIPTS=yes; shift ;;
-        -h | --help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        # Everything from line 2 to the blank line before `set -euo pipefail`,
+        # found rather than hardcoded — a fixed range silently truncates the help
+        # the moment the header grows, which is exactly how the receipts note
+        # went missing.
+        -h | --help)
+            sed -n "2,$(($(grep -n '^set -euo pipefail' "$SELF" | head -1 | cut -d: -f1) - 1))p" "$SELF" |
+                sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
