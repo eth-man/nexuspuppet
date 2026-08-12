@@ -5,6 +5,15 @@
 #   ./setup-enc.sh --origin https://nexuspuppet.example.com:8443 --wire     # and edit puppet.conf
 #   ./setup-enc.sh --check --origin https://nexuspuppet.example.com:8443    # check only
 #
+# Or drive it from your workstation, without cloning anything on the Puppet
+# server — it ships itself over your own SSH session and runs there:
+#
+#   ./setup-enc.sh --remote you@puppet.example.com \
+#                  --origin https://nexuspuppet.example.com:8443 --wire
+#
+# --remote writes no key and touches no authorized_keys. One interactive
+# session, and nothing left behind.
+#
 # WHY THIS EXISTS. DEPLOYMENT.md §6 is 500 lines and 34 commands across two
 # hosts, and it is a reference — it explains why at every turn, which is what you
 # want during an incident and not what you want on a Tuesday afternoon.
@@ -27,15 +36,17 @@ ORIGIN=""
 CHECK_ONLY=""
 WIRE=""
 RECEIPTS=""
+REMOTE=""
 ENC_DIR="/etc/puppetlabs/nexuspuppet"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --origin) ORIGIN="${2:-}"; shift 2 ;;
+        --remote) REMOTE="${2:-}"; shift 2 ;;
         --check) CHECK_ONLY=yes; shift ;;
         --wire) WIRE=yes; shift ;;
         --receipts) RECEIPTS=yes; shift ;;
-        -h | --help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h | --help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -66,7 +77,64 @@ set_env_key() {
     fi
 }
 
-[ "$(id -u)" -eq 0 ] || die "run this with sudo — it installs into /usr/local/bin and /etc"
+# ---------------------------------------------------------------------------
+# --remote: ship this script to the Puppet server and run it there.
+#
+# WHY THIS DOES NOT BREAK ADR-0003. That rule forbids the RUNNING PRODUCT from
+# depending on Puppet — the api container must never reach puppetserver while a
+# catalog compiles. This is an installer, driven by an operator at a terminal,
+# using that operator's own SSH credentials, once. Afterwards the compile path
+# is still `cat` on a local file with no NexusPuppet process in it.
+#
+# WHAT IT DELIBERATELY DOES NOT DO. It does not write a key, touch
+# authorized_keys, or leave anything behind that could be used again. A standing
+# root channel from the console host to the Puppet server would mean a
+# compromised console yields the whole estate — a far worse trade than the
+# convenience is worth. One interactive session, then nothing.
+# ---------------------------------------------------------------------------
+if [ -n "$REMOTE" ]; then
+    command -v ssh >/dev/null || die "--remote needs ssh on THIS machine"
+    command -v tar >/dev/null || die "--remote needs tar on THIS machine"
+    [ -d ../deploy/systemd ] || die "run --remote from a repo checkout — ../deploy/systemd is missing"
+
+    remote_args=""
+    [ -n "$ORIGIN" ] && remote_args="$remote_args --origin '$ORIGIN'"
+    [ -n "$CHECK_ONLY" ] && remote_args="$remote_args --check"
+    [ -n "$WIRE" ] && remote_args="$remote_args --wire"
+    [ -n "$RECEIPTS" ] && remote_args="$remote_args --receipts"
+
+    step "Copying the ENC scripts to ${REMOTE}"
+    stage=$(mktemp -d)
+    trap 'rm -rf "$stage"' EXIT
+    mkdir -p "$stage/scripts" "$stage/deploy"
+    cp ./setup-enc.sh ./nexuspuppet-sync.sh ./nexuspuppet-enc.sh ./nexuspuppet-receipts.sh "$stage/scripts/"
+    cp -r ../deploy/systemd "$stage/deploy/"
+
+    # Pushed as a tar stream over the same SSH session rather than scp'd file by
+    # file, so a half-copied payload cannot be run.
+    remote_dir=$(tar -cf - -C "$stage" . | ssh "$REMOTE" \
+        'd=$(mktemp -d /tmp/nexuspuppet-enc.XXXXXX) && tar -xf - -C "$d" \
+         && chmod +x "$d"/scripts/*.sh && printf %s "$d"') \
+        || die "could not copy to ${REMOTE} — check: ssh ${REMOTE} true"
+    [ -n "$remote_dir" ] || die "the copy to ${REMOTE} produced no working directory"
+    ok "copied"
+
+    # -t for a TTY: sudo on the far side may need to prompt for a password, and
+    # without a TTY that prompt never appears and the run simply hangs.
+    step "Running on ${REMOTE}"
+    printf '\n'
+    ssh -t "$REMOTE" \
+        "cd '${remote_dir}/scripts' && sudo ./setup-enc.sh${remote_args}; rc=\$?; rm -rf '${remote_dir}'; exit \$rc"
+    rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+        printf '\n\033[31mThe remote run failed (exit %s).\033[0m Nothing was left on %s.\n\n' "$rc" "$REMOTE"
+    fi
+    exit "$rc"
+fi
+
+[ "$(id -u)" -eq 0 ] || die "run this with sudo — it installs into /usr/local/bin and /etc
+       Or drive it from your workstation:  ./setup-enc.sh --remote you@puppet-server ..."
 
 # Puppet installs to /opt/puppetlabs/bin, which is NOT in sudo's secure_path on
 # Debian or Ubuntu. So under the sudo this script requires, `puppet` is not on

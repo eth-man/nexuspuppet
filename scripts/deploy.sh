@@ -498,3 +498,77 @@ else
     printf '            first-login password: grep BOOTSTRAP_ADMIN_PASSWORD .env\n'
     printf '            (if you have already changed it, that value is stale)\n'
 fi
+
+# ---------------------------------------------------------------------------
+# Classifying nodes is a second command on a second host. Offer to drive it.
+#
+# NOT because the console may reach into puppetserver — it may not, and does not
+# (ADR-0003). This offer runs `setup-enc.sh --remote`, which uses YOUR ssh
+# credentials from this terminal, once, and leaves no key and no channel behind.
+# Declining costs nothing: the same command is printed either way.
+# ---------------------------------------------------------------------------
+enc_enabled=$(grep -E '^ENC_REPLICATION_ENABLED=' .env | cut -d= -f2- || true)
+enc_peers=$(grep -E '^ENC_REPLICATION_ALLOWED_CERTNAMES=' .env | cut -d= -f2- || true)
+
+if [ "$enc_enabled" = "true" ] && [ -n "$enc_peers" ]; then
+    enc_port=$(grep -E '^ENC_REPLICATION_PORT=' .env | cut -d= -f2- || true)
+
+    # The listener presents the PuppetDB client certificate, so the origin URL
+    # has to use THAT certificate's CN. An IP or a convenient alias fails mTLS
+    # hostname verification on the puller with an error that reads like a
+    # certificate problem.
+    origin_cn=$(openssl x509 -in "${CERT_DIR}/client.pem" -noout -subject 2>/dev/null |
+        sed -n 's|.*CN *= *\([^,/]*\).*|\1|p' | tr -d ' ' || true)
+
+    printf '\n\033[1mTo classify nodes, one more command — on the Puppet server.\033[0m\n'
+    if [ -z "$origin_cn" ]; then
+        # Readable only by root here; say so rather than printing a URL that is
+        # probably wrong.
+        printf '  Could not read the certificate CN from %s/client.pem,\n' "$CERT_DIR"
+        printf '  so the origin URL below needs filling in by hand:\n\n'
+        printf '    ./scripts/setup-enc.sh --remote you@%s \\\n' "${enc_peers%%,*}"
+        printf '        --origin https://<this-host-certname>:%s --wire\n\n' "${enc_port:-8443}"
+    else
+        enc_origin="https://${origin_cn}:${enc_port:-8443}"
+        printf '    ./scripts/setup-enc.sh --remote you@%s \\\n' "${enc_peers%%,*}"
+        printf '        --origin %s --wire\n' "$enc_origin"
+        printf '\n  It ships itself over SSH — nothing to clone on that host — checks,\n'
+        printf '  installs, and proves the ENC serves a node before --wire puts it on\n'
+        printf '  the catalog compile path. DEPLOYMENT.md §6.\n'
+
+        # Only ask a human who is actually there. In CI, or piped, this block is
+        # silent and the command above is the whole message.
+        if [ -t 0 ] && [ -z "${NEXUSPUPPET_NONINTERACTIVE:-}" ]; then
+            printf '\n  Run it now over SSH? user@host, or Enter to skip: '
+            read -r enc_target || enc_target=""
+            if [ -n "$enc_target" ]; then
+                printf '  Put it on the catalog compile path too (--wire)? [y/N]: '
+                read -r enc_wire || enc_wire=""
+                printf '\n'
+                # Spelt out twice rather than assembled into "$@": that would
+                # clobber this script's own positional parameters, and an empty
+                # "$@" under `set -u` is an error on bash before 4.4.
+                #
+                # Not exec'd, and failure is not fatal: the console is up either
+                # way, and a failed ENC step must not report a failed deploy.
+                enc_rc=0
+                case "$enc_wire" in
+                    [yY]*)
+                        ./scripts/setup-enc.sh --remote "$enc_target" \
+                            --origin "$enc_origin" --wire || enc_rc=$?
+                        ;;
+                    *)
+                        ./scripts/setup-enc.sh --remote "$enc_target" \
+                            --origin "$enc_origin" || enc_rc=$?
+                        ;;
+                esac
+                if [ "$enc_rc" -eq 0 ]; then
+                    :
+                else
+                    printf '\n  The ENC setup did not complete, but NexusPuppet itself is running.\n'
+                    printf '  Re-run the command above once the reason is fixed.\n'
+                fi
+            fi
+        fi
+    fi
+fi

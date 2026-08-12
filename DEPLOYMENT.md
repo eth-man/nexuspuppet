@@ -87,19 +87,22 @@ PuppetDB (§3 — including the allowlist step people miss).
 ### Classifying nodes takes one more command, on the Puppet server
 
 The above gives you a read-only console. To have NexusPuppet actually classify
-nodes, run this **on the Puppet server**, from a checkout of this repo:
+nodes, enable the ENC listener in `.env` and re-run `deploy.sh` — it will then
+offer to set up your Puppet server over SSH, and print the command either way:
 
 ```bash
-sudo ./scripts/setup-enc.sh --origin https://nexuspuppet.example.com:8443 --wire
+./scripts/setup-enc.sh --remote you@puppet.example.com \
+    --origin https://nexuspuppet.example.com:8443 --wire
 ```
 
-It checks, installs the puller and the ENC script, proves the script serves a
-node, and only then puts it on the compile path. Drop `--wire` to stop before
-that last step. Full walkthrough in §6.
+It ships itself over your SSH session — nothing to clone on that host — checks,
+installs the puller and the ENC script, proves the script serves a node, and
+only then puts it on the compile path. Drop `--wire` to stop before that last
+step. It writes no key and leaves nothing behind. Full walkthrough in §6.
 
 It is a second command on a second host because nothing may make Puppet depend
-on NexusPuppet at runtime (ADR-0003) — there is no channel from the console into
-your Puppet server, by design.
+on NexusPuppet **at runtime** (ADR-0003). An installer you drive from a terminal
+is fine; the running console reaching into `puppetserver` is not.
 
 Everything below is the reference: what each decision means and what breaks when
 it is wrong. Read it when something does not fit, not to get started.
@@ -801,7 +804,19 @@ EOF
 ./scripts/deploy.sh
 ```
 
-Then on the **Puppet server**, from a checkout of this repo:
+`deploy.sh` then prints the exact next command, and — if you are at a terminal —
+offers to run it for you over SSH. Taking the offer is the whole of the rest of
+this section.
+
+If you would rather run it yourself, from **your workstation**, with nothing to
+clone on the Puppet server:
+
+```bash
+./scripts/setup-enc.sh --remote you@puppet.example.com \
+    --origin https://nexuspuppet.example.com:8443 --wire
+```
+
+Or **on the Puppet server** directly, from a checkout of this repo:
 
 ```bash
 cd nexuspuppet/scripts
@@ -809,6 +824,25 @@ sudo ./setup-enc.sh --check --origin https://nexuspuppet.example.com:8443   # lo
 sudo ./setup-enc.sh --origin https://nexuspuppet.example.com:8443           # install
 sudo ./setup-enc.sh --origin https://nexuspuppet.example.com:8443 --wire    # put it on the compile path
 ```
+
+### What `--remote` does, and what it deliberately does not
+
+It copies the ENC scripts and their systemd units to the Puppet server over
+**your own SSH session**, runs the same checks and installation there, and
+removes the copy afterwards — successful or not.
+
+It **writes no key, touches no `authorized_keys`, and leaves no channel behind.**
+This matters: a standing root credential from the console host to your Puppet
+server would mean that compromising the console yields the entire estate. That
+is a much worse trade than the convenience is worth, so the SSH access is yours,
+interactive, and gone when the command finishes.
+
+**This is not the runtime dependency ADR-0003 forbids.** That rule governs the
+running product: the API must never reach into `puppetserver` while a catalog
+compiles. `--remote` is an installer, driven by an operator, once. When it is
+done the compile path is still `cat` on a local file, with no NexusPuppet
+process in it — which is exactly what makes agent runs survive this console
+being down.
 
 `--check` verifies the certificates, that the origin will actually serve *this*
 certname, and that no other classifier is already installed. The plain run
