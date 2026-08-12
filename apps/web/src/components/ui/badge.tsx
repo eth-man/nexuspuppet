@@ -24,7 +24,7 @@ export function Badge({ className, ...props }: React.HTMLAttributes<HTMLSpanElem
     <span
       className={cn(
         'inline-flex items-center gap-1 rounded border px-1.5 py-0 leading-5',
-        'font-mono text-[10px] font-medium uppercase tracking-[0.08em]',
+        'font-mono text-3xs font-medium uppercase tracking-[0.08em]',
         'border-line bg-panel-raised text-ink-muted',
         className,
       )}
@@ -45,7 +45,7 @@ export function StateBadge({ state, className }: { state: DisplayState; classNam
     <span
       className={cn(
         'inline-flex items-center gap-1.5 rounded border px-1.5 py-0 leading-5',
-        'font-mono text-[10px] font-medium uppercase tracking-[0.08em]',
+        'font-mono text-3xs font-medium uppercase tracking-[0.08em]',
         style.badge,
         className,
       )}

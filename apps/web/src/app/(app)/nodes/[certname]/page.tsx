@@ -162,7 +162,7 @@ function ClassificationTab({ certname }: { certname: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Applied groups</CardTitle>
-          <span className="text-[11px] text-ink-faint">merge order — last wins</span>
+          <span className="text-2xs text-ink-faint">merge order — last wins</span>
         </CardHeader>
         {appliedGroups.length === 0 ? (
           <EmptyState
@@ -174,7 +174,7 @@ function ClassificationTab({ certname }: { certname: string }) {
             {appliedGroups.map((group, index) => (
               <li key={group.id} className="px-3 py-1.5">
                 <div className="flex items-center gap-2">
-                  <span className="w-4 text-right font-mono text-[11px] text-ink-faint">
+                  <span className="w-4 text-right font-mono text-2xs text-ink-faint">
                     {index + 1}
                   </span>
                   <Layers className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
@@ -194,7 +194,7 @@ function ClassificationTab({ certname }: { certname: string }) {
           <CardHeader>
             <CardTitle>Materialization</CardTitle>
             {pending && (
-              <span className="text-[11px] text-state-pending">queued — disk not yet updated</span>
+              <span className="text-2xs text-state-pending">queued — disk not yet updated</span>
             )}
           </CardHeader>
           <CardContent className="space-y-1 text-xs">
@@ -251,7 +251,7 @@ function ClassificationTab({ certname }: { certname: string }) {
           <Card>
             <CardHeader>
               <CardTitle>Conflicts</CardTitle>
-              <span className="text-[11px] text-ink-faint">{conflicts.length} overridden</span>
+              <span className="text-2xs text-ink-faint">{conflicts.length} overridden</span>
             </CardHeader>
             {/* Warnings, not errors: base-plus-override is a legitimate and
                 common pattern. Hiding them would be worse (ADR-0009). */}
@@ -291,7 +291,7 @@ function FactsTab({ certname }: { certname: string }) {
       <Card className="flex min-h-0 flex-1 flex-col">
         <CardHeader>
           <CardTitle>Facts</CardTitle>
-          <span className="text-[11px] text-ink-faint">
+          <span className="text-2xs text-ink-faint">
             full set from PuppetDB, not the projected subset
           </span>
         </CardHeader>

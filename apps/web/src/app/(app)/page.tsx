@@ -75,7 +75,7 @@ export default function DashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>Failing nodes</CardTitle>
-          <Link href="/nodes" className="text-[11px] text-ink-muted hover:text-accent">
+          <Link href="/nodes" className="text-2xs text-ink-muted hover:text-accent">
             All nodes →
           </Link>
         </CardHeader>
@@ -163,7 +163,7 @@ function Tile({
 
   const body = (
     <Card className={cn('px-3 py-2', href !== undefined && 'transition-colors hover:border-line')}>
-      <p className="text-[11px] text-ink-faint">{label}</p>
+      <p className="text-2xs text-ink-faint">{label}</p>
       <p
         className={cn(
           'font-mono text-lg tabular-nums leading-tight',

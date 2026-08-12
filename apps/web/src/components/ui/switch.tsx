@@ -66,7 +66,7 @@ export function Switch({
       >
         <span className="block text-xs text-ink">{label}</span>
         {description !== undefined && (
-          <span className="mt-0.5 block max-w-prose text-[11px] text-ink-muted">{description}</span>
+          <span className="mt-0.5 block max-w-prose text-2xs text-ink-muted">{description}</span>
         )}
       </label>
     </div>

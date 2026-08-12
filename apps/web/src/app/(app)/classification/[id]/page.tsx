@@ -274,7 +274,7 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
     <Card>
       <CardHeader>
         <CardTitle>Details</CardTitle>
-        <span className="text-[11px] text-ink-faint">higher rank is applied last and wins</span>
+        <span className="text-2xs text-ink-faint">higher rank is applied last and wins</span>
       </CardHeader>
 
       <form
@@ -357,7 +357,7 @@ function DetailsSection({ id, detail, writable, onWrite, onError }: SectionProps
             <option value="ANY_RULE">ANY_RULE — any one rule matches</option>
             <option value="PINNED">PINNED — static list, rules ignored</option>
           </Select>
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-2xs text-ink-faint">
             {strategy === 'PINNED'
               ? 'Membership comes from the pinned list; rules decide nothing.'
               : 'Membership comes from the rules; pinned nodes decide nothing.'}
@@ -416,7 +416,7 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
     <Card>
       <CardHeader>
         <CardTitle>Matching rules</CardTitle>
-        <span className="text-[11px] text-ink-faint">
+        <span className="text-2xs text-ink-faint">
           {detail.strategy === 'PINNED'
             ? 'ignored for pinned groups'
             : factPaths.isSuccess
@@ -511,14 +511,14 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
               {/* A typo silently never matches, which is the worst outcome —
                   the group simply classifies nothing and nobody is told. */}
               {unknown && (
-                <p className="pl-1 text-[11px] text-state-pending">
+                <p className="pl-1 text-2xs text-state-pending">
                   No projected node has “{rule.factPath}”. This rule can never match. Check the
                   spelling, or add the fact to PUPPETDB_PROJECTED_FACTS and re-run the projection.
                 </p>
               )}
 
               {match !== undefined && (
-                <p className="pl-1 text-[11px] text-ink-faint">
+                <p className="pl-1 text-2xs text-ink-faint">
                   on {match.nodeCount} node{match.nodeCount === 1 ? '' : 's'} · e.g.{' '}
                   <code className="font-mono">
                     {JSON.stringify(match.sampleValue).slice(0, 60)}
@@ -633,7 +633,7 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-xs text-ink">{entry.className}</p>
                 {Object.keys(entry.params).length > 0 && (
-                  <pre className="mt-0.5 whitespace-pre-wrap break-all font-mono text-[11px] text-ink-muted">
+                  <pre className="mt-0.5 whitespace-pre-wrap break-all font-mono text-2xs text-ink-muted">
                     {JSON.stringify(entry.params)}
                   </pre>
                 )}
@@ -750,9 +750,9 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
             />
             <ClassNameSuggestions id="class-name-suggestions" index={classIndex.data} />
             {nameError !== null ? (
-              <p className="text-[11px] text-state-failed">{nameError}</p>
+              <p className="text-2xs text-state-failed">{nameError}</p>
             ) : (
-              <p className="text-[11px] text-ink-faint">
+              <p className="text-2xs text-ink-faint">
                 Lowercase, <code className="font-mono">::</code>-separated. Validated here, so an
                 invalid name is rejected before it reaches a preview or a catalog compilation.
               </p>
@@ -765,7 +765,7 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
               suggestion === null &&
               classIndex.data?.status === 'ok' &&
               classIndex.data.classes.length > 0 && (
-                <p className="text-[11px] text-state-pending">
+                <p className="text-2xs text-state-pending">
                   Not among the classes in{' '}
                   <span className="font-mono">{classIndex.data.environment}</span>. You can still
                   assign it — but if it does not exist when a catalog compiles, every matched node
@@ -774,7 +774,7 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
               )}
 
             {suggestion !== null && suggestion.path !== null && (
-              <p className="truncate text-[11px] text-ink-faint">
+              <p className="truncate text-2xs text-ink-faint">
                 <span className="font-mono">{suggestion.path}</span>
               </p>
             )}
@@ -819,7 +819,7 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
                 aria-invalid={jsonError !== null}
               />
             )}
-            {jsonError !== null && <p className="text-[11px] text-state-failed">{jsonError}</p>}
+            {jsonError !== null && <p className="text-2xs text-state-failed">{jsonError}</p>}
           </div>
 
           <ClassSuggestionStatus
@@ -853,7 +853,7 @@ function ParametersSection({ id, detail, writable, onWrite, onError }: SectionPr
           {detail.parameters.map((parameter) => (
             <li key={parameter.key} className="flex items-center gap-2 px-3 py-1.5">
               <span className="font-mono text-xs text-ink">{parameter.key}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted">
+              <span className="min-w-0 flex-1 truncate font-mono text-2xs text-ink-muted">
                 {JSON.stringify(parameter.value)}
               </span>
               <Button
@@ -954,7 +954,7 @@ function PinsSection({ id, detail, writable, onWrite, onError }: SectionProps) {
     <Card>
       <CardHeader>
         <CardTitle>Pinned nodes</CardTitle>
-        <span className="text-[11px] text-ink-faint">static membership — rules are ignored</span>
+        <span className="text-2xs text-ink-faint">static membership — rules are ignored</span>
       </CardHeader>
 
       {detail.pinnedCertnames.length === 0 ? (
@@ -1013,7 +1013,7 @@ function PinsSection({ id, detail, writable, onWrite, onError }: SectionProps) {
             onChange={(e) => setCertnames(e.target.value)}
             placeholder="web01.example.com, db02.example.com"
           />
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-2xs text-ink-faint">
             Pinning a node PuppetDB has not seen yet is allowed — it will materialize once the node
             reports.
           </p>

@@ -107,7 +107,7 @@ export function DeploymentCard() {
 
           {result !== null && <Result result={result} />}
 
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-2xs text-ink-faint">
             {'Checks the public release list only when you press this. Nothing about this '}
             {'deployment is sent, and nothing is checked automatically.'}
           </p>
@@ -132,7 +132,7 @@ function strip(version: string): string {
 function Result({ result }: { result: UpdateCheck }) {
   if (!result.reachable) {
     return (
-      <p role="status" className="text-[11px] text-ink-muted">
+      <p role="status" className="text-2xs text-ink-muted">
         {result.message ?? 'Could not reach the release service.'}
       </p>
     );
@@ -155,7 +155,7 @@ function Result({ result }: { result: UpdateCheck }) {
     const ahead = result.latest !== null && strip(result.latest) !== strip(result.current);
 
     return (
-      <p role="status" className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
+      <p role="status" className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-muted">
         <CheckCircle2 className="size-3.5 shrink-0 text-state-unchanged" aria-hidden />
         Up to date ({result.current})
         {ahead && (
@@ -168,7 +168,7 @@ function Result({ result }: { result: UpdateCheck }) {
   }
 
   return (
-    <p role="status" className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink">
+    <p role="status" className="flex flex-wrap items-center gap-1.5 text-2xs text-ink">
       <Badge>{result.latest}</Badge>
       is available
       {result.releaseUrl !== null && (
@@ -199,7 +199,7 @@ function Health() {
   if (deployment.isPending) return null;
 
   return (
-    <span className="flex shrink-0 items-center gap-1.5 text-[11px]">
+    <span className="flex shrink-0 items-center gap-1.5 text-2xs">
       {healthy ? (
         <>
           <span className="size-2 rounded-full bg-state-unchanged" aria-hidden />

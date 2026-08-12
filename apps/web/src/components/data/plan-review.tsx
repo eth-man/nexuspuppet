@@ -184,7 +184,7 @@ function PlanBody({ plan }: { plan: PlanResponse }) {
       )}
 
       {plan.truncated && (
-        <p className="flex items-start gap-1.5 rounded border border-state-pending/40 bg-state-pending/5 p-2 text-[11px] text-state-pending">
+        <p className="flex items-start gap-1.5 rounded border border-state-pending/40 bg-state-pending/5 p-2 text-2xs text-state-pending">
           <AlertTriangle className="mt-px shrink-0" size={13} aria-hidden />
           <span>
             <strong>Sampled.</strong> This estate has {plan.estateSize} nodes and this preview
@@ -197,13 +197,13 @@ function PlanBody({ plan }: { plan: PlanResponse }) {
           someone than the diff itself. */}
       {plan.conflictsIntroduced.length > 0 && (
         <div className="rounded border border-state-pending/40 bg-state-pending/5 p-2">
-          <p className="mb-1 text-[11px] font-medium text-state-pending">
+          <p className="mb-1 text-2xs font-medium text-state-pending">
             {plan.conflictsIntroduced.length} new conflict
             {plan.conflictsIntroduced.length === 1 ? '' : 's'}
           </p>
           <ul className="space-y-0.5">
             {plan.conflictsIntroduced.slice(0, 5).map((conflict) => (
-              <li key={`${conflict.key}-${conflict.winningGroupId}`} className="text-[11px]">
+              <li key={`${conflict.key}-${conflict.winningGroupId}`} className="text-2xs">
                 <span className="font-mono text-ink">{conflict.key}</span>
                 <span className="text-ink-faint">
                   {' '}
@@ -222,7 +222,7 @@ function PlanBody({ plan }: { plan: PlanResponse }) {
       {plan.warnings.length > 0 && (
         <ul className="space-y-0.5">
           {plan.warnings.map((warning) => (
-            <li key={warning} className="text-[11px] text-state-pending">
+            <li key={warning} className="text-2xs text-state-pending">
               {warning}
             </li>
           ))}
@@ -231,7 +231,7 @@ function PlanBody({ plan }: { plan: PlanResponse }) {
 
       {/* The honest caveat. A plan is computed against the estate as it is now;
           a node checking in between here and Apply changes the outcome. */}
-      <p className="border-t border-line pt-2 text-[11px] text-ink-faint">
+      <p className="border-t border-line pt-2 text-2xs text-ink-faint">
         Forecast based on the current estate state.
       </p>
     </div>
@@ -276,23 +276,23 @@ function ShapeBlock({ shape, defaultOpen }: { shape: PlanShape; defaultOpen: boo
               {shape.currentGroups.map((group, index) => (
                 <span key={group}>
                   {index > 0 && <span className="text-ink-faint">, </span>}
-                  <span className="font-mono text-[11px] text-ink">{group}</span>
+                  <span className="font-mono text-2xs text-ink">{group}</span>
                 </span>
               ))}
             </>
           ) : (
             <span className="text-ink-faint"> · currently unclassified</span>
           )}
-          <span className="block truncate text-[11px] text-ink-faint">
+          <span className="block truncate text-2xs text-ink-faint">
             {shape.exemplar}
             {shape.count > 1 && ` and ${shape.count - 1} other${shape.count === 2 ? '' : 's'}`}
           </span>
         </span>
-        <span className="text-[11px] text-ink-faint">{open ? 'hide' : 'show'}</span>
+        <span className="text-2xs text-ink-faint">{open ? 'hide' : 'show'}</span>
       </button>
 
       {open && (
-        <div className="space-y-1 border-t border-line-soft px-2 py-1.5 font-mono text-[11px]">
+        <div className="space-y-1 border-t border-line-soft px-2 py-1.5 font-mono text-2xs">
           {shape.diff.classesAdded.map((className) => (
             <Line key={`+${className}`} tone="added" text={className} />
           ))}

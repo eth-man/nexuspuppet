@@ -71,7 +71,7 @@ export function InfoHint({
            * first field of a row hangs off the left edge of the card, and the
            * text that explains the field is then the text that is clipped.
            */
-          className="absolute top-full left-0 z-50 mt-1 w-64 rounded border border-line bg-panel-raised px-2 py-1.5 text-[11px] leading-relaxed font-normal text-ink-muted shadow-lg"
+          className="absolute top-full left-0 z-50 mt-1 w-64 rounded border border-line bg-panel-raised px-2 py-1.5 text-2xs leading-relaxed font-normal text-ink-muted shadow-lg"
         >
           {text}
         </span>

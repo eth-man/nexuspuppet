@@ -126,10 +126,57 @@
      column alignment that makes a nested structure or a diff legible. */
   --font-mono:
     ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /*
+   * The two sizes below the Tailwind scale, IN REM.
+   *
+   * They were `text-[11px]` and `text-[10px]` — 227 of them — and px is why the
+   * console ignored the reader's browser font-size setting entirely. Only zoom
+   * did anything, which is a WCAG 1.4.4 failure and not merely a matter of
+   * taste: text has to respond to the preference somebody has already stated.
+   *
+   * Named tokens rather than arbitrary values so there is one place to change
+   * the scale, and so `text-2xs` reads as a decision rather than a magic number.
+   */
+  --text-2xs: 0.6875rem; /* 11px at a 16px root */
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.625rem; /* 10px at a 16px root */
+  --text-3xs--line-height: 0.875rem;
 }
 
 :root {
   color-scheme: dark;
+
+  /* Compact — what the console has always looked like, and still the default. */
+  --ui-scale: 1;
+}
+
+/*
+ * Density, as a root font-size multiplier.
+ *
+ * A PERCENTAGE, never a px value. `font-size: 16px` here would hardcode the
+ * root and silently discard the reader's browser font-size setting — the exact
+ * bug this change exists to fix. `100%` inherits whatever they chose, and the
+ * multiplier scales from there, so the two compose instead of fighting.
+ *
+ * Everything on the page is rem, so this moves type, controls and spacing
+ * together. That is the intent: density is a whole-layout property, and
+ * enlarging the text alone would leave 32px controls wrapped around 14px labels.
+ *
+ * Compact stays the default and is pixel-identical to before, because the
+ * density argument in CLAUDE.md is right — an operator does want the estate on
+ * one screen. It just should not be the only option on a 4K laptop panel.
+ */
+html {
+  font-size: calc(100% * var(--ui-scale));
+}
+
+:root[data-density='comfortable'] {
+  --ui-scale: 1.125;
+}
+
+:root[data-density='large'] {
+  --ui-scale: 1.25;
 }
 
 /**

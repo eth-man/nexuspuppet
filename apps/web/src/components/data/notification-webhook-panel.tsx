@@ -99,7 +99,7 @@ export function NotificationWebhookPanel() {
                       setResult(null);
                     }}
                     placeholder="https://alerts.example.com/hooks/nexuspuppet"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -125,7 +125,7 @@ export function NotificationWebhookPanel() {
                       setResult(null);
                     }}
                     placeholder={holdsToken ? '••••••••' : ''}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -139,8 +139,8 @@ export function NotificationWebhookPanel() {
           role="status"
           className={
             result.ok
-              ? 'flex items-center gap-1.5 text-[11px] text-state-unchanged'
-              : 'flex items-start gap-1.5 text-[11px] text-state-failed'
+              ? 'flex items-center gap-1.5 text-2xs text-state-unchanged'
+              : 'flex items-start gap-1.5 text-2xs text-state-failed'
           }
         >
           {result.ok ? (

@@ -77,7 +77,7 @@ export function ChangePasswordCard() {
               aria-invalid={newPassword.length > 0 && newPassword.length < 12}
               required
             />
-            <p className="text-[11px] text-ink-faint">
+            <p className="text-2xs text-ink-faint">
               At least 12 characters. This signs you out of every other session.
             </p>
           </div>

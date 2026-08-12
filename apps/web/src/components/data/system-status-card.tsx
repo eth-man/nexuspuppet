@@ -36,7 +36,7 @@ export function SystemStatusCard() {
       <CardHeader className="flex items-center justify-between">
         <CardTitle>System</CardTitle>
         {stranded > 0 && (
-          <span className="text-[11px] font-medium text-state-failed">
+          <span className="text-2xs font-medium text-state-failed">
             {stranded} node{stranded === 1 ? '' : 's'} stranded
           </span>
         )}
@@ -105,7 +105,7 @@ export function SystemStatusCard() {
       {data.replication !== undefined &&
         data.replication.enabled &&
         data.replication.peers.some((peer) => peer.behind) && (
-          <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+          <p className="border-t border-line px-3 py-2 text-2xs text-state-pending">
             <span className="font-medium">A Puppet server is behind.</span> Classification has been
             materialized since it last received the tree, so it is compiling catalogs from an older
             copy:{' '}
@@ -129,7 +129,7 @@ export function SystemStatusCard() {
       {data.replication !== undefined &&
         data.replication.enabled &&
         data.replication.peers.length === 0 && (
-          <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+          <p className="border-t border-line px-3 py-2 text-2xs text-state-pending">
             <span className="font-medium">Replication is on, but nothing has fetched.</span> No
             Puppet server has ever asked for the tree
             {data.replication.allowedCertnames.length > 0 && (
@@ -144,14 +144,14 @@ export function SystemStatusCard() {
         )}
 
       {data.auditForwarding.unconfirmableDelivery && (
-        <p className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+        <p className="border-t border-line px-3 py-2 text-2xs text-state-pending">
           <span className="font-medium">Syslog over UDP: unconfirmable delivery.</span> This
           deployment cannot prove its audit records arrived at the collector.
         </p>
       )}
 
       {data.auditForwarding.lastDelivery?.ok === false && (
-        <p className="border-t border-line px-3 py-2 text-[11px] text-state-failed">
+        <p className="border-t border-line px-3 py-2 text-2xs text-state-failed">
           <span className="font-medium">
             Last delivery failed {relativeAge(data.auditForwarding.lastDelivery.at)}.
           </span>{' '}
@@ -165,7 +165,7 @@ export function SystemStatusCard() {
       )}
 
       {data.retention.undeliveredDropped.total > 0 && (
-        <p className="border-t border-line px-3 py-2 text-[11px] text-state-failed">
+        <p className="border-t border-line px-3 py-2 text-2xs text-state-failed">
           <span className="font-medium">
             {data.retention.undeliveredDropped.total} undelivered audit record
             {data.retention.undeliveredDropped.total === 1 ? '' : 's'} dropped by the row ceiling
@@ -177,7 +177,7 @@ export function SystemStatusCard() {
         </p>
       )}
 
-      <p className="border-t border-line px-3 py-2 text-[11px] text-ink-faint">
+      <p className="border-t border-line px-3 py-2 text-2xs text-ink-faint">
         Audit retention: {data.retention.ageDays}d age window
         {' · '}
         {data.retention.maxRows === null
@@ -269,7 +269,7 @@ function Metric({
       >
         {value}
       </dd>
-      {hint !== undefined && <p className="text-[11px] text-ink-faint">{hint}</p>}
+      {hint !== undefined && <p className="text-2xs text-ink-faint">{hint}</p>}
     </div>
   );
 }
@@ -281,7 +281,7 @@ function Metric({
  */
 function FactWarning({ facts }: { facts: string[] }) {
   return (
-    <div className="border-t border-line px-3 py-2 text-[11px] text-state-pending">
+    <div className="border-t border-line px-3 py-2 text-2xs text-state-pending">
       <span className="font-medium">
         {facts.length} projected fact{facts.length === 1 ? '' : 's'} that no node reports:
       </span>{' '}
@@ -297,17 +297,17 @@ function FactWarning({ facts }: { facts: string[] }) {
 function Failures({ failures }: { failures: SystemStatus['materialization']['failures'] }) {
   return (
     <div className="border-t border-line px-3 py-2">
-      <p className="mb-1 text-[11px] font-medium text-state-failed">
+      <p className="mb-1 text-2xs font-medium text-state-failed">
         Stranded nodes — these keep their previous classification until fixed
       </p>
       <ul className="space-y-1">
         {failures.slice(0, 5).map((failure) => (
           <li key={`${failure.certname ?? 'reconcile'}-${failure.failedAt ?? ''}`}>
-            <span className="font-mono text-[11px] text-ink">
+            <span className="font-mono text-2xs text-ink">
               {failure.certname ?? 'full reconcile'}
             </span>
             {failure.lastError !== null && (
-              <p className="truncate text-[11px] text-ink-faint" title={failure.lastError}>
+              <p className="truncate text-2xs text-ink-faint" title={failure.lastError}>
                 {failure.lastError}
               </p>
             )}

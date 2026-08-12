@@ -113,7 +113,7 @@ export default function NodesPage() {
               onClick={() => toggleStatus(status)}
               aria-pressed={statuses.includes(status)}
               className={cn(
-                'rounded border px-1.5 py-0.5 text-[11px] transition-colors',
+                'rounded border px-1.5 py-0.5 text-2xs transition-colors',
                 statuses.includes(status)
                   ? 'border-accent bg-accent/15 text-ink'
                   : 'border-line text-ink-muted hover:bg-panel-raised',
@@ -301,7 +301,7 @@ function NodeRow({ node }: { node: PuppetNode }) {
           {node.certname}
         </Link>
         {!node.isActive && (
-          <span className="ml-1.5 text-[10px] uppercase text-ink-faint">
+          <span className="ml-1.5 text-3xs uppercase text-ink-faint">
             {node.deactivated !== null ? 'deactivated' : 'expired'}
           </span>
         )}
@@ -315,7 +315,7 @@ function NodeRow({ node }: { node: PuppetNode }) {
         title={absolute(node.reportTimestamp)}
       >
         {relativeAge(node.reportTimestamp)}
-        {stale && <span className="ml-1 text-[10px] uppercase">stale</span>}
+        {stale && <span className="ml-1 text-3xs uppercase">stale</span>}
       </TD>
       <TD className={cn('text-xs text-ink-faint', dim)} title={absolute(node.factsTimestamp)}>
         {relativeAge(node.factsTimestamp)}

@@ -36,7 +36,7 @@ export function ClassSuggestionStatus({
   return (
     <div className="space-y-1 border-t border-line-soft pt-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-ink-faint">
+        <span className="text-2xs text-ink-faint">
           {/* The environment is NAMED. Suggestions for the wrong environment
               look entirely plausible — every name is real, just not here — and
               the failure only surfaces as a compile error later (§7). */}
@@ -62,20 +62,20 @@ export function ClassSuggestionStatus({
        * and without saying so it reads as our bug.
        */}
       {index.unchangedAfterRefresh === true && (
-        <p className="text-[11px] text-state-pending">
+        <p className="text-2xs text-state-pending">
           Refreshed — the class list is unchanged. If you have just deployed code, your Puppet
           server may still be serving its cached environment.
         </p>
       )}
 
       {degraded && index.message !== undefined && (
-        <p className="text-[11px] text-state-pending">{index.message}</p>
+        <p className="text-2xs text-state-pending">{index.message}</p>
       )}
 
       {/* One broken manifest must not silently shorten the list. An operator
           hunting a missing class deserves to know a FILE is at fault. */}
       {index.fileErrors.length > 0 && (
-        <p className="text-[11px] text-state-pending">
+        <p className="text-2xs text-state-pending">
           {index.fileErrors.length} manifest{index.fileErrors.length === 1 ? '' : 's'} could not be
           parsed, so this list is incomplete:{' '}
           <span className="font-mono">{index.fileErrors[0]?.path ?? 'unknown file'}</span>
@@ -131,7 +131,7 @@ export function ClassParameterForm({
   const required = useMemo(() => klass.params.filter((p) => p.kind === 'required'), [klass]);
 
   if (klass.params.length === 0) {
-    return <p className="text-[11px] text-ink-faint">This class takes no parameters.</p>;
+    return <p className="text-2xs text-ink-faint">This class takes no parameters.</p>;
   }
 
   const set = (name: string, value: string) => onChange({ ...values, [name]: value });
@@ -139,7 +139,7 @@ export function ClassParameterForm({
   return (
     <div className="space-y-2">
       {required.length > 0 && (
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-2xs text-ink-faint">
           {required.length} required parameter{required.length === 1 ? '' : 's'}. Leave anything
           else blank to use the class default.
         </p>
@@ -174,7 +174,7 @@ function ParameterField({
         <span className="font-mono">{param.name}</span>
         {param.kind === 'required' && <span className="ml-1 text-state-failed">required</span>}
         {param.type !== null && (
-          <span className="ml-1.5 font-mono text-[10px] text-ink-faint">{param.type}</span>
+          <span className="ml-1.5 font-mono text-3xs text-ink-faint">{param.type}</span>
         )}
       </Label>
 
@@ -204,7 +204,7 @@ function ParameterField({
       )}
 
       {param.kind === 'expression' && (
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-2xs text-ink-faint">
           {/* A $-prefixed default resolves at compile time. Showing it as a
               value would be a lie about what the class does. */}
           Defaults to <span className="font-mono">{param.defaultSource}</span>, evaluated when the

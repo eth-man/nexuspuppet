@@ -94,7 +94,7 @@ export default function ReportPage({ params }: { params: Promise<{ hash: string 
               onClick={() => setFilter(key)}
               aria-pressed={filter === key}
               className={cn(
-                'rounded border px-1.5 py-0.5 text-[11px] transition-colors',
+                'rounded border px-1.5 py-0.5 text-2xs transition-colors',
                 filter === key
                   ? 'border-accent bg-accent/15 text-ink'
                   : 'border-line text-ink-muted hover:bg-panel-raised',
@@ -153,7 +153,7 @@ function Metric({
 
   return (
     <div className="bg-panel px-3 py-1.5">
-      <p className="text-[11px] text-ink-faint">{label}</p>
+      <p className="text-2xs text-ink-faint">{label}</p>
       <p
         className={cn(
           'font-mono text-sm tabular-nums',
@@ -181,7 +181,7 @@ function EventRow({ event }: { event: ResourceEvent }) {
               {event.resourceType}[{event.resourceTitle}]
             </span>
             {event.property !== null && (
-              <span className="font-mono text-[11px] text-ink-faint">{event.property}</span>
+              <span className="font-mono text-2xs text-ink-faint">{event.property}</span>
             )}
           </div>
 
@@ -189,23 +189,20 @@ function EventRow({ event }: { event: ResourceEvent }) {
             // Agent output is log data: monospace, wrapped, never truncated.
             // The message IS the answer to "why did this fail".
             <pre
-              className={cn(
-                'mt-1 whitespace-pre-wrap break-words font-mono text-[11px]',
-                style.text,
-              )}
+              className={cn('mt-1 whitespace-pre-wrap break-words font-mono text-2xs', style.text)}
             >
               {event.message}
             </pre>
           )}
 
           {(event.oldValue !== null || event.newValue !== null) && (
-            <p className="mt-0.5 font-mono text-[11px] text-ink-faint">
+            <p className="mt-0.5 font-mono text-2xs text-ink-faint">
               {JSON.stringify(event.oldValue)} → {JSON.stringify(event.newValue)}
             </p>
           )}
 
           {event.file !== null && (
-            <p className="mt-0.5 font-mono text-[11px] text-ink-faint">
+            <p className="mt-0.5 font-mono text-2xs text-ink-faint">
               {event.file}
               {event.line !== null && `:${event.line}`}
             </p>
@@ -214,7 +211,7 @@ function EventRow({ event }: { event: ResourceEvent }) {
           {/* The dependency chain explains WHY a resource was skipped — usually
               because something it depends on failed. */}
           {event.containmentPath.length > 0 && (
-            <p className="mt-0.5 truncate font-mono text-[10px] text-ink-faint/70">
+            <p className="mt-0.5 truncate font-mono text-3xs text-ink-faint/70">
               {event.containmentPath.join(' › ')}
             </p>
           )}

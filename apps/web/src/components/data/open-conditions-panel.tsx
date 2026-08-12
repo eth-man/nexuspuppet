@@ -27,7 +27,7 @@ export function OpenConditionsPanel() {
         <CardHeader>
           <CardTitle>Conditions</CardTitle>
         </CardHeader>
-        <p className="px-3 py-2 text-[11px] text-state-failed">
+        <p className="px-3 py-2 text-2xs text-state-failed">
           Could not read the deployment&rsquo;s conditions. Nothing here should be taken as healthy.
         </p>
       </Card>
@@ -38,7 +38,7 @@ export function OpenConditionsPanel() {
 
   if (conditions.data.length === 0) {
     return (
-      <p className="flex items-center gap-1.5 px-1 text-[11px] text-ink-faint">
+      <p className="flex items-center gap-1.5 px-1 text-2xs text-ink-faint">
         <CheckCircle2 className="size-3.5 shrink-0 text-state-unchanged" aria-hidden />
         No open conditions.
       </p>
@@ -49,7 +49,7 @@ export function OpenConditionsPanel() {
     <Card>
       <CardHeader>
         <CardTitle>Conditions</CardTitle>
-        <span className="text-[11px] text-ink-faint">{conditions.data.length} open</span>
+        <span className="text-2xs text-ink-faint">{conditions.data.length} open</span>
       </CardHeader>
 
       <ul className="divide-y divide-line-soft" role="list">
@@ -67,7 +67,7 @@ export function OpenConditionsPanel() {
               <p className="text-xs text-ink">{condition.summary}</p>
               {/* Since when, not a timestamp: "how long has this been true" is
                   the question an open condition provokes. */}
-              <p className="text-[11px] text-ink-faint">
+              <p className="text-2xs text-ink-faint">
                 since {ago(condition.openedAt)}
                 <span className="ml-1.5 font-mono">{condition.kind}</span>
               </p>

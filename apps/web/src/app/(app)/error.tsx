@@ -43,7 +43,7 @@ export default function ConsoleError({
           anything.
         </p>
         {error.digest !== undefined && (
-          <p className="pt-1 font-mono text-[11px] text-ink-faint">
+          <p className="pt-1 font-mono text-2xs text-ink-faint">
             Reference: {error.digest}
             <span className="ml-1.5 font-sans">— quote this in a bug report</span>
           </p>

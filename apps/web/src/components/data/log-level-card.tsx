@@ -59,12 +59,12 @@ export function LogLevelCard() {
         </Field>
 
         {locked ? (
-          <p className="text-[11px] text-state-pending">
+          <p className="text-2xs text-state-pending">
             {'SETTINGS_SOURCE=env — the environment is authoritative and this control does '}
             {'nothing. Change LOG_LEVEL on the host instead.'}
           </p>
         ) : (
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-2xs text-ink-faint">
             {source === 'database'
               ? 'Saved here, overriding LOG_LEVEL. '
               : 'From LOG_LEVEL in the environment. '}

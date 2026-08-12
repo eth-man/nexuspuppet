@@ -59,25 +59,25 @@ function borderFor(status: ConsoleTlsStatus): string | undefined {
 
 function Headline({ status }: { status: ConsoleTlsStatus }) {
   if (!status.configured) {
-    return <span className="text-[11px] text-ink-faint">not reported here</span>;
+    return <span className="text-2xs text-ink-faint">not reported here</span>;
   }
   if (status.error !== null || status.certificate === null) {
-    return <span className="text-[11px] font-medium text-state-failed">unreadable</span>;
+    return <span className="text-2xs font-medium text-state-failed">unreadable</span>;
   }
 
   const { expired, daysRemaining } = status.certificate;
 
   if (expired) {
-    return <span className="text-[11px] font-medium text-state-failed">expired</span>;
+    return <span className="text-2xs font-medium text-state-failed">expired</span>;
   }
   if (daysRemaining <= WARN_WITHIN_DAYS) {
     return (
-      <span className="text-[11px] font-medium text-state-pending">
+      <span className="text-2xs font-medium text-state-pending">
         {daysRemaining} day{daysRemaining === 1 ? '' : 's'} left
       </span>
     );
   }
-  return <span className="text-[11px] text-ink-faint">{daysRemaining} days left</span>;
+  return <span className="text-2xs text-ink-faint">{daysRemaining} days left</span>;
 }
 
 function Body({ status }: { status: ConsoleTlsStatus }) {
@@ -231,7 +231,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <>
       <dt className="text-ink-faint">{label}</dt>
-      <dd className="break-all font-mono text-[11px] text-ink">{value}</dd>
+      <dd className="break-all font-mono text-2xs text-ink">{value}</dd>
     </>
   );
 }

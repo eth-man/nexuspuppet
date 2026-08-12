@@ -144,7 +144,7 @@ export function NotificationEmailPanel() {
                     value={form.host}
                     onChange={(e) => field('host', e.target.value)}
                     placeholder="smtp.example.com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -157,7 +157,7 @@ export function NotificationEmailPanel() {
                     inputMode="numeric"
                     aria-invalid={!portValid}
                     onChange={(e) => field('port', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -231,7 +231,7 @@ export function NotificationEmailPanel() {
                     value={form.from}
                     onChange={(e) => field('from', e.target.value)}
                     placeholder="nexuspuppet@example.com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -243,7 +243,7 @@ export function NotificationEmailPanel() {
                     value={form.to}
                     onChange={(e) => field('to', e.target.value)}
                     placeholder="noc@example.com"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -260,7 +260,7 @@ export function NotificationEmailPanel() {
                     id={id}
                     value={form.username}
                     onChange={(e) => field('username', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -280,7 +280,7 @@ export function NotificationEmailPanel() {
                       setResult(null);
                     }}
                     placeholder={holdsPassword ? '••••••••' : ''}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -294,8 +294,8 @@ export function NotificationEmailPanel() {
           role="status"
           className={
             result.ok
-              ? 'flex items-start gap-1.5 text-[11px] text-state-unchanged'
-              : 'flex items-start gap-1.5 text-[11px] text-state-failed'
+              ? 'flex items-start gap-1.5 text-2xs text-state-unchanged'
+              : 'flex items-start gap-1.5 text-2xs text-state-failed'
           }
         >
           {result.ok ? (

@@ -64,7 +64,7 @@ export function DayPills({
             aria-label={day.full}
             onClick={() => toggle(day.value)}
             className={cn(
-              'h-6 min-w-9 rounded border px-1.5 text-[11px] transition-colors',
+              'h-6 min-w-9 rounded border px-1.5 text-2xs transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-50',
               on
                 ? 'border-accent bg-accent/15 font-medium text-ink'

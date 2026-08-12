@@ -28,7 +28,7 @@ export function PropagationFront() {
     <Card>
       <CardHeader>
         <CardTitle>Propagation</CardTitle>
-        <span className="text-[11px] text-ink-faint">where the current classification has got</span>
+        <span className="text-2xs text-ink-faint">where the current classification has got</span>
       </CardHeader>
 
       {query.isPending ? (
@@ -51,7 +51,7 @@ function Body({ front }: { front: Front }) {
    */
   if (front.revision === null) {
     return (
-      <div className="px-3 py-2.5 text-[11px] text-ink-muted">
+      <div className="px-3 py-2.5 text-2xs text-ink-muted">
         The ENC tree carries no revision yet, so propagation cannot be measured. It is stamped when
         the materializer next writes.
       </div>
@@ -126,7 +126,7 @@ function Body({ front }: { front: Front }) {
       </div>
 
       {front.compiled.reported === 0 && (
-        <p className="text-[11px] text-ink-muted">
+        <p className="text-2xs text-ink-muted">
           No node has reported a compile yet. Receipts need the ENC script wired into{' '}
           <span className="font-mono">puppet.conf</span> and{' '}
           <span className="font-mono">nexuspuppet-receipts.timer</span> installed on your Puppet
@@ -149,7 +149,7 @@ function Body({ front }: { front: Front }) {
         />
       </div>
 
-      <dl className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-[11px]">
+      <dl className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-2xs">
         <div className="flex gap-1.5">
           <dt className="text-ink-faint">revision</dt>
           <dd className="text-ink">{shortHash(front.revision)}</dd>
@@ -170,7 +170,7 @@ function Body({ front }: { front: Front }) {
 
       {/* The one genuine fault in the chain. Everything else is a schedule. */}
       {front.failed > 0 && (
-        <p className="text-[11px] text-state-failed">
+        <p className="text-2xs text-state-failed">
           {front.failed} classification change{front.failed === 1 ? '' : 's'} could not be written.
           These will not arrive without intervention.
         </p>
@@ -196,7 +196,7 @@ function Outstanding({ front }: { front: Front }) {
 
   if (front.outstandingTotal === 0) {
     return (
-      <p className="text-[11px] text-ink-muted">
+      <p className="text-2xs text-ink-muted">
         Every node in the estate has been served this classification.
       </p>
     );
@@ -225,7 +225,7 @@ function Outstanding({ front }: { front: Front }) {
 
   return (
     <div className="space-y-1.5">
-      <p className="text-[11px] text-ink-muted">
+      <p className="text-2xs text-ink-muted">
         {front.outstandingTotal} node{front.outstandingTotal === 1 ? '' : 's'} not yet on this
         revision. Outstanding, not failing — agents compile on their own schedule.
       </p>
@@ -249,7 +249,7 @@ function Outstanding({ front }: { front: Front }) {
       )}
 
       {front.outstandingTotal > shown && (
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-2xs text-ink-faint">
           <Link href="/nodes" className="hover:text-accent">
             {front.outstandingTotal - shown} more in the estate →
           </Link>
@@ -270,11 +270,11 @@ function NodeList({
 }) {
   return (
     <div>
-      <p className="text-[11px] text-ink-faint">
+      <p className="text-2xs text-ink-faint">
         {hint}
         {hidden > 0 && <span> · showing {nodes.length}</span>}
       </p>
-      <ul className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px]">
+      <ul className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs">
         {nodes.map((node) => (
           <li key={node.certname}>
             <Link href={`/nodes/${node.certname}`} className="text-ink hover:text-accent">

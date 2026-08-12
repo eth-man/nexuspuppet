@@ -212,7 +212,7 @@ export function OidcSettingsPanel() {
                     value={form.issuer}
                     onChange={(e) => field('issuer', e.target.value)}
                     placeholder="https://login.microsoftonline.com/<tenant>/v2.0"
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -225,7 +225,7 @@ export function OidcSettingsPanel() {
                     id={id}
                     value={form.clientId}
                     onChange={(e) => field('clientId', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -275,7 +275,7 @@ export function OidcSettingsPanel() {
                   value={form.redirectUri}
                   onChange={(e) => field('redirectUri', e.target.value)}
                   placeholder="https://nexuspuppet.example.com/api/auth/callback"
-                  className="font-mono text-[11px]"
+                  className="font-mono text-2xs"
                 />
               )}
             </Field>
@@ -298,7 +298,7 @@ export function OidcSettingsPanel() {
                     )
                   }
                   placeholder="profile, email"
-                  className="font-mono text-[11px]"
+                  className="font-mono text-2xs"
                 />
               )}
             </Field>
@@ -323,7 +323,7 @@ export function OidcSettingsPanel() {
                     id={id}
                     value={form.emailClaim}
                     onChange={(e) => field('emailClaim', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -333,7 +333,7 @@ export function OidcSettingsPanel() {
                     id={id}
                     value={form.displayNameClaim}
                     onChange={(e) => field('displayNameClaim', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -352,7 +352,7 @@ export function OidcSettingsPanel() {
                     id={id}
                     value={form.groupsClaim}
                     onChange={(e) => field('groupsClaim', e.target.value)}
-                    className="font-mono text-[11px]"
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -402,10 +402,10 @@ export function OidcSettingsPanel() {
 
           {editing && changes.length > 0 && (
             <div className="rounded border border-accent/40 bg-accent/10 px-2.5 py-2">
-              <p className="text-[11px] font-semibold text-ink">Pending changes</p>
+              <p className="text-2xs font-semibold text-ink">Pending changes</p>
               <ul className="mt-1 space-y-0.5">
                 {changes.map((line) => (
-                  <li key={line} className="text-[11px] text-ink-muted">
+                  <li key={line} className="text-2xs text-ink-muted">
                     {line}
                   </li>
                 ))}
@@ -416,7 +416,7 @@ export function OidcSettingsPanel() {
           {licensed && (
             <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
               {view?.updatedAt !== null && view?.updatedAt !== undefined && (
-                <span className="text-[11px] text-ink-faint">
+                <span className="text-2xs text-ink-faint">
                   Last changed {absolute(view.updatedAt)}
                   {view.updatedByEmail !== null && ` by ${view.updatedByEmail}`}
                 </span>
@@ -600,12 +600,12 @@ function RoleMappings({
             role="alert"
             className="rounded border border-state-pending/40 bg-state-pending/10 p-2"
           >
-            <p className="text-[11px] font-semibold text-ink">
+            <p className="text-2xs font-semibold text-ink">
               {broken.length === 1
                 ? '1 mapping names a role that does not exist'
                 : `${broken.length} mappings name roles that do not exist`}
             </p>
-            <p className="mt-1 max-w-prose text-[11px] text-ink-muted">
+            <p className="mt-1 max-w-prose text-2xs text-ink-muted">
               {'Anybody in '}
               {broken.map((m) => m.group).join(', ')}
               {' signs in successfully and is then denied everything. Point them at a role that '}
@@ -615,7 +615,7 @@ function RoleMappings({
         )}
 
         {mappings.length === 0 ? (
-          <p className="rounded border border-dashed border-line-soft px-3 py-4 text-center text-[11px] text-ink-muted">
+          <p className="rounded border border-dashed border-line-soft px-3 py-4 text-center text-2xs text-ink-muted">
             No mappings yet.{' '}
             {defaultRole === undefined
               ? 'Anybody who authenticates will be refused for matching no group.'
@@ -645,7 +645,7 @@ function RoleMappings({
                           )
                         }
                         placeholder="puppet-admins"
-                        className="h-7 font-mono text-[11px]"
+                        className="h-7 font-mono text-2xs"
                         aria-label={`Claim value for mapping ${index + 1}`}
                       />
                     </td>
@@ -752,9 +752,7 @@ function Notice({ tone, children }: { tone: 'info' | 'warn'; children: React.Rea
       ) : (
         <Info className="mt-px size-3.5 shrink-0 text-ink-faint" aria-hidden />
       )}
-      <p className={warn ? 'text-[11px] text-state-pending' : 'text-[11px] text-ink-muted'}>
-        {children}
-      </p>
+      <p className={warn ? 'text-2xs text-state-pending' : 'text-2xs text-ink-muted'}>{children}</p>
     </div>
   );
 }
@@ -783,7 +781,7 @@ function TestResult({ result }: { result: ProviderVerification }) {
           {result.details !== undefined && result.details.length > 0 && (
             <dl className="mt-1 space-y-0.5">
               {result.details.map((detail) => (
-                <div key={detail.label} className="flex gap-2 text-[11px]">
+                <div key={detail.label} className="flex gap-2 text-2xs">
                   <dt className="text-ink-faint">{detail.label}</dt>
                   <dd className="min-w-0 truncate font-mono text-ink-muted">{detail.value}</dd>
                 </div>
@@ -791,7 +789,7 @@ function TestResult({ result }: { result: ProviderVerification }) {
             </dl>
           )}
           {result.ok && (
-            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-faint">
+            <p className="mt-1 flex items-center gap-1.5 text-2xs text-ink-faint">
               <KeyRound className="size-3 shrink-0" aria-hidden />
               The provider is reachable and consistent. Whether a person can sign in is only
               answered by signing in.

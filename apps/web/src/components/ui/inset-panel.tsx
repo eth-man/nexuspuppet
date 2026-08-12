@@ -36,7 +36,7 @@ export function InsetPanel({
         <div className="min-w-0">
           <h3 className="text-xs font-semibold text-ink">{title}</h3>
           {description !== undefined && (
-            <p className="mt-0.5 max-w-prose text-[11px] text-ink-muted">{description}</p>
+            <p className="mt-0.5 max-w-prose text-2xs text-ink-muted">{description}</p>
           )}
         </div>
         {actions !== undefined && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

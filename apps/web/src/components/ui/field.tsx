@@ -65,11 +65,11 @@ export function Field({
       {children(id)}
 
       {invalid ? (
-        <p role="alert" className="text-[11px] text-state-failed">
+        <p role="alert" className="text-2xs text-state-failed">
           {error}
         </p>
       ) : (
-        hint !== undefined && <p className="max-w-prose text-[11px] text-ink-faint">{hint}</p>
+        hint !== undefined && <p className="max-w-prose text-2xs text-ink-faint">{hint}</p>
       )}
     </div>
   );

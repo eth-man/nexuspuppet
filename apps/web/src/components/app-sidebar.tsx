@@ -14,12 +14,14 @@ import {
   Server,
   Settings,
   Sun,
+  Type,
   Layers,
 } from 'lucide-react';
 import type { Permission } from '@nexuspuppet/contracts';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth-provider';
 import { useTheme, type ThemePreference } from '@/providers/theme-provider';
+import { useDensity, type DensityPreference } from '@/providers/density-provider';
 
 /**
  * Primary navigation.
@@ -138,11 +140,12 @@ export function AppSidebar() {
         {!collapsed && principal !== null && (
           <div className="px-2 pb-1.5">
             <p className="truncate text-xs font-medium text-ink">{principal.displayName}</p>
-            <p className="truncate text-[11px] text-ink-faint">{principal.role}</p>
+            <p className="truncate text-2xs text-ink-faint">{principal.role}</p>
           </div>
         )}
 
         <ThemeControl collapsed={collapsed} />
+        <DensityControl collapsed={collapsed} />
 
         <button
           type="button"
@@ -234,6 +237,78 @@ function ThemeControl({ collapsed }: { collapsed: boolean }) {
             )}
           >
             <Icon className="size-3.5" aria-hidden />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * How large the console renders, beside the theme control.
+ *
+ * Sits here because it is the same KIND of choice: a per-reader display
+ * preference, stored locally, that no other operator sees. Putting it in
+ * Settings would file it with things that change the estate.
+ *
+ * Compact is the default and is pixel-identical to before this existed. The
+ * density argument in the UI guidelines is right — an operator does want the
+ * estate on one screen — it just should not be the only option on a 4K laptop
+ * panel, where the same choice costs legibility and buys back nothing.
+ */
+function DensityControl({ collapsed }: { collapsed: boolean }) {
+  const { preference, setPreference } = useDensity();
+
+  const options: Array<{ value: DensityPreference; label: string; short: string }> = [
+    { value: 'compact', label: 'Compact', short: 'S' },
+    { value: 'comfortable', label: 'Comfortable', short: 'M' },
+    { value: 'large', label: 'Large', short: 'L' },
+  ];
+
+  if (collapsed) {
+    const next: DensityPreference =
+      preference === 'compact' ? 'comfortable' : preference === 'comfortable' ? 'large' : 'compact';
+    const current = options.find((o) => o.value === preference);
+
+    return (
+      <button
+        type="button"
+        onClick={() => setPreference(next)}
+        title={`Text size: ${preference}. Switch to ${next}.`}
+        aria-label={`Text size: ${preference}. Switch to ${next}.`}
+        className="mb-0.5 flex h-8 w-full items-center justify-center rounded text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
+      >
+        <Type className="size-4 shrink-0" aria-hidden />
+        <span className="sr-only">{current?.label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Text size"
+      className="mb-1 flex gap-0.5 rounded border border-line-soft p-0.5"
+    >
+      {options.map(({ value, label, short }) => {
+        const active = preference === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={label}
+            title={`${label} text`}
+            onClick={() => setPreference(value)}
+            className={cn(
+              'flex h-6 flex-1 items-center justify-center rounded text-2xs font-medium transition-colors',
+              active
+                ? 'bg-accent/15 text-accent'
+                : 'text-ink-faint hover:bg-panel-raised hover:text-ink',
+            )}
+          >
+            {short}
           </button>
         );
       })}

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { AuthProvider } from '@/providers/auth-provider';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider, THEME_BOOTSTRAP } from '@/providers/theme-provider';
+import { DensityProvider, DENSITY_BOOTSTRAP } from '@/providers/density-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -32,11 +33,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           this script mutates the attribute React rendered.
         */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+        {/* Same pre-paint reasoning as the theme: applied before first paint so
+            the layout does not visibly resize after hydration. */}
+        <script dangerouslySetInnerHTML={{ __html: DENSITY_BOOTSTRAP }} />
       </head>
       <body className="min-h-screen bg-surface font-sans text-ink antialiased">
         <QueryProvider>
           <ThemeProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <DensityProvider>
+              <AuthProvider>{children}</AuthProvider>
+            </DensityProvider>
           </ThemeProvider>
         </QueryProvider>
       </body>

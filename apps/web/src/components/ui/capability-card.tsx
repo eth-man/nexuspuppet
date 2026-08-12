@@ -94,7 +94,7 @@ export function CapabilityCard({
       </CardHeader>
 
       <div className="border-t border-line px-3 py-2">
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-2xs text-ink-faint">
           Requires the <span className="font-mono">{capability}</span> capability, which this
           deployment does not advertise.
           {note !== undefined && <> {note}</>}
