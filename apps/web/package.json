@@ -1,7 +1,7 @@
 {
   "name": "@nexuspuppet/web",
   "version": "1.5.13",
-  "description": "NexusPuppet web console — rendering tier only",
+  "description": "NexusPuppet web console \u2014 rendering tier only",
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start -p ${WEB_PORT:-3000}",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
     "clean": "rm -rf .next tsconfig.tsbuildinfo"
   },
   "dependencies": {

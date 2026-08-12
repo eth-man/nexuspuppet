@@ -1,12 +1,19 @@
 'use client';
 
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import type {
   AuthSources,
   DeploymentInfo,
   AuditForwardingView,
   AuthProviderDescription,
   DeploymentCapabilities,
+  ClassIndex,
   FactPathIndex,
   LdapSettings,
   ManagedUser,
@@ -193,6 +200,51 @@ export function useFactPaths(): UseQueryResult<FactPathIndex> {
     queryKey: ['fact-paths'],
     queryFn: ({ signal }) => api.get<FactPathIndex>('/fact-paths', signal),
     staleTime: 120_000,
+  });
+}
+
+/**
+ * Classes available to assign, for one environment (ADR-0024).
+ *
+ * SCOPED BY ENVIRONMENT, and the environment is part of the query key. A global
+ * key would serve production's classes to a group pinned to development —
+ * plausible-looking names, and a compile error later on every node that group
+ * matches.
+ *
+ * Never throws into the UI: the endpoint always answers 200, carrying a status
+ * and a message, because a suggestion source must not be able to block a write.
+ */
+export function useClassNames(environment: string | null): UseQueryResult<ClassIndex> {
+  return useQuery({
+    queryKey: ['class-names', environment ?? '(default)'],
+    queryFn: ({ signal }) =>
+      api.get<ClassIndex>(
+        environment === null
+          ? '/class-names'
+          : `/class-names?environment=${encodeURIComponent(environment)}`,
+        signal,
+      ),
+    // The API holds its own cache; this one only stops a re-render refetching.
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Discard the API's cached list and refetch — the operator just deployed code
+ * and wants to classify it now (ADR-0024 §8).
+ */
+export function useRefreshClassNames(): UseMutationResult<ClassIndex, unknown, string | null> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (environment: string | null) =>
+      api.get<ClassIndex>(
+        environment === null
+          ? '/class-names?refresh=true'
+          : `/class-names?environment=${encodeURIComponent(environment)}&refresh=true`,
+      ),
+    onSuccess: (index, environment) => {
+      queryClient.setQueryData(['class-names', environment ?? '(default)'], index);
+    },
   });
 }
 

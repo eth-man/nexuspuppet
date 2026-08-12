@@ -1,0 +1,12 @@
+{
+  // Next sets `jsx: preserve` because its own compiler handles JSX. ts-jest has
+  // no such step, so preserved JSX reaches the runtime as a SyntaxError. This
+  // overrides it for tests ONLY — the app build is untouched.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false
+  }
+}

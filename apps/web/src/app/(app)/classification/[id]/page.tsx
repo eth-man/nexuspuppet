@@ -14,7 +14,14 @@ import {
   puppetClassNameSchema,
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
-import { useFactPaths, useNodeGroup } from '@/lib/queries';
+import { useClassNames, useFactPaths, useNodeGroup, useRefreshClassNames } from '@/lib/queries';
+import {
+  ClassNameSuggestions,
+  ClassParameterForm,
+  ClassSuggestionStatus,
+  findClass,
+  paramsToJson,
+} from '@/components/data/class-picker';
 import {
   useAddPins,
   useAssignClass,
@@ -589,6 +596,22 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
 
+  // Suggestions for the environment THIS GROUP will use — its own when set,
+  // otherwise the deployment default, which the API resolves (ADR-0024 §7).
+  const classIndex = useClassNames(detail.environment);
+  const refresh = useRefreshClassNames();
+  const suggestion = findClass(classIndex.data, className);
+
+  // Form values live separately from the JSON so switching between them never
+  // loses what was typed. The JSON is authoritative on save.
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [jsonMode, setJsonMode] = useState(false);
+
+  // The form can only be offered for a class whose signature we actually have.
+  // Everything else — unknown class, suggestions unavailable, operator's choice
+  // — falls back to the textarea, which is never taken away (§9).
+  const formAvailable = suggestion !== null && !jsonMode;
+
   return (
     <Card>
       <CardHeader>
@@ -714,11 +737,18 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
               onChange={(e) => {
                 setClassName(e.target.value);
                 setNameError(null);
+                // A different class means a different signature; keeping the
+                // old field values would submit one class's parameters to
+                // another.
+                setFieldValues({});
               }}
               placeholder="profile::base"
               className="font-mono"
               aria-invalid={nameError !== null}
+              list="class-name-suggestions"
+              autoComplete="off"
             />
+            <ClassNameSuggestions id="class-name-suggestions" index={classIndex.data} />
             {nameError !== null ? (
               <p className="text-[11px] text-state-failed">{nameError}</p>
             ) : (
@@ -727,19 +757,76 @@ function ClassesSection({ id, detail, writable, onWrite, onError }: SectionProps
                 invalid name is rejected before it reaches a preview or a catalog compilation.
               </p>
             )}
+
+            {/* MARKED, NOT BLOCKED. A class the operator is about to write does
+                not exist yet, and refusing it would be worse than the guessing
+                this replaces (§5). */}
+            {className !== '' &&
+              suggestion === null &&
+              classIndex.data?.status === 'ok' &&
+              classIndex.data.classes.length > 0 && (
+                <p className="text-[11px] text-state-pending">
+                  Not among the classes in{' '}
+                  <span className="font-mono">{classIndex.data.environment}</span>. You can still
+                  assign it — but if it does not exist when a catalog compiles, every matched node
+                  fails.
+                </p>
+              )}
+
+            {suggestion !== null && suggestion.path !== null && (
+              <p className="truncate text-[11px] text-ink-faint">
+                <span className="font-mono">{suggestion.path}</span>
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="params">Parameters (JSON)</Label>
-            <Textarea
-              id="params"
-              rows={6}
-              value={params}
-              onChange={(e) => setParams(e.target.value)}
-              aria-invalid={jsonError !== null}
-            />
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="params">{formAvailable ? 'Parameters' : 'Parameters (JSON)'}</Label>
+              {/* ALWAYS REACHABLE, even for a class we know perfectly well. A
+                  parameter taking a structure the form cannot express must
+                  never become unassignable (§9). */}
+              {suggestion !== null && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (!jsonMode) setParams(paramsToJson(fieldValues).json);
+                    setJsonMode(!jsonMode);
+                  }}
+                >
+                  {jsonMode ? 'Use the form' : 'Edit as JSON'}
+                </Button>
+              )}
+            </div>
+
+            {formAvailable ? (
+              <ClassParameterForm
+                klass={suggestion}
+                values={fieldValues}
+                onChange={(next) => {
+                  setFieldValues(next);
+                  setParams(paramsToJson(next).json);
+                  setJsonError(null);
+                }}
+              />
+            ) : (
+              <Textarea
+                id="params"
+                rows={6}
+                value={params}
+                onChange={(e) => setParams(e.target.value)}
+                aria-invalid={jsonError !== null}
+              />
+            )}
             {jsonError !== null && <p className="text-[11px] text-state-failed">{jsonError}</p>}
           </div>
+
+          <ClassSuggestionStatus
+            index={classIndex.data}
+            refreshing={refresh.isPending}
+            onRefresh={() => refresh.mutate(detail.environment)}
+          />
         </div>
       </Dialog>
     </Card>
