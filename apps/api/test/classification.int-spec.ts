@@ -134,7 +134,7 @@ describe('classification writes (integration)', () => {
 
       const result = await service.addPins(group.group.id, ['web01.example.com'], ACTOR, CTX);
 
-      expect(result.warnings.some((w) => w.includes('matches by rule'))).toBe(true);
+      expect(result.warnings.some((w) => w.includes('strategy is ALL_RULES'))).toBe(true);
       expect(result.warnings.some((w) => w.includes('PINNED'))).toBe(true);
     });
 
@@ -165,7 +165,7 @@ describe('classification writes (integration)', () => {
         CTX,
       );
 
-      expect(result.warnings.some((w) => w.includes('matches by pinned node'))).toBe(true);
+      expect(result.warnings.some((w) => w.includes('strategy is PINNED'))).toBe(true);
     });
 
     it('tells you a strategy change has orphaned every pin', async () => {

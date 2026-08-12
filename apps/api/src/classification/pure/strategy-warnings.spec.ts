@@ -15,7 +15,7 @@ describe('strategyWarnings', () => {
 
       // Names the STRATEGY. "matches by pinned node" was read as "there are
       // still pinned nodes" by an operator who had just deleted every pin.
-      expect(warning).toContain("strategy is PINNED");
+      expect(warning).toContain('strategy is PINNED');
       expect(warning).toContain('3 rules');
       expect(warning).toContain('ALL_RULES');
       expect(rest).toEqual([]);
