@@ -417,6 +417,16 @@ export const consoleTlsStatusSchema = z.object({
    * deployment terminating TLS elsewhere, and NOT an error.
    */
   configured: z.boolean(),
+  /**
+   * True when the bundled proxy is serving a certificate it issued itself
+   * (`deploy.sh --tls`).
+   *
+   * There is no path to configure and no expiry to track: Caddy holds that
+   * certificate in its own volume and renews it. Without this flag the console
+   * tells such a deployment to set CONSOLE_TLS_CERT_PATH — advice that cannot
+   * be followed, for a certificate this product generated.
+   */
+  bundledInternalTls: z.boolean().default(false),
   certificate: certificateSummarySchema.nullable(),
   /**
    * Why there is no certificate summary, as something the console can phrase.

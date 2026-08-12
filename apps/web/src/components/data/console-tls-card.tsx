@@ -85,6 +85,30 @@ function Body({ status }: { status: ConsoleTlsStatus }) {
   // their own reverse proxy, where this product cannot see the certificate and
   // has no business trying to.
   if (!status.configured) {
+    /*
+       WE ISSUED IT, SO SAY SO.
+       With `deploy.sh --tls` the bundled proxy serves a certificate Caddy
+       generated and renews itself. There is no path to configure and no expiry
+       worth tracking — telling such a deployment to set CONSOLE_TLS_CERT_PATH
+       is advice that cannot be followed, about a certificate this product
+       created. Reported by an operator who asked, reasonably, why the console
+       could not show its own certificate.
+    */
+    if (status.bundledInternalTls) {
+      return (
+        <p className="flex items-start gap-1.5 text-ink-muted">
+          <ShieldOff className="mt-px shrink-0 text-ink-faint" size={13} aria-hidden />
+          <span>
+            TLS is terminated by the bundled proxy, using a certificate it issued itself and renews
+            automatically — there is no path to configure and no expiry to watch. Browsers warn
+            because no public CA vouches for it. To replace it with one they trust, put the
+            certificate where <code className="text-ink">CONSOLE_TLS_CERT_PATH</code> points and
+            switch the proxy to the default Caddyfile.
+          </span>
+        </p>
+      );
+    }
+
     return (
       <p className="flex items-start gap-1.5 text-ink-muted">
         <ShieldOff className="mt-px shrink-0 text-ink-faint" size={13} aria-hidden />

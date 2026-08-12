@@ -44,13 +44,25 @@ export class ConsoleTlsService {
       expectedHostname: this.expectedHostname,
       certificate: null,
       coversExpectedHostname: null,
+      // Only meaningful when nothing is configured — a deployment that DID
+      // supply a certificate is not relying on the bundled proxy's own.
+      bundledInternalTls: false,
     };
 
     // Not configured is the NORMAL state for a deployment terminating TLS at its
     // own proxy, which is most of them. It is not an error and must not be
     // rendered as one.
     if (this.certificatePath === null || this.certificatePath === '') {
-      return { ...base, configured: false, error: null, errorCode: null };
+      return {
+        ...base,
+        configured: false,
+        // Compose passes the whole .env into this container, so CADDY_CONFIG is
+        // visible here. Reading it is how "no certificate configured" becomes
+        // "we issued one ourselves and there is nothing for you to do".
+        bundledInternalTls: (process.env['CADDY_CONFIG'] ?? '').includes('Caddyfile.internal'),
+        error: null,
+        errorCode: null,
+      };
     }
 
     let pem: string;
@@ -102,6 +114,7 @@ export class ConsoleTlsService {
 
       return {
         configured: true,
+        bundledInternalTls: false,
         errorCode: null,
         certificate,
         expectedHostname: this.expectedHostname,

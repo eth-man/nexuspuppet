@@ -92,6 +92,33 @@ export class DeploymentService {
       });
 
       if (!response.ok) {
+        /*
+         * 403 IS ALMOST ALWAYS RATE LIMITING, NOT PERMISSION.
+         *
+         * GitHub returns 403 rather than 429 when an unauthenticated caller
+         * exhausts its 60-per-hour allowance, and that allowance is per SOURCE
+         * ADDRESS — so behind corporate NAT it is shared with everyone else on
+         * the network and can be gone without this deployment having asked once.
+         *
+         * Reported by an operator who reasonably read 403 as "this repository
+         * is private" or "my deployment is unlicensed". It is neither: the
+         * repository is public and nothing about this deployment is sent.
+         */
+        if (response.status === 403 || response.status === 429) {
+          const remaining = response.headers.get('x-ratelimit-remaining');
+          const limited = remaining === '0' || response.status === 429;
+          return {
+            ...base,
+            message: limited
+              ? 'GitHub rate-limited this check. The allowance is per source address ' +
+                'and shared across your network, so it can be exhausted by other traffic. ' +
+                'It resets hourly; nothing is wrong with this deployment.'
+              : 'The release service refused the request (403). This is usually rate ' +
+                'limiting or an outbound proxy — the release list is public and no ' +
+                'credential is involved.',
+          };
+        }
+
         return {
           ...base,
           message:
