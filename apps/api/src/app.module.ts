@@ -234,14 +234,16 @@ export class AppModule {
       },
       {
         provide: SettingsService,
-        inject: [SettingsStore, AUDIT_SINK, AuthProviderResolver],
+        inject: [SettingsStore, PrismaService, AUDIT_SINK, AuthProviderResolver],
         useFactory: (
           store: SettingsStore,
+          prisma: PrismaService,
           audit: IAuditSink,
           resolver: AuthProviderResolver,
         ): SettingsService =>
           new SettingsService(
             store,
+            prisma,
             audit,
             // The environment baseline for LDAP is owned by the enterprise
             // layer's own parser, which core cannot call (ADR-0002) — so core
@@ -480,15 +482,23 @@ export class AppModule {
         { provide: AUTH_PROVIDER_SETTINGS, useExisting: AuthSettingsResolver },
         {
           provide: AuditForwardingService,
-          inject: [SettingsStore, AuditForwardingResolver, AUDIT_SINK, AUDIT_TRANSPORT],
+          inject: [
+            SettingsStore,
+            PrismaService,
+            AuditForwardingResolver,
+            AUDIT_SINK,
+            AUDIT_TRANSPORT,
+          ],
           useFactory: (
             store: SettingsStore,
+            prisma: PrismaService,
             resolver: AuditForwardingResolver,
             audit: IAuditSink,
             transport: IAuditTransport,
           ): AuditForwardingService =>
             new AuditForwardingService(
               store,
+              prisma,
               resolver,
               audit,
               transport,

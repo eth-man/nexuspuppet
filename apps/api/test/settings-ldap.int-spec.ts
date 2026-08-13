@@ -71,6 +71,9 @@ describe('LDAP settings API (integration)', () => {
   const service = (resolver: AuthProviderResolver = resolverWith()) =>
     new SettingsService(
       new SettingsStore(prisma, KEY, 'db'),
+      // A REAL PrismaService here, so the transaction that binds a settings
+      // change to its audit record is a real one (#103).
+      prisma,
       audit,
       () => null,
       () => resolver.forSource('ldap') !== null,
@@ -142,6 +145,7 @@ describe('LDAP settings API (integration)', () => {
 
       const noProvider = new SettingsService(
         new SettingsStore(prisma, KEY, 'db'),
+        prisma,
         audit,
         () => null,
         () => false,
