@@ -9,6 +9,7 @@ import {
 } from '@nexuspuppet/contracts';
 import type { AuthProviderResolver } from '../auth/auth-provider.resolver';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
+import { PrismaService } from '../prisma/prisma.service';
 import { SettingsStore } from './settings.store';
 
 /** The source an LDAP configuration is dispatched to, matching IAuthProvider.source. */
@@ -32,6 +33,12 @@ export class SettingsService {
 
   constructor(
     private readonly store: SettingsStore,
+    /**
+     * Only to open the transaction that binds a change to its audit record
+     * (#103, ADR-0005). Reads and writes of settings still go through the
+     * store, which owns the encryption and the env-vs-stored precedence.
+     */
+    private readonly prisma: PrismaService,
     @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
     /**
      * The environment baseline for LDAP, or null when the environment does not
@@ -143,18 +150,31 @@ export class SettingsService {
     const actor = request.principal;
     const before = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
 
-    await this.store.clear('auth.oidc');
+    // ONE TRANSACTION (#103, ADR-0005). The change, its audit record, and the
+    // delivery the sink enqueues from that record commit together. Written
+    // separately the sink receives no transaction, declines to enqueue, and the
+    // change reaches the trail but never the SIEM.
+    //
+    // Safe to wrap HERE because `before` was read above and `after` is fixed —
+    // nothing re-reads the row inside the transaction, which is what still
+    // blocks the four `save` sites (#103).
+    await this.prisma.$transaction(async (tx) => {
+      await this.store.clear('auth.oidc', tx);
 
-    await this.audit.record({
-      actorUserId: actor?.userId ?? null,
-      actorEmail: actor?.email ?? null,
-      action: 'settings.auth.oidc.clear',
-      entityType: 'ProviderSetting',
-      entityId: 'auth.oidc',
-      before: before.config,
-      after: null,
-      ipAddress: request.ip ?? null,
-      userAgent: headerOf(request, 'user-agent'),
+      await this.audit.record(
+        {
+          actorUserId: actor?.userId ?? null,
+          actorEmail: actor?.email ?? null,
+          action: 'settings.auth.oidc.clear',
+          entityType: 'ProviderSetting',
+          entityId: 'auth.oidc',
+          before: before.config,
+          after: null,
+          ipAddress: request.ip ?? null,
+          userAgent: headerOf(request, 'user-agent'),
+        },
+        tx,
+      );
     });
   }
 
@@ -245,18 +265,31 @@ export class SettingsService {
     const actor = request.principal;
     const before = await this.store.describe<LdapSettings>('auth.ldap', this.ldapFromEnv);
 
-    await this.store.clear('auth.ldap');
+    // ONE TRANSACTION (#103, ADR-0005). The change, its audit record, and the
+    // delivery the sink enqueues from that record commit together. Written
+    // separately the sink receives no transaction, declines to enqueue, and the
+    // change reaches the trail but never the SIEM.
+    //
+    // Safe to wrap HERE because `before` was read above and `after` is fixed —
+    // nothing re-reads the row inside the transaction, which is what still
+    // blocks the four `save` sites (#103).
+    await this.prisma.$transaction(async (tx) => {
+      await this.store.clear('auth.ldap', tx);
 
-    await this.audit.record({
-      actorUserId: actor?.userId ?? null,
-      actorEmail: actor?.email ?? null,
-      action: 'settings.auth.ldap.clear',
-      entityType: 'ProviderSetting',
-      entityId: 'auth.ldap',
-      before: before.config,
-      after: null,
-      ipAddress: request.ip ?? null,
-      userAgent: headerOf(request, 'user-agent'),
+      await this.audit.record(
+        {
+          actorUserId: actor?.userId ?? null,
+          actorEmail: actor?.email ?? null,
+          action: 'settings.auth.ldap.clear',
+          entityType: 'ProviderSetting',
+          entityId: 'auth.ldap',
+          before: before.config,
+          after: null,
+          ipAddress: request.ip ?? null,
+          userAgent: headerOf(request, 'user-agent'),
+        },
+        tx,
+      );
     });
   }
 

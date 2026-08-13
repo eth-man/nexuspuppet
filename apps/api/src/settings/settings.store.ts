@@ -1,5 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * A Prisma client that may be the service or a caller's transaction (#103).
+ *
+ * Structural and NARROW — only the model this store touches — so a future edit
+ * cannot reach unrelated tables from inside somebody else's transaction.
+ *
+ * Accepted by the WRITE methods only, deliberately. `resolve` and `describe`
+ * read the row back, and a read that must see an uncommitted write needs the
+ * same client; until they take one too, the four `save` call sites cannot be
+ * wrapped without their audit `after` payload silently reporting the OLD value.
+ * See the note on #103.
+ */
+export type SettingsWriteClient = Pick<PrismaService, 'providerSetting'>;
 import { SecretBoxError, open, parseKey, seal } from './secret-box';
 
 /**
@@ -176,12 +190,21 @@ export class SettingsStore {
    * means a new field is a deliberate decision about whether it is sensitive,
    * not an accident of what it happens to be called.
    */
+  /**
+   * @param tx join a caller's transaction (#103, ADR-0005).
+   *
+   * Safe ONLY where the caller does not read the row back to build its audit
+   * payload. `describe`/`resolve` still read on this.prisma, so a caller that
+   * re-reads inside the transaction sees the pre-write state.
+   */
   async save(
     kind: SettingKind,
     config: Record<string, unknown>,
     secretFields: readonly string[],
     updatedByEmail: string,
+    tx?: SettingsWriteClient,
   ): Promise<void> {
+    const db = tx ?? this.prisma;
     const secrets: Record<string, unknown> = {};
     const plain: Record<string, unknown> = {};
 
@@ -204,7 +227,7 @@ export class SettingsStore {
       );
     }
 
-    const existing = await this.prisma.providerSetting.findUnique({ where: { kind } });
+    const existing = await db.providerSetting.findUnique({ where: { kind } });
     const carriedForward = existing === null ? {} : this.openSecrets(kind, existing.secrets);
     const merged = { ...carriedForward, ...secrets };
 
@@ -213,7 +236,7 @@ export class SettingsStore {
         ? Buffer.from(seal(this.key, merged))
         : null;
 
-    await this.prisma.providerSetting.upsert({
+    await db.providerSetting.upsert({
       where: { kind },
       create: { kind, config: plain as object, secrets: sealed, updatedByEmail },
       update: { config: plain as object, secrets: sealed, updatedByEmail },
@@ -221,16 +244,26 @@ export class SettingsStore {
   }
 
   /** Switch a stored configuration off without discarding it. */
-  async setEnabled(kind: SettingKind, enabled: boolean, updatedByEmail: string): Promise<void> {
-    await this.prisma.providerSetting.update({
+  async setEnabled(
+    kind: SettingKind,
+    enabled: boolean,
+    updatedByEmail: string,
+    tx?: SettingsWriteClient,
+  ): Promise<void> {
+    await (tx ?? this.prisma).providerSetting.update({
       where: { kind },
       data: { enabled, updatedByEmail },
     });
   }
 
-  /** Discard a stored configuration entirely, falling back to the environment. */
-  async clear(kind: SettingKind): Promise<void> {
-    await this.prisma.providerSetting.deleteMany({ where: { kind } });
+  /**
+   * Discard a stored configuration entirely, falling back to the environment.
+   *
+   * @param tx join a caller's transaction, so the change and its audit record
+   * commit together and the sink can enqueue delivery (#103, ADR-0005).
+   */
+  async clear(kind: SettingKind, tx?: SettingsWriteClient): Promise<void> {
+    await (tx ?? this.prisma).providerSetting.deleteMany({ where: { kind } });
   }
 
   private openSecrets(kind: SettingKind, sealed: Uint8Array | null): Record<string, unknown> {

@@ -15,6 +15,7 @@ import {
 import type { AuthenticatedRequest } from '../auth/auth.guard';
 import { AuditForwardingResolver } from './audit-forwarding.resolver';
 import { AUDIT_SECRET_FIELDS, auditEnvBaseline } from './provider-baseline';
+import { PrismaService } from '../prisma/prisma.service';
 import { SettingsStore, type SettingKind } from './settings.store';
 
 const SETTING_KIND: Record<AuditTransportKind, SettingKind> = {
@@ -47,6 +48,12 @@ export class AuditForwardingService {
 
   constructor(
     private readonly store: SettingsStore,
+    /**
+     * Only to open the transaction that binds a change to its audit record
+     * (#103, ADR-0005). Reads and writes of settings still go through the
+     * store, which owns the encryption and the env-vs-stored precedence.
+     */
+    private readonly prisma: PrismaService,
     private readonly resolver: AuditForwardingResolver,
     @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
     @Inject(AUDIT_TRANSPORT) private readonly transport: IAuditTransport,
@@ -115,18 +122,31 @@ export class AuditForwardingService {
     const actor = request.principal;
     const before = await this.describeKind(kind);
 
-    await this.store.clear(SETTING_KIND[kind]);
+    // ONE TRANSACTION (#103, ADR-0005). The change, its audit record, and the
+    // delivery the sink enqueues from that record commit together. Written
+    // separately the sink receives no transaction, declines to enqueue, and the
+    // change reaches the trail but never the SIEM.
+    //
+    // Safe to wrap HERE because `before` was read above and `after` is fixed —
+    // nothing re-reads the row inside the transaction, which is what still
+    // blocks the four `save` sites (#103).
+    await this.prisma.$transaction(async (tx) => {
+      await this.store.clear(SETTING_KIND[kind], tx);
 
-    await this.audit.record({
-      actorUserId: actor?.userId ?? null,
-      actorEmail: actor?.email ?? null,
-      action: `settings.audit.${kind}.clear`,
-      entityType: 'ProviderSetting',
-      entityId: SETTING_KIND[kind],
-      before: before.config,
-      after: null,
-      ipAddress: request.ip ?? null,
-      userAgent: headerOf(request, 'user-agent'),
+      await this.audit.record(
+        {
+          actorUserId: actor?.userId ?? null,
+          actorEmail: actor?.email ?? null,
+          action: `settings.audit.${kind}.clear`,
+          entityType: 'ProviderSetting',
+          entityId: SETTING_KIND[kind],
+          before: before.config,
+          after: null,
+          ipAddress: request.ip ?? null,
+          userAgent: headerOf(request, 'user-agent'),
+        },
+        tx,
+      );
     });
   }
 
@@ -148,18 +168,31 @@ export class AuditForwardingService {
 
     const before = (await this.storedSelection()) ?? this.envActive();
 
-    await this.store.save('audit.forwarding', { active }, [], actor?.email ?? 'unknown');
+    // ONE TRANSACTION (#103, ADR-0005). The change, its audit record, and the
+    // delivery the sink enqueues from that record commit together. Written
+    // separately the sink receives no transaction, declines to enqueue, and the
+    // change reaches the trail but never the SIEM.
+    //
+    // Safe to wrap HERE because `before` was read above and `after` is fixed —
+    // nothing re-reads the row inside the transaction, which is what still
+    // blocks the four `save` sites (#103).
+    await this.prisma.$transaction(async (tx) => {
+      await this.store.save('audit.forwarding', { active }, [], actor?.email ?? 'unknown', tx);
 
-    await this.audit.record({
-      actorUserId: actor?.userId ?? null,
-      actorEmail: actor?.email ?? null,
-      action: 'settings.audit.forwarding.update',
-      entityType: 'ProviderSetting',
-      entityId: 'audit.forwarding',
-      before: { active: before },
-      after: { active },
-      ipAddress: request.ip ?? null,
-      userAgent: headerOf(request, 'user-agent'),
+      await this.audit.record(
+        {
+          actorUserId: actor?.userId ?? null,
+          actorEmail: actor?.email ?? null,
+          action: 'settings.audit.forwarding.update',
+          entityType: 'ProviderSetting',
+          entityId: 'audit.forwarding',
+          before: { active: before },
+          after: { active },
+          ipAddress: request.ip ?? null,
+          userAgent: headerOf(request, 'user-agent'),
+        },
+        tx,
+      );
     });
 
     return this.describe();

@@ -31,6 +31,18 @@ interface Row {
 class FakePrisma {
   readonly rows = new Map<string, Row>();
 
+  /**
+   * Runs the callback with THIS fake as the transaction client (#103).
+   *
+   * Deliberately not a no-op passthrough that ignores rollback: these tests
+   * assert what was written and what was audited, and both go through the same
+   * fake either way. What they cannot assert is atomicity — that needs a real
+   * database, and audit-correlation.int-spec.ts is where it belongs.
+   */
+  async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+    return fn(this);
+  }
+
   readonly providerSetting = {
     findUnique: async ({ where }: { where: { kind: string } }): Promise<Row | null> =>
       this.rows.get(where.kind) ?? null,
@@ -145,6 +157,7 @@ function build(options?: {
   const resolver = new AuditForwardingResolver(store);
   const service = new AuditForwardingService(
     store,
+    prisma as unknown as PrismaService,
     resolver,
     sink,
     options?.transport ?? NOOP_TRANSPORT,
