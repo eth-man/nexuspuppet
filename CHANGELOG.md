@@ -2,6 +2,22 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] — 2026-08-13
+
+The audit trail can name what it describes, and every row it writes while serving one request carries that request's id. **One migration**, `audit_request_correlation`, purely additive.
+
+### Added
+
+**`entityLabel` — what the entity was called at the time.** An audit row outlives the thing it describes. Once a group was deleted its row read `node_group / 6e7969f8-…` and named nothing, because the id could no longer be resolved — the row it pointed at was gone. The label is derived from the `before`/`after` payload already stored rather than supplied by each of the twenty call sites that write audit rows, so it cannot drift between them. A rename is recorded under the new name; a deletion falls back to the old one, which is exactly when it matters most.
+
+**`requestId` — every row written while serving one request shares an id.** Set once at the edge in an `AsyncLocalStorage` store and read once in the sink, so no call site changed. Reconstructing an operation previously meant arithmetic on adjacent timestamps, which is the reasoning ADR-0022 rejected for compile receipts. Note that every operation in the product currently writes exactly one audit row, so this is the guarantee that holds the first time one writes two, rather than something doing work today.
+
+**`x-request-id` on every response.** An operator reporting "it failed at 14:32" can hand over an exact id instead of a timestamp, and it resolves to the row. This is the correlation that pays off immediately.
+
+Both fields are forwarded to a SIEM, which is where somebody most often asks what else happened in an operation and where the answer must not require our database. They are optional on the wire contract: a "send test message" payload belongs to no operation and names no entity, and requiring them would make an honest null impossible to express.
+
+Null is a legitimate value throughout. Bootstrap, the retention sweeper and background workers belong to no request, and inventing ids for them would imply operations a reader could go and look for. Existing rows keep `NULL` for the same reason.
+
 ## [1.6.0] — 2026-08-13
 
 Assigning a class stops being an act of memory. NexusPuppet can now read the class list from puppetserver and offer it, with each class's parameters, types and defaults (ADR-0024). Optional, off by default, and it degrades to exactly today's behaviour when unreachable. No migrations.
