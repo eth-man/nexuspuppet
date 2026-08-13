@@ -588,6 +588,71 @@ if [ "$enc_enabled" = "true" ] && [ -n "$enc_peers" ]; then
          from enc_replication_peers order by \"lastFetchAt\" desc limit 1" 2>/dev/null |
         tr -d '\r' | head -1 || true)
 
+    # ---------------------------------------------------------------------
+    # Class suggestions (ADR-0024): probe, never infer.
+    #
+    # A version check would answer "what did you install", not "does this work",
+    # and the two diverge the moment anybody edits auth.conf or rebuilds a
+    # Puppet server. The same mistake this block used to make about the ENC.
+    #
+    # So it asks, with the certificate the API itself uses, and reports ONLY the
+    # cases an operator can act on. A feature nobody enabled is not one of them:
+    # the console says so where the feature would appear, which is the right
+    # place for it, not here on every deploy.
+    # ---------------------------------------------------------------------
+    ps_url=$(grep -E '^PUPPETSERVER_URL=' .env | cut -d= -f2- || true)
+    if [ -n "$ps_url" ]; then
+        ps_host=${ps_url#*//}
+        ps_host=${ps_host%%:*}
+
+        # FROM INSIDE THE CONTAINER, because that is where the API makes this
+        # request. Probing from the host answers a different question and gets a
+        # different answer: the host has no reason to resolve the Puppet
+        # server's certname, while the container may have PUPPETSERVER_HOST_ALIAS
+        # doing exactly that. Probed from here, a working deployment reports
+        # "could not reach" and is told to fix something already correct.
+        #
+        # node, not curl: the image ships node and need not ship curl.
+        ps_code=$(docker compose exec -T api node -e '
+          const https = require("https"), fs = require("fs");
+          const u = new URL(process.argv[1]);
+          https.request({
+            host: u.hostname, port: u.port || 8140,
+            path: "/puppet/v3/environment_classes?environment=production",
+            cert: fs.readFileSync("/etc/nexuspuppet/certs/client.pem"),
+            key:  fs.readFileSync("/etc/nexuspuppet/certs/client.key"),
+            ca:   fs.readFileSync("/etc/nexuspuppet/certs/ca.pem"),
+            timeout: 20000,
+          }, (res) => { process.stdout.write(String(res.statusCode)); res.resume(); })
+            .on("error", (e) => process.stdout.write(e.code || "000"))
+            .on("timeout", () => process.stdout.write("000"))
+            .end();
+        ' "$ps_url" 2>/dev/null | tr -dc '0-9A-Z_' || true)
+
+        case "$ps_code" in
+            200) : ;; # Working. Nothing to say.
+            403)
+                printf '\n\033[33mClass suggestions are refused by puppetserver.\033[0m\n'
+                printf '  That endpoint is denied by default, even to puppetserver own certificate.\n'
+                printf '  Grant this deployment read access, from here:\n\n'
+                printf '    ./scripts/setup-enc.sh --remote you@%s \\\n' "$ps_host"
+                printf '        --allow-class-list %s\n' "${origin_cn:-<this-deployment-certname>}"
+                ;;
+            EAI_AGAIN | ENOTFOUND)
+                printf '\n\033[33m%s does not resolve inside the container.\033[0m\n' "$ps_host"
+                printf '  Class suggestions need that name — the certificate carries DNS names,\n'
+                printf '  not addresses, so pointing the URL at an IP fails verification instead:\n'
+                printf '    PUPPETSERVER_HOST_ALIAS=%s:<its-address>\n' "$ps_host"
+                ;;
+            ''|000|ECONN*|ETIMEDOUT)
+                printf '\n\033[33mCould not reach %s for class suggestions (%s).\033[0m\n' "$ps_host" "${ps_code:-no answer}"
+                ;;
+            *)
+                printf '\n\033[33mpuppetserver answered %s for class suggestions.\033[0m\n' "$ps_code"
+                ;;
+        esac
+    fi
+
     if [ -n "$enc_peer" ]; then
         peer_name=${enc_peer%%|*}
         peer_age=${enc_peer##*|}
