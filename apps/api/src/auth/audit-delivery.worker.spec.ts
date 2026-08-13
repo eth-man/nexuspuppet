@@ -73,6 +73,8 @@ describe('AuditDeliveryWorker', () => {
         action: 'test.action',
         entityType: 'Test',
         entityId: null,
+        entityLabel: null,
+        requestId: null,
         before: null,
         after: null,
         ipAddress: null,

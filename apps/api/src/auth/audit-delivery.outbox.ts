@@ -43,6 +43,8 @@ export interface PendingDelivery {
     action: string;
     entityType: string;
     entityId: string | null;
+    entityLabel: string | null;
+    requestId: string | null;
     before: unknown;
     after: unknown;
     ipAddress: string | null;
@@ -134,6 +136,8 @@ export class AuditDeliveryOutbox {
         action: job.auditLog.action,
         entityType: job.auditLog.entityType,
         entityId: job.auditLog.entityId,
+        entityLabel: job.auditLog.entityLabel,
+        requestId: job.auditLog.requestId,
         before: job.auditLog.before,
         after: job.auditLog.after,
         ipAddress: job.auditLog.ipAddress,

@@ -7,6 +7,8 @@ import type {
   ILicenseService,
   LicenseStatus,
 } from '@nexuspuppet/contracts';
+import { auditLabel } from './audit-label';
+import { currentRequestId } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashPassword } from './password';
 import { normalizeEmail } from './local-auth.provider';
@@ -53,6 +55,14 @@ export class PrismaAuditSink implements IAuditSink {
           : { after: entry.after as object }),
         ipAddress: entry.ipAddress ?? null,
         userAgent: entry.userAgent ?? null,
+        // Both filled HERE, not at the twenty call sites that write audit rows.
+        // A field each caller has to remember is a field some caller forgets,
+        // and a row missing from a correlation query is invisible.
+        //
+        // An explicit value still wins: a sink used outside a request, or a
+        // caller that genuinely knows better, can pass its own.
+        requestId: entry.requestId ?? currentRequestId(),
+        entityLabel: entry.entityLabel ?? auditLabel(entry.before, entry.after),
       },
       select: { id: true },
     });

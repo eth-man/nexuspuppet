@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { BootstrapService } from './auth/core-capabilities';
+import { runWithRequestId } from './common/request-context';
 import { LogLevelService } from './system/log-level.service';
 import { levelsFor } from './system/pure/log-levels';
 import { loadEnv } from './config/env';
@@ -43,6 +44,25 @@ async function bootstrap(): Promise<void> {
   // against the schemas in @nexuspuppet/contracts, so the API accepts exactly
   // what the shared types promise. Nest's ValidationPipe would require
   // class-validator and a second, drifting definition of every request shape.
+
+  /*
+   * One id per request, in scope for everything it calls (#229).
+   *
+   * FIRST, before any other middleware, because anything that writes an audit
+   * row before this runs would be uncorrelated — and a row missing from a
+   * correlation query is invisible in exactly the way the feature exists to
+   * prevent.
+   *
+   * Echoed as a response header so an operator reporting "it failed at 14:32"
+   * can hand over an id instead of a timestamp, and the whole operation comes
+   * back in one lookup.
+   */
+  app.use((_req: unknown, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+    runWithRequestId((requestId) => {
+      res.setHeader('x-request-id', requestId);
+      next();
+    });
+  });
 
   // The web tier is the only intended browser-facing origin; it proxies
   // server-side, so no permissive CORS is required here.

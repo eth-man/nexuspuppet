@@ -413,6 +413,24 @@ model AuditLog {
   action      String   @db.VarChar(128)
   entityType  String   @db.VarChar(64)
   entityId    String?
+  /// What the entity was CALLED at the time, denormalised for the same reason
+  /// actorEmail is: the row outlives the thing it describes. A deleted group's
+  /// audit entry otherwise reads `node_group / 6e7969f8-…` and names nothing.
+  ///
+  /// Derived from the recorded payload rather than supplied by each call site,
+  /// so it cannot drift between the twenty places that write audit rows.
+  entityLabel String?  @db.VarChar(200)
+  /// Ties together every row written while serving ONE request.
+  ///
+  /// A single operation — replacing a rule set, a bulk pin — writes several
+  /// rows, and without this they are related only by having the same actor and
+  /// adjacent timestamps. Reconstructing one operation during an incident then
+  /// means arithmetic on clocks, which is exactly the reasoning ADR-0022
+  /// rejected for compile receipts.
+  ///
+  /// Null for anything not written while serving a request: bootstrap, the
+  /// retention sweeper, background workers.
+  requestId   String?  @db.Uuid
   before      Json?
   after       Json?
   ipAddress   String?
@@ -424,6 +442,8 @@ model AuditLog {
   @@index([createdAt])
   @@index([entityType, entityId])
   @@index([actorUserId])
+  /// "What else did that operation do?" must be one indexed lookup, not a scan.
+  @@index([requestId])
   @@map("audit_logs")
 }
 
