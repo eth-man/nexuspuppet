@@ -17,6 +17,36 @@ import { Select } from '@/components/ui/select';
  * suggestions are an enhancement over that, never a gate in front of it.
  */
 
+/**
+ * Which of three things the status area should say.
+ *
+ * Extracted so the decision is testable without a DOM. The rendering below is
+ * layout; THIS is the judgement, and it is the part that was wrong.
+ */
+export type SuggestionNotice = 'nothing' | 'unconfigured' | 'status';
+
+export function suggestionNotice(index: ClassIndex | undefined): SuggestionNotice {
+  // Still loading, or the request itself failed. Saying anything here would
+  // flicker a message on every dialog open.
+  if (index === undefined) return 'nothing';
+
+  /*
+   * NOT SILENT ANY MORE (ADR-0024 §4, amended).
+   *
+   * §4 made an unset PUPPETSERVER_URL render nothing at all, so an operator who
+   * never wanted this feature would never be nagged about it. The cost only
+   * became visible in use: an operator who DID want it saw an empty field, no
+   * hint the capability existed, and no way to tell "off" from "broken". They
+   * upgraded specifically for this and spent an evening on it.
+   *
+   * One faint line, in the dialog where the feature would appear, is not a nag.
+   * It is the difference between a deliberate default and an apparent fault.
+   */
+  if (index.status === 'disabled') return 'unconfigured';
+
+  return 'status';
+}
+
 /** The suggestion list, its environment, its age, and why it is degraded. */
 export function ClassSuggestionStatus({
   index,
@@ -27,9 +57,18 @@ export function ClassSuggestionStatus({
   onRefresh: () => void;
   refreshing: boolean;
 }) {
-  // Off, and silent. An operator who never configured this is not nagged about
-  // a feature they did not ask for (§4).
-  if (index === undefined || index.status === 'disabled') return null;
+  const notice = suggestionNotice(index);
+  if (notice === 'nothing' || index === undefined) return null;
+
+  if (notice === 'unconfigured') {
+    return (
+      <p className="border-t border-line-soft pt-1.5 text-2xs text-ink-faint">
+        Class suggestions are not configured. Set{' '}
+        <code className="font-mono">PUPPETSERVER_URL</code> to list the classes in your Puppet
+        environment, with their parameters — DEPLOYMENT.md §6.
+      </p>
+    );
+  }
 
   const degraded = index.status !== 'ok';
 

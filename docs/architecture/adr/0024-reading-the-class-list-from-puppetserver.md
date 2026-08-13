@@ -3,6 +3,7 @@
 - **Status:** Proposed (2026-08-12)
 - **Deciders:** Architect
 - **Amended:** 2026-08-12 — reference analysis against Foreman and its Smart Proxy; §6 corrected; §7–§9 added.
+- **Amended:** 2026-08-13 — §4 relaxed: absent configuration is silent everywhere EXCEPT the dialog where the feature would appear.
 - **Related:** [ADR-0003](./0003-enc-generate-dont-serve.md) (this is the opposite direction, and that is the whole argument), [ADR-0004](./0004-puppetdb-read-only-mtls.md) (the pattern this follows), [ADR-0013](./0013-console-tls.md)
 
 ## Context
@@ -126,12 +127,31 @@ That the operator must opt in **by editing their Puppet server** is a feature,
 not friction to be designed away. It keeps the blast radius of our certificate
 where ADR-0004 already put it: bounded by what the Puppet side chose to grant.
 
-### 4. Absent configuration is the default, and it is silent
+### 4. Absent configuration is the default, and it is quiet — but not invisible
 
 `PUPPETSERVER_URL` unset means the feature is off: no client is constructed, no
-connection attempted, and the class field behaves exactly as it does today. An
-operator who never wants NexusPuppet talking to their Puppet server does
-nothing and is never nagged.
+connection attempted, and the class field accepts free text exactly as it did
+before this ADR. An operator who never wants NexusPuppet talking to their Puppet
+server configures nothing.
+
+**Amended 2026-08-13.** This section originally said *silent*, and the console
+rendered nothing at all when the feature was unconfigured — so that nobody who
+did not want it would be nagged about it.
+
+That was wrong in a way only use revealed. An operator upgraded specifically to
+get the class picker, opened the Assign-class dialog, and saw an empty field
+with no hint the capability existed and no way to distinguish "off" from
+"broken". They spent an evening on it before asking.
+
+Silence chosen to avoid nagging is indistinguishable from failure. So the
+console now renders **one faint line, in the dialog where the feature would
+appear**, naming the setting and the section that explains it. That is not a
+nag: it is absent from every other screen, it appears only where the capability
+is relevant, and it is the difference between a deliberate default and an
+apparent fault.
+
+The rest of §4 stands. Nothing is attempted, nothing is logged as an error, and
+no other surface mentions it.
 
 ### 5. It never blocks a write
 
