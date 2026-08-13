@@ -72,6 +72,16 @@ done
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[31mFAILED:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Seconds to something a person reads. Deliberately coarse: the question is
+# "is this recent or has it stopped", not how many seconds ago.
+human_age() {
+    if [ "$1" -lt 90 ] 2>/dev/null; then printf '%ss' "$1"
+    elif [ "$1" -lt 5400 ] 2>/dev/null; then printf '%sm' "$(($1 / 60))"
+    elif [ "$1" -lt 172800 ] 2>/dev/null; then printf '%sh' "$(($1 / 3600))"
+    else printf '%sd' "$(($1 / 86400))"
+    fi
+}
+
 command -v docker >/dev/null || die "Docker is not installed. See DEPLOYMENT.md §0."
 docker compose version >/dev/null 2>&1 || die "The Docker Compose plugin is missing. See DEPLOYMENT.md §0."
 
@@ -558,6 +568,42 @@ enc_peers=$(grep -E '^ENC_REPLICATION_ALLOWED_CERTNAMES=' .env | cut -d= -f2- ||
 
 if [ "$enc_enabled" = "true" ] && [ -n "$enc_peers" ]; then
     enc_port=$(grep -E '^ENC_REPLICATION_PORT=' .env | cut -d= -f2- || true)
+
+    # ASK, RATHER THAN ASSUME IT IS NOT DONE.
+    #
+    # ADR-0019 records every fetch against the certname that made it, so the
+    # database already knows whether a Puppet server is pulling this tree. Until
+    # now this block never looked, and told operators with a WORKING ENC that
+    # they needed "one more command" — on every upgrade, for ever. That is worse
+    # than noise: it is an instruction to redo something already done, and
+    # following it means running an installer against a live Puppet server for
+    # no reason.
+    #
+    # Best-effort by construction. A query that cannot run leaves `enc_peer`
+    # empty and the offer behaves exactly as it did before; a deploy must never
+    # fail over a cosmetic check.
+    enc_peer=$(docker compose exec -T db psql -U "${POSTGRES_USER:-nexuspuppet}" \
+        -d "${POSTGRES_DB:-nexuspuppet}" -tAc \
+        "select certname || '|' || extract(epoch from now() - \"lastFetchAt\")::bigint
+         from enc_replication_peers order by \"lastFetchAt\" desc limit 1" 2>/dev/null |
+        tr -d '\r' | head -1 || true)
+
+    if [ -n "$enc_peer" ]; then
+        peer_name=${enc_peer%%|*}
+        peer_age=${enc_peer##*|}
+        printf '\n\033[1mENC replication is healthy.\033[0m\n'
+        printf '  %s last fetched the tree %s ago.\n' "$peer_name" "$(human_age "$peer_age")"
+
+        # A peer that stopped pulling is the failure this block CAN usefully
+        # report: the tree is still on disk and catalogs still compile, so
+        # nothing else would tell anyone (ADR-0003).
+        if [ "$peer_age" -gt 3600 ] 2>/dev/null; then
+            printf '  \033[33mThat is longer than expected.\033[0m Check the timer on that host:\n'
+            printf '    systemctl status nexuspuppet-sync.timer\n'
+        fi
+        printf '\n'
+        exit 0
+    fi
 
     # The listener presents the PuppetDB client certificate, so the origin URL
     # has to use THAT certificate's CN. An IP or a convenient alias fails mTLS
