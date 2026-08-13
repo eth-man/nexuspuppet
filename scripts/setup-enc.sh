@@ -60,6 +60,8 @@ WIRE=""
 # the co-located case, which has no sync config to carry them.
 RECEIPTS=""
 REMOTE=""
+# Certname to grant the class-list read to (ADR-0024 §3). Empty = do nothing.
+ALLOW_CLASS_LIST=""
 ENC_DIR="/etc/puppetlabs/nexuspuppet"
 
 while [ $# -gt 0 ]; do
@@ -69,6 +71,7 @@ while [ $# -gt 0 ]; do
         --check) CHECK_ONLY=yes; shift ;;
         --wire) WIRE=yes; shift ;;
         --receipts) RECEIPTS=yes; shift ;;
+        --allow-class-list) ALLOW_CLASS_LIST="${2:-}"; shift 2 ;;
         # Everything from line 2 to the blank line before `set -euo pipefail`,
         # found rather than hardcoded — a fixed range silently truncates the help
         # the moment the header grows, which is exactly how the receipts note
@@ -133,6 +136,7 @@ if [ -n "$REMOTE" ]; then
     [ -n "$CHECK_ONLY" ] && remote_args="$remote_args --check"
     [ -n "$WIRE" ] && remote_args="$remote_args --wire"
     [ -n "$RECEIPTS" ] && remote_args="$remote_args --receipts"
+    [ -n "$ALLOW_CLASS_LIST" ] && remote_args="$remote_args --allow-class-list '$ALLOW_CLASS_LIST'"
 
     step "Copying the ENC scripts to ${REMOTE}"
     stage=$(mktemp -d)
@@ -369,6 +373,118 @@ if [ -n "$RECEIPTS" ]; then
     systemctl daemon-reload
     systemctl enable --now nexuspuppet-receipts.timer >/dev/null 2>&1 || true
     ok "collector enabled — compiles will report back"
+fi
+
+# ---------------------------------------------------------------------------
+# Let a NexusPuppet read the class list (ADR-0024 §3).
+#
+# auth.conf is the SECURITY CONTROL on this server, so this is a named flag with
+# a backup — never a side effect of running an upgrade. It grants exactly one
+# read-only endpoint to exactly one certname.
+#
+# It only ever edits a rule THIS SCRIPT created, identified by its name. A rule
+# for the same path written by somebody else is left alone and reported: their
+# reasons are not ours to guess at.
+# ---------------------------------------------------------------------------
+if [ -n "$ALLOW_CLASS_LIST" ]; then
+    step "Allowing ${ALLOW_CLASS_LIST} to read the class list"
+
+    AUTH_CONF=/etc/puppetlabs/puppetserver/conf.d/auth.conf
+    [ -r "$AUTH_CONF" ] || die "no ${AUTH_CONF} — is this a Puppet server?"
+
+    RUBY=/opt/puppetlabs/puppet/bin/ruby
+    [ -x "$RUBY" ] || RUBY=$(command -v ruby || true)
+    [ -n "$RUBY" ] || die "no ruby found. Puppet ships one at /opt/puppetlabs/puppet/bin/ruby."
+
+    cp -a "$AUTH_CONF" "${AUTH_CONF}.bak.$(date +%Y%m%d%H%M%S)"
+
+    # Ruby, because Puppet ships it — python3 is not guaranteed on a Puppet
+    # server and a shell/sed edit of HOCON is how you corrupt a file that stops
+    # puppetserver booting.
+    # shellcheck disable=SC2016
+    # Single quotes are deliberate: $1 and $~ below are RUBY globals from the
+    # regex matches, and letting the shell expand them would substitute
+    # positional parameters into someone's auth.conf.
+    result=$("$RUBY" -e '
+      path, certname = ARGV
+      s = File.read(path)
+      marker = "nexuspuppet environment classes"
+      endpoint = "/puppet/v3/environment_classes"
+
+      if s.include?(marker)
+        i = s.index(marker)
+        open_i  = s.rindex("{", i)
+        close_i = s.index("}", i)
+        block   = s[open_i..close_i]
+        if block =~ /allow:\s*\[([^\]]*)\]/
+          names = $1.scan(/"([^"]*)"/).flatten
+          if names.include?(certname)
+            print "unchanged"; exit
+          end
+          names << certname
+          nb = block.sub(/allow:\s*\[[^\]]*\]/, "allow: [" + names.map { |n| %Q{"#{n}"} }.join(", ") + "]")
+        elsif block =~ /allow:\s*"([^"]*)"/
+          existing = $1
+          if existing == certname
+            print "unchanged"; exit
+          end
+          nb = block.sub(/allow:\s*"[^"]*"/, %Q{allow: ["#{existing}", "#{certname}"]})
+        else
+          print "unrecognised"; exit
+        end
+        File.write(path, s[0...open_i] + nb + s[(close_i + 1)..-1])
+        print "extended"
+      elsif s.include?(endpoint)
+        # Someone else already governs this path. Their reasons are not ours to
+        # guess at, and a second rule would make the effective policy depend on
+        # sort-order nobody chose deliberately.
+        print "foreign"
+      else
+        anchor = "    rules: [\n"
+        unless s.include?(anchor)
+          print "no-anchor"; exit
+        end
+        rule = <<~RULE
+              {
+                  # Added by nexuspuppet setup-enc.sh --allow-class-list.
+                  # READ ONLY, and one endpoint: class names, parameter names and
+                  # default values from the environment. Not catalogs, not facts,
+                  # not the CA.
+                  match-request: {
+                      path: "#{endpoint}"
+                      type: path
+                      method: get
+                  }
+                  allow: "#{certname}"
+                  sort-order: 400
+                  name: "#{marker}"
+              },
+        RULE
+        File.write(path, s.sub(anchor, anchor + rule))
+        print "added"
+      end
+    ' "$AUTH_CONF" "$ALLOW_CLASS_LIST" 2>&1) || die "could not edit ${AUTH_CONF}: ${result}"
+
+    case "$result" in
+        added) ok "rule added for ${ALLOW_CLASS_LIST}" ;;
+        extended) ok "added ${ALLOW_CLASS_LIST} to the existing rule" ;;
+        unchanged) ok "${ALLOW_CLASS_LIST} was already allowed — nothing to do" ;;
+        foreign)
+            die "auth.conf already has a rule for /puppet/v3/environment_classes that
+       this script did not write. Left alone deliberately — a second rule would
+       make the effective policy depend on a sort-order nobody chose.
+
+       Add ${ALLOW_CLASS_LIST} to that rule's allow list by hand."
+            ;;
+        *) die "could not understand ${AUTH_CONF} (${result}). It is unchanged; the backup is beside it." ;;
+    esac
+
+    # RELOAD, not restart. auth.conf is re-read on SIGHUP, and a restart would
+    # stop compiling catalogs for a minute to apply a read permission.
+    if [ "$result" != "unchanged" ]; then
+        systemctl reload puppetserver || die "puppetserver would not reload — restore ${AUTH_CONF}.bak.* and try again"
+        ok "puppetserver reloaded"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
