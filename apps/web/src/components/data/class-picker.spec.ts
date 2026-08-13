@@ -1,5 +1,5 @@
 import type { ClassIndex } from '@nexuspuppet/contracts';
-import { findClass, paramsToJson } from './class-picker';
+import { findClass, paramsToJson, suggestionNotice } from './class-picker';
 
 /*
  * THE RULE THIS FILE PROTECTS.
@@ -86,5 +86,48 @@ describe('findClass', () => {
 
   it('returns null when suggestions are unavailable', () => {
     expect(findClass(undefined, 'jump_access')).toBeNull();
+  });
+});
+
+/*
+ * THE REPORT THIS EXISTS FOR.
+ *
+ * An operator upgraded specifically to get the class picker, opened the dialog,
+ * and saw an empty field with no explanation. ADR-0024 §4 had made an unset
+ * PUPPETSERVER_URL render NOTHING, so that nobody who did not want the feature
+ * would be nagged — but silence chosen to avoid nagging is indistinguishable
+ * from breakage, and cost them an evening.
+ */
+describe('suggestionNotice', () => {
+  const index = (over: Partial<ClassIndex>): ClassIndex => ({
+    status: 'ok',
+    environment: 'production',
+    classes: [],
+    fileErrors: [],
+    fetchedAt: null,
+    cached: false,
+    ...over,
+  });
+
+  it('says the feature exists when it is unconfigured', () => {
+    expect(suggestionNotice(index({ status: 'disabled' }))).toBe('unconfigured');
+  });
+
+  /*
+   * Still loading, or the request itself failed. A message here would flicker
+   * on every dialog open, which is the nagging §4 was right to avoid.
+   */
+  it('says nothing while there is no answer yet', () => {
+    expect(suggestionNotice(undefined)).toBe('nothing');
+  });
+
+  it.each([
+    ['ok', 'ok'],
+    ['forbidden', 'forbidden'],
+    ['unavailable', 'unavailable'],
+  ])('shows the full status line for %s', (_label, status) => {
+    // These already carry their own operator-facing message — a 403 names the
+    // auth.conf rule to add — so they must not be replaced by the generic hint.
+    expect(suggestionNotice(index({ status: status as ClassIndex['status'] }))).toBe('status');
   });
 });
