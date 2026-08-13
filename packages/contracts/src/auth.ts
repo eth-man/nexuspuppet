@@ -407,6 +407,22 @@ export interface AuditRecord {
   after?: unknown;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /**
+   * Ties every row written while serving one request together (#229).
+   *
+   * Normally left unset: the sink stamps it from the ambient request context,
+   * so no caller has to remember. Set it explicitly only when recording on
+   * behalf of a request this code is not running inside.
+   */
+  requestId?: string | null;
+  /**
+   * What the entity was called at the time.
+   *
+   * Normally left unset and derived from `before`/`after`, so twenty call sites
+   * cannot disagree about it. Set it explicitly when the payload does not carry
+   * a name the reader would recognise.
+   */
+  entityLabel?: string | null;
 }
 
 /**
@@ -459,6 +475,24 @@ export interface AuditDeliveryEntry {
   action: string;
   entityType: string;
   entityId: string | null;
+  /**
+   * What the entity was called at the time (#229). A SIEM row naming only a
+   * UUID is a row nobody can search.
+   *
+   * OPTIONAL, because not every producer of this shape is forwarding a real
+   * audit row — a "send test message" payload has no entity to name, and
+   * requiring the field would make an honest null impossible to express.
+   */
+  entityLabel?: string | null;
+  /**
+   * Ties together every record produced by one request (#229). The reason it is
+   * forwarded at all: a SIEM is exactly where somebody asks "what else happened
+   * in that operation?", and the answer must not require our database.
+   *
+   * Optional for the same reason as `entityLabel`: a test message belongs to no
+   * operation, and saying so beats inventing an id nobody can look up.
+   */
+  requestId?: string | null;
   before: unknown;
   after: unknown;
   ipAddress: string | null;

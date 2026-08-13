@@ -252,6 +252,8 @@ function toEntry(delivery: PendingDelivery): AuditDeliveryEntry {
     action: delivery.entry.action,
     entityType: delivery.entry.entityType,
     entityId: delivery.entry.entityId,
+    entityLabel: delivery.entry.entityLabel,
+    requestId: delivery.entry.requestId,
     before: delivery.entry.before,
     after: delivery.entry.after,
     ipAddress: delivery.entry.ipAddress,
