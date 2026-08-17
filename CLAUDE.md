@@ -135,10 +135,19 @@ npm run enterprise:fetch     # no-op without NEXUSPUPPET_ENTERPRISE_REPO
 Two long-lived environments exist, deployed per `DEPLOYMENT.md`. Host
 specifics are deliberately not in this repo.
 
-- **Staging tracks `main`.** After a runtime-affecting merge (api, web,
-  packages, compose), staging is redeployed and verified: containers healthy,
-  API answering, console loading, login working, plus a targeted check of
-  what just merged. Docs-only merges don't trigger a deploy.
+- **Staging is a gate, not a destination.** It tracks `main` by convention, not
+  by machinery, so nothing stops it sitting on a branch for an hour — and for
+  anything user-facing it should:
+
+  ```bash
+  git fetch origin && git checkout origin/<branch>
+  sudo ./scripts/deploy.sh --skip-preflight
+  ```
+
+  Look at the thing, then merge. After a runtime-affecting merge (api, web,
+  packages, compose) staging is redeployed and verified: containers healthy, API
+  answering, console loading, login working, plus a targeted check of what just
+  merged. Docs-only merges don't trigger a deploy.
 - **Production runs tagged releases only**, against real Puppet
   infrastructure. It is deployed only after the release was verified on
   staging, and only with the operator's explicit go-ahead — never
@@ -149,12 +158,40 @@ specifics are deliberately not in this repo.
   Never borrow the operator's login: it makes the `AuditLog` actor wrong on
   every row it touches. Procedure in `DEPLOYMENT.md` §12.
 
+## Releasing
+
+**Merged is not released.** `main` being green means "ready to be released", and
+the tag is a separate, later decision.
+
+1. **The version bump goes through a PR** like any other change. Branch, PR, CI
+   green, merge.
+2. **Deploy `main` to staging and look at it.**
+3. **Tag the merge commit**, then publish the release.
+
+Never push a release commit straight to `main`. Branch protection refuses it,
+and a bypass creates a tag pointing at a commit CI has not yet run — the tag
+exists before the evidence for it does.
+
+**Why this is written down.** Releases v1.7.1–v1.7.6 were pushed directly to
+`main`, bypassing protection, tagged before CI ran, and deployed to staging
+*afterwards*. Nothing broke, and nothing would have: CI passed every time. But
+staging was a place changes arrived rather than a gate they passed, and it
+showed — the `undef` bug reached a release because nobody opened the
+Assign-class dialog before tagging. One look at staging would have shown four
+optional parameters marked required.
+
+CI runs `deploy.sh` on every commit, which is more than most pipelines do and
+which has caught real defects. It cannot catch the ones that actually bite here:
+`secure_path`, a `--help` that never worked, a truncating config write, `undef`.
+Every one needed a person running it on real infrastructure. That is an argument
+about ORDERING, not about more CI.
+
 ## Definition of done
 
 Reviewed PR · unit tests for new logic · `npm run typecheck` clean ·
 `npm run lint` clean · `prisma generate` run if the schema changed · new
 architectural decisions captured as an ADR · runtime changes verified on
-staging once merged.
+staging **before** the tag, not after.
 
 ## Agent skills
 
