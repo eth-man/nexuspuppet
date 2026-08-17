@@ -1,6 +1,7 @@
 import { Controller, Get, Inject, NotFoundException, Param, Query } from '@nestjs/common';
 import {
   PUPPETDB_CLIENT,
+  factFilterSchema,
   nodeFilterSchema,
   pageRequestSchema,
   type IPuppetDbClient,
@@ -39,6 +40,30 @@ const listQuerySchema = z
       .union([z.string(), z.array(z.string())])
       .optional()
       .transform((v) => (v === undefined ? undefined : Array.isArray(v) ? v : v.split(','))),
+    /*
+     * Facts arrive as a JSON string — they are the one filter that is not a
+     * scalar or a comma list (#243).
+     *
+     * Parsed here rather than accepted loosely: a malformed value must be a 400
+     * naming the problem, never a filter silently dropped. Dropping it is
+     * exactly what happened while this field did not exist, and the symptom was
+     * a filter that appeared to work because the unfiltered list came back.
+     */
+    facts: z
+      .string()
+      .optional()
+      .transform((raw, ctx) => {
+        if (raw === undefined || raw === '') return undefined;
+        try {
+          return factFilterSchema.array().max(10).parse(JSON.parse(raw));
+        } catch {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'facts must be a JSON array of {path, operator, value}',
+          });
+          return z.NEVER;
+        }
+      }),
     staleBefore: z.string().optional(),
     includeInactive: z
       .union([z.string(), z.boolean()])
@@ -55,6 +80,10 @@ const listQuerySchema = z
       ...(raw.environments === undefined ? {} : { environments: raw.environments }),
       ...(raw.statuses === undefined ? {} : { statuses: raw.statuses }),
       ...(raw.staleBefore === undefined ? {} : { staleBefore: raw.staleBefore }),
+      // Rebuilt field by field on purpose, so an unknown query parameter cannot
+      // reach the filter — which also means every NEW field must be added here
+      // or it is silently dropped. Facts were.
+      ...(raw.facts === undefined ? {} : { facts: raw.facts }),
       includeInactive: raw.includeInactive,
     });
 

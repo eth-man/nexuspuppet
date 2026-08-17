@@ -74,6 +74,15 @@ export function FactFilters({
   // what it is before anybody filters on it and gets an empty estate.
   const factPaths = useFactPaths();
 
+  /*
+   * Distinct observed values for a path, when the estate reports few enough of
+   * them to be a list rather than a wall. The API only sends them for
+   * low-cardinality paths, so this is undefined for things like `networking.ip`
+   * and the field stays free text.
+   */
+  const valuesFor = (path: string): unknown[] | undefined =>
+    factPaths.data?.paths.find((p) => p.path === path.trim())?.values;
+
   const set = (index: number, patch: Partial<FactRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
@@ -102,13 +111,27 @@ export function FactFilters({
             ))}
           </Select>
           {takesValue(row.operator) && (
-            <Input
-              value={row.value}
-              onChange={(e) => set(index, { value: e.target.value })}
-              placeholder={row.operator === 'IN' ? 'Ubuntu, Debian' : '22.04'}
-              className="h-8 flex-1 font-mono"
-              aria-label="Value"
-            />
+            <>
+              <Input
+                value={row.value}
+                onChange={(e) => set(index, { value: e.target.value })}
+                placeholder={row.operator === 'IN' ? 'Ubuntu, Debian' : '22.04'}
+                className="h-8 flex-1 font-mono"
+                aria-label="Value"
+                // Observed VALUES for the chosen path, which the classification
+                // rule editor has always offered and this did not — knowing the
+                // fact is called os.name does not tell you the estate spells it
+                // "Ubuntu" rather than "ubuntu".
+                list={valuesFor(row.path) === undefined ? undefined : `fact-values-${index}`}
+              />
+              {valuesFor(row.path) !== undefined && (
+                <datalist id={`fact-values-${index}`}>
+                  {valuesFor(row.path)?.map((v) => (
+                    <option key={String(v)} value={typeof v === 'string' ? v : JSON.stringify(v)} />
+                  ))}
+                </datalist>
+              )}
+            </>
           )}
           <Button
             variant="ghost"

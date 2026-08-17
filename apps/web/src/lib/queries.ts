@@ -14,6 +14,7 @@ import type {
   AuthProviderDescription,
   DeploymentCapabilities,
   ClassIndex,
+  FactFilter,
   FactPathIndex,
   LdapSettings,
   ManagedUser,
@@ -49,6 +50,19 @@ import { api } from './client';
 
 export interface NodeQuery {
   certnameContains?: string;
+  /*
+   * Fact filters (#243).
+   *
+   * THIS INTERFACE IS HAND-MAINTAINED alongside `nodeFilterSchema`, and that is
+   * how the filter shipped doing nothing: the page put `facts` in the object
+   * through a conditional spread — which TypeScript does not treat as an excess
+   * property — while this type, `toSearch`, the controller's query schema and
+   * its transform all omitted it. Four places, none of which complained.
+   *
+   * Typed from the contract rather than restated, so the next field cannot go
+   * missing the same way.
+   */
+  facts?: FactFilter[];
   environments?: string[];
   statuses?: string[];
   includeInactive?: boolean;
@@ -71,6 +85,17 @@ function toSearch(query: NodeQuery): string {
   }
   if (query.statuses !== undefined && query.statuses.length > 0) {
     params.set('statuses', query.statuses.join(','));
+  }
+  /*
+   * Facts as JSON, because they are the one filter that is not a scalar or a
+   * comma list — each is a path, an operator and a value.
+   *
+   * THIS WAS MISSING ENTIRELY, and the filter silently went nowhere: the UI
+   * built the rows, this function dropped them, and the node list came back
+   * unfiltered. It looked like it worked because something always came back.
+   */
+  if (query.facts !== undefined && query.facts.length > 0) {
+    params.set('facts', JSON.stringify(query.facts));
   }
   if (query.includeInactive === true) params.set('includeInactive', 'true');
   if (query.orderBy !== undefined) params.set('orderBy', query.orderBy);
