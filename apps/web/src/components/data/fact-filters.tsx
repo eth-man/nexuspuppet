@@ -1,7 +1,7 @@
 'use client';
 
 import { Plus, X } from 'lucide-react';
-import type { FactFilter, FactFilterOperator } from '@nexuspuppet/contracts';
+import type { FactFilter, FactFilterOperator, FactPathSuggestion } from '@nexuspuppet/contracts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -63,6 +63,39 @@ export function completeFactRows(rows: FactRow[]): FactFilter[] {
   });
 }
 
+/**
+ * The values this fact is actually observed to take, for the value field.
+ *
+ * WHY THIS EXISTS. Knowing the fact is called `os.name` does not tell you the
+ * estate spells it "Ubuntu" and not "ubuntu" — and a filter that matches
+ * nothing looks exactly the same whether the value was misspelt or genuinely no
+ * node matches. The suggestions were already on the wire and simply unread:
+ * `/fact-paths` returns a `values` list for 95 of this estate's 124 paths.
+ *
+ * UNDEFINED IS THE COMMON CASE, not a failure. The API omits `values` for
+ * high-cardinality paths like `networking.ip`, where a picker would be a wall
+ * rather than a list, and the field stays plain free text.
+ *
+ * NOT offered for `is one of`, whose input is a comma-separated list: choosing
+ * from a datalist REPLACES the whole field, so a suggestion would silently
+ * delete the values already typed.
+ */
+export function valueSuggestions(
+  row: FactRow,
+  paths: readonly FactPathSuggestion[] | undefined,
+): string[] | undefined {
+  if (row.operator === 'IN') return undefined;
+
+  const observed = paths?.find((p) => p.path === row.path.trim())?.values;
+  if (observed === undefined) return undefined;
+
+  // Facts are not all strings — `is_virtual` is a boolean and `os.release.major`
+  // arrives as a number on some estates. The filter compares as text, so the
+  // picker must offer text, or picking a suggestion would produce a value that
+  // matches nothing.
+  return observed.map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
+}
+
 export function FactFilters({
   rows,
   onChange,
@@ -74,75 +107,74 @@ export function FactFilters({
   // what it is before anybody filters on it and gets an empty estate.
   const factPaths = useFactPaths();
 
-  /*
-   * Distinct observed values for a path, when the estate reports few enough of
-   * them to be a list rather than a wall. The API only sends them for
-   * low-cardinality paths, so this is undefined for things like `networking.ip`
-   * and the field stays free text.
-   */
-  const valuesFor = (path: string): unknown[] | undefined =>
-    factPaths.data?.paths.find((p) => p.path === path.trim())?.values;
-
   const set = (index: number, patch: Partial<FactRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
+  const valuesFor = (row: FactRow) => valueSuggestions(row, factPaths.data?.paths);
+
   return (
     <div className="space-y-1">
-      {rows.map((row, index) => (
-        <div key={index} className="flex items-center gap-1">
-          <Input
-            value={row.path}
-            onChange={(e) => set(index, { path: e.target.value })}
-            placeholder="os.release.major"
-            className="h-8 flex-1 font-mono"
-            list="fact-filter-paths"
-            aria-label="Fact"
-          />
-          <Select
-            value={row.operator}
-            onChange={(e) => set(index, { operator: e.target.value as FactFilterOperator })}
-            className="h-8 w-32 shrink-0"
-            aria-label="Operator"
-          >
-            {OPERATORS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-          {takesValue(row.operator) && (
-            <>
-              <Input
-                value={row.value}
-                onChange={(e) => set(index, { value: e.target.value })}
-                placeholder={row.operator === 'IN' ? 'Ubuntu, Debian' : '22.04'}
-                className="h-8 flex-1 font-mono"
-                aria-label="Value"
-                // Observed VALUES for the chosen path, which the classification
-                // rule editor has always offered and this did not — knowing the
-                // fact is called os.name does not tell you the estate spells it
-                // "Ubuntu" rather than "ubuntu".
-                list={valuesFor(row.path) === undefined ? undefined : `fact-values-${index}`}
-              />
-              {valuesFor(row.path) !== undefined && (
-                <datalist id={`fact-values-${index}`}>
-                  {valuesFor(row.path)?.map((v) => (
-                    <option key={String(v)} value={typeof v === 'string' ? v : JSON.stringify(v)} />
-                  ))}
-                </datalist>
-              )}
-            </>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onChange(rows.filter((_, i) => i !== index))}
-            aria-label="Remove this filter"
-          >
-            <X aria-hidden />
-          </Button>
-        </div>
-      ))}
+      {rows.map((row, index) => {
+        const suggestions = valuesFor(row);
+        const valueListId = `fact-values-${index}`;
+
+        return (
+          <div key={index} className="flex items-center gap-1">
+            <Input
+              value={row.path}
+              onChange={(e) => set(index, { path: e.target.value })}
+              placeholder="os.release.major"
+              className="h-8 flex-1 font-mono"
+              list="fact-filter-paths"
+              aria-label="Fact"
+            />
+            <Select
+              value={row.operator}
+              onChange={(e) => set(index, { operator: e.target.value as FactFilterOperator })}
+              className="h-8 w-32 shrink-0"
+              aria-label="Operator"
+            >
+              {OPERATORS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            {takesValue(row.operator) && (
+              <>
+                <Input
+                  value={row.value}
+                  onChange={(e) => set(index, { value: e.target.value })}
+                  placeholder={row.operator === 'IN' ? 'Ubuntu, Debian' : '22.04'}
+                  className="h-8 flex-1 font-mono"
+                  aria-label="Value"
+                  // Observed VALUES for the chosen path. Knowing the fact is
+                  // called `os.name` does not tell you this estate spells it
+                  // "Ubuntu" and not "ubuntu" — and a filter that returns
+                  // nothing looks identical whether the value is wrong or no
+                  // node matches.
+                  {...(suggestions === undefined ? {} : { list: valueListId })}
+                />
+                {suggestions !== undefined && (
+                  <datalist id={valueListId}>
+                    {suggestions.map((v) => (
+                      <option key={v} value={v} />
+                    ))}
+                  </datalist>
+                )}
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange(rows.filter((_, i) => i !== index))}
+              aria-label="Remove this filter"
+            >
+              <X aria-hidden />
+            </Button>
+          </div>
+        );
+      })}
 
       {/* Suggestions, never a closed list: a fact this estate reports but the
           projection does not name is still a real fact, and PuppetDB can filter
