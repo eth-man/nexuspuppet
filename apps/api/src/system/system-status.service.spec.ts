@@ -47,6 +47,7 @@ function fakePrisma(
   appSettings: Record<string, unknown> = {},
   peers: unknown[] = [],
   lastMaterializedAt: Date | null = null,
+  receiptCounts: Array<{ peerCertname: string; _count: { _all: number } }> = [],
 ): PrismaService {
   return {
     encMaterializationJob: {
@@ -64,6 +65,15 @@ function fakePrisma(
     },
     encReplicationPeer: {
       findMany: async () => peers,
+    },
+    /*
+     * Receipt counts per peer (ADR-0022), grouped rather than counted per peer
+     * so fifty peers are not fifty queries. Empty by default: these tests are
+     * about replication lag, and `replication.not-reporting` has its own
+     * coverage in condition-catalogue.spec.ts.
+     */
+    compileReceipt: {
+      groupBy: async () => receiptCounts,
     },
     encMaterialization: {
       findFirst: async () =>

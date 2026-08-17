@@ -101,13 +101,19 @@ export class SystemStatusService {
    * its `lastFetchAt` freezes, so the next real change leaves it behind.
    */
   private async replicationStatus(): Promise<SystemStatus['replication']> {
-    const [peers, newest] = await Promise.all([
+    const now = Date.now();
+    const [peers, newest, receipts] = await Promise.all([
       this.prisma.encReplicationPeer.findMany({ orderBy: { lastFetchAt: 'desc' }, take: 50 }),
       this.prisma.encMaterialization.findFirst({
         orderBy: { writtenAt: 'desc' },
         select: { writtenAt: true },
       }),
+      // Grouped rather than counted per peer: fifty peers would otherwise be
+      // fifty queries on a page an operator refreshes.
+      this.prisma.compileReceipt.groupBy({ by: ['peerCertname'], _count: { _all: true } }),
     ]);
+
+    const receiptsByPeer = new Map(receipts.map((r) => [r.peerCertname, r._count._all]));
 
     const lastMaterializedAt = newest?.writtenAt ?? null;
 
@@ -137,6 +143,16 @@ export class SystemStatusService {
         behind:
           lastMaterializedAt !== null &&
           (peer.lastChangedAt === null || peer.lastFetchAt < lastMaterializedAt),
+        reportedCount: receiptsByPeer.get(peer.certname) ?? 0,
+        /*
+         * The clock is read HERE, not in the catalogue. The catalogue is pure
+         * and owns the threshold; handing it a timestamp would make it need a
+         * clock to decide anything, which is exactly what it refuses to do.
+         */
+        secondsSinceChange:
+          peer.lastChangedAt === null
+            ? null
+            : Math.floor((now - peer.lastChangedAt.getTime()) / 1000),
       })),
     };
   }

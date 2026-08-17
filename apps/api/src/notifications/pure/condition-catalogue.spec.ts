@@ -250,3 +250,90 @@ describe('condition catalogue', () => {
     });
   });
 });
+
+/*
+ * A peer that fetches and never reports (ADR-0022).
+ *
+ * FOUND IN OUR OWN LAB. The receipts collector was pointed at a different
+ * instance from the one serving the tree, so a Puppet server fetched 2705 times
+ * and reported nothing. The estate converged perfectly; the console said
+ * `compiled 0/N` for ever with no way to tell that from "no agent has run yet".
+ */
+describe('replication.not-reporting', () => {
+  const HOUR = 3600;
+
+  const peer = (over: Record<string, unknown> = {}) => ({
+    certname: 'puppet.corp.local',
+    lastFetchAt: '2026-08-17T00:00:00.000Z',
+    lastStatus: 304,
+    lastChangedAt: '2026-08-14T00:00:00.000Z',
+    fetchCount: 2705,
+    behind: false,
+    reportedCount: 0,
+    secondsSinceChange: 72 * HOUR,
+    ...over,
+  });
+
+  const statusWith = (p: Record<string, unknown>) =>
+    ({
+      ...INPUT.status,
+      replication: {
+        enabled: true,
+        allowedCertnames: ['puppet.corp.local'],
+        lastMaterializedAt: '2026-08-14T00:00:00.000Z',
+        peers: [peer(p)],
+      },
+    }) as CatalogueInput['status'];
+
+  const key = 'replication.not-reporting:puppet.corp.local';
+
+  it('fires when a peer has held a tree for days and reported nothing', () => {
+    expect(failing({ status: statusWith({}) })).toContain(key);
+  });
+
+  it('names the likely cause rather than the symptom', () => {
+    const reading = find({ status: statusWith({}) }, key);
+
+    expect(reading?.summary).toContain('collector');
+    expect(reading?.summary).toContain('different origin');
+    // The point of the condition: it says WHY the front is stuck.
+    expect(reading?.summary).toContain('cannot tell which nodes have applied');
+  });
+
+  /*
+   * THE FALSE ALARM THIS AVOIDS. Receipts appear only when an agent runs, and
+   * Puppet's default runinterval is 30 minutes — so a peer holding a tree it
+   * received five minutes ago has nothing to report YET, and saying otherwise
+   * would fire on every fresh install.
+   */
+  it('stays quiet inside the grace window', () => {
+    expect(failing({ status: statusWith({ secondsSinceChange: 5 * 60 }) })).not.toContain(key);
+    expect(failing({ status: statusWith({ secondsSinceChange: 90 * 60 }) })).not.toContain(key);
+  });
+
+  it('fires only once past four run intervals', () => {
+    expect(failing({ status: statusWith({ secondsSinceChange: 2 * HOUR - 1 }) })).not.toContain(
+      key,
+    );
+    expect(failing({ status: statusWith({ secondsSinceChange: 2 * HOUR + 1 }) })).toContain(key);
+  });
+
+  it('stays quiet once the peer reports anything at all', () => {
+    expect(failing({ status: statusWith({ reportedCount: 1 }) })).not.toContain(key);
+  });
+
+  /*
+   * A peer that has NEVER received a tree has nothing to report on, and is
+   * already covered by replication.behind. Firing both would be two alerts for
+   * one fault.
+   */
+  it('stays quiet for a peer that has never received a tree', () => {
+    expect(
+      failing({ status: statusWith({ lastChangedAt: null, secondsSinceChange: null }) }),
+    ).not.toContain(key);
+  });
+
+  it('is a warning, not critical — the estate is converging fine', () => {
+    expect(find({ status: statusWith({}) }, key)?.severity).toBe('warning');
+  });
+});
