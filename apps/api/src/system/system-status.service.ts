@@ -115,12 +115,25 @@ export class SystemStatusService {
 
     const receiptsByPeer = new Map(receipts.map((r) => [r.peerCertname, r._count._all]));
 
+    /*
+     * Peers that report but have never fetched (ADR-0022).
+     *
+     * Computed from the two sets we already have rather than stored on the
+     * receipt: a peer that starts fetching tomorrow makes yesterday's receipts
+     * legitimate, and a stored flag would go on insisting they were not.
+     */
+    const known = new Set(peers.map((p) => p.certname));
+    const reportingStrangers = receipts
+      .map((r) => r.peerCertname)
+      .filter((certname) => !known.has(certname));
+
     const lastMaterializedAt = newest?.writtenAt ?? null;
 
     return {
       enabled: this.replicationConfig.enabled,
       allowedCertnames: [...this.replicationConfig.allowedCertnames],
       lastMaterializedAt: lastMaterializedAt?.toISOString() ?? null,
+      reportingStrangers,
       peers: peers.map((peer) => ({
         certname: peer.certname,
         lastFetchAt: peer.lastFetchAt.toISOString(),

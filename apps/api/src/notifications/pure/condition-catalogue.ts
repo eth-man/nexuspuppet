@@ -100,6 +100,37 @@ export function readConditions(input: CatalogueInput): ConditionReading[] {
     });
 
     /*
+     * A peer that reports but has never fetched (ADR-0022).
+     *
+     * THE MIRROR OF THE CONDITION BELOW, and the other half of one real fault:
+     * two deployments sharing a Puppet server, whose collector posts receipts to
+     * one while its tree comes from the other. The starved side sees a peer that
+     * fetches and never reports; this side accepts telemetry for a tree it never
+     * served and, until now, recorded it as matched — because matching asked
+     * only whether the NODE was known, never whether we served the revision.
+     *
+     * Sound without keeping revision history: a peer that never fetched from us
+     * cannot have compiled our classification. Nothing else needs checking.
+     */
+    // `?? []` deliberately: this function is total, and a caller assembling a
+    // partial status must degrade to "nothing to report" rather than throw
+    // inside the evaluator that every other condition also runs through.
+    for (const certname of status.replication.reportingStrangers ?? []) {
+      readings.push({
+        key: `replication.unexpected-receipts:${certname}`,
+        kind: 'replication.unexpected-receipts',
+        severity: 'warning',
+        summary:
+          `${certname} is handing compile receipts to this deployment but has never ` +
+          'fetched a tree from it, so those receipts describe classification somebody ' +
+          'else served. Its collector is pointed here while its tree comes from ' +
+          'elsewhere — the reports belong at the origin it fetches from.',
+        failing: true,
+        selfResolving: false,
+      });
+    }
+
+    /*
      * A peer that fetches and never reports (ADR-0022).
      *
      * FOUND IN OUR OWN LAB, which is why it exists. The receipts collector was
