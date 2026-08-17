@@ -64,7 +64,63 @@ export const puppetNodeSchema = z.object({
 });
 export type PuppetNode = z.infer<typeof puppetNodeSchema>;
 
+/**
+ * One fact condition on a node query (#243).
+ *
+ * The operator vocabulary is deliberately the SAME set classification rules
+ * use, so an operator learns one grammar rather than two — and a filter that
+ * finds a set of nodes reads like the rule that would classify them.
+ */
+export const factFilterOperatorSchema = z.enum([
+  'EQUALS',
+  'NOT_EQUALS',
+  'MATCHES_REGEX',
+  'IN',
+  'EXISTS',
+  'NOT_EXISTS',
+]);
+export type FactFilterOperator = z.infer<typeof factFilterOperatorSchema>;
+
+export const factFilterSchema = z
+  .object({
+    /**
+     * Dotted path into the structured fact, e.g. `os.release.major`.
+     *
+     * Validated to a conservative grammar, NOT because PQL is built by string
+     * concatenation — it is not, PqlBuilder emits an AST — but because this
+     * path becomes a FIELD NAME in that AST rather than a bound value, and a
+     * field name is the one place a typed builder cannot protect (ADR-0004).
+     */
+    path: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/, 'Use dotted names, e.g. os.release.major'),
+    operator: factFilterOperatorSchema,
+    /** Absent for EXISTS / NOT_EXISTS; an array only for IN. */
+    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional(),
+  })
+  .refine(
+    (f) =>
+      f.operator === 'EXISTS' || f.operator === 'NOT_EXISTS'
+        ? f.value === undefined
+        : f.value !== undefined,
+    { message: 'This operator requires a value; EXISTS and NOT_EXISTS take none.' },
+  )
+  .refine((f) => (f.operator === 'IN' ? Array.isArray(f.value) : !Array.isArray(f.value)), {
+    message: 'IN takes an array; every other operator takes a single value.',
+  });
+export type FactFilter = z.infer<typeof factFilterSchema>;
+
 export const nodeFilterSchema = z.object({
+  /**
+   * Fact conditions, ANDed together (#243).
+   *
+   * Answers "which nodes are Ubuntu 22.04", which nothing could before: the
+   * node list filtered by certname, environment, status and staleness only, and
+   * a classification group could report a COUNT but never the nodes.
+   */
+  facts: z.array(factFilterSchema).max(10).optional(),
   certnameContains: z.string().max(255).optional(),
   environments: z.array(z.string()).optional(),
   statuses: z.array(nodeStatusSchema).optional(),
