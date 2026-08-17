@@ -74,13 +74,27 @@ describe('parseEnvironmentClasses', () => {
     });
 
     /*
-     * `undef` is Puppet for "no default", not a default whose value is the
-     * string "undef". Treating it as a literal would prefill every optional
-     * parameter with nonsense.
+     * THIS TEST USED TO ASSERT THE BUG.
+     *
+     * It read "treats an undef default as required", and an operator caught the
+     * consequence: their class declared four `Optional[String[1]] $x = undef`
+     * parameters and the console demanded values for all of them, above a header
+     * claiming "6 required parameters" on a class that has two.
+     *
+     * `= undef` IS a default. It is what makes such a parameter omissible. What
+     * makes a parameter required is the absence of any `=` — which arrives as
+     * neither default_literal nor default_source, as `pubkey` does.
+     *
+     * A test that pins the wrong behaviour is worse than no test: it converts a
+     * mistake into a guarantee.
      */
-    it('treats an undef default as required rather than as the string undef', () => {
-      expect(byName('target')?.kind).toBe('required');
+    it('treats an undef default as OPTIONAL, because = undef is a default', () => {
+      expect(byName('target')?.kind).toBe('undef');
+      expect(byName('target')?.kind).not.toBe('required');
+      // Nothing to prefill and nothing to evaluate — the honest label is
+      // "optional", not "defaults to undef, computed at compile time".
       expect(byName('target')?.defaultValue).toBeUndefined();
+      expect(byName('target')).not.toHaveProperty('defaultSource');
     });
 
     it('keeps the Puppet type signature verbatim', () => {
@@ -240,5 +254,66 @@ describe('parseEnumValues', () => {
     // A bare or interpolated member is not a literal choice we can offer, and
     // guessing one into a dropdown would produce an unassignable value.
     expect(parseEnumValues("Enum[$var, 'real']")).toEqual(['real']);
+  });
+});
+
+/*
+ * The reported class, verbatim in shape (#falcon). Four parameters declared
+ * `Optional[String[1]] $x = undef` were shown as required, and the dialog
+ * announced "6 required parameters" for a class with two.
+ */
+describe('the falcon class an operator reported', () => {
+  const FALCON = {
+    files: [
+      {
+        path: '/etc/puppetlabs/code/environments/production/modules/falcon/manifests/init.pp',
+        classes: [
+          {
+            name: 'falcon',
+            params: [
+              {
+                name: 'ensure',
+                type: "Enum['absent', 'present']",
+                default_literal: 'present',
+                default_source: "'present'",
+              },
+              { name: 'client_id', type: 'Variant[String[1], Sensitive[String]]' },
+              { name: 'client_secret', type: 'Variant[String[1], Sensitive[String]]' },
+              { name: 'cloud', type: 'Optional[String[1]]', default_source: 'undef' },
+              { name: 'tags', type: 'Optional[String[1]]', default_source: 'undef' },
+              {
+                name: 'sensor_update_policy',
+                type: 'Optional[String[1]]',
+                default_source: 'undef',
+              },
+              { name: 'provisioning_token', type: 'Optional[String[1]]', default_source: 'undef' },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const params = parseEnvironmentClasses(FALCON).classes[0]?.params ?? [];
+  const kind = (name: string) => params.find((p) => p.name === name)?.kind;
+
+  it('requires only the two parameters that have no default', () => {
+    expect(params.filter((p) => p.kind === 'required').map((p) => p.name)).toEqual([
+      'client_id',
+      'client_secret',
+    ]);
+  });
+
+  it.each(['cloud', 'tags', 'sensor_update_policy', 'provisioning_token'])(
+    '%s is optional, not required',
+    (name) => {
+      expect(kind(name)).toBe('undef');
+      expect(kind(name)).not.toBe('required');
+    },
+  );
+
+  it('still reads the enum default correctly', () => {
+    expect(kind('ensure')).toBe('literal');
+    expect(params.find((p) => p.name === 'ensure')?.enumValues).toEqual(['absent', 'present']);
   });
 });

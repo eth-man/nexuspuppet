@@ -111,9 +111,22 @@ function parseParam(raw: unknown): ClassParameterSuggestion | null {
     return { name, type, kind: 'expression', defaultSource: source, enumValues };
   }
 
-  // `undef` is Puppet for "no default value", not a default of the string
-  // "undef". Anything else non-literal is still an expression we cannot prefill.
-  if (source !== null && source !== 'undef') {
+  /*
+   * `= undef` IS a default, and the parameter is therefore OPTIONAL.
+   *
+   * This was wrong, and an operator caught it: their class declared
+   * `Optional[String[1]] $cloud = undef` and the console demanded a value. The
+   * old comment here claimed undef meant "no default value" — it does not. It
+   * means the default IS undef, which is exactly what makes such a parameter
+   * omissible. What makes a parameter required is the absence of any `=`, which
+   * arrives as neither default_literal nor default_source.
+   */
+  if (source === 'undef') {
+    return { name, type, kind: 'undef', enumValues };
+  }
+
+  // Any other non-literal source is an expression we cannot prefill.
+  if (source !== null) {
     return { name, type, kind: 'expression', defaultSource: source, enumValues };
   }
 
