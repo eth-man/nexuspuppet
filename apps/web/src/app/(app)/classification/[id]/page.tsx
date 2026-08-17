@@ -455,11 +455,25 @@ function RulesSection({ id, detail, writable, onWrite, onError }: SectionProps) 
                   />
                 </div>
 
+                {/*
+                 * `w-44`, and it is load-bearing.
+                 *
+                 * Select carries `w-full` in its base classes, which is right
+                 * in a form column and wrong in a flex ROW: `width: 100%`
+                 * makes it demand the whole container, and the two `flex-1`
+                 * siblings have `flex-basis: 0`, so the fact path and the
+                 * value collapse to slivers while the operator takes the
+                 * entire line. Reported from a live console.
+                 *
+                 * A fixed width rather than `flex-1`: the operator list has a
+                 * known longest member (NOT_MATCHES_REGEX) and should not
+                 * grow with the window, while the path and the value should.
+                 */}
                 <Select
                   value={rule.operator}
                   onChange={(e) => update(index, { operator: e.target.value as RuleOperator })}
                   disabled={!writable}
-                  className="text-xs"
+                  className="w-44 shrink-0 text-xs"
                   aria-label="Operator"
                 >
                   {OPERATORS.map((operator) => (

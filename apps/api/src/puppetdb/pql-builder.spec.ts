@@ -220,3 +220,77 @@ describe('factsChangedSince', () => {
     expect(() => nodeFilterSchema.parse({ factsChangedSince: "' or 1=1 --" })).toThrow();
   });
 });
+
+/*
+ * Fact filters (#243) — "which nodes are Ubuntu 22.04", which nothing could
+ * answer before: the node list filtered on certname, environment, status and
+ * staleness only, and a classification group could report a COUNT but never
+ * name the nodes.
+ */
+describe('buildNodeQuery: fact filters', () => {
+  const q = (facts: unknown[]) =>
+    JSON.stringify(buildNodeQuery({ facts, includeInactive: false } as never));
+
+  it('narrows the nodes endpoint with an inventory subquery', () => {
+    // The subquery is what keeps `nodes` fields — report status, the three
+    // environment columns — which `inventory` does not carry.
+    expect(q([{ path: 'os.name', operator: 'EQUALS', value: 'Ubuntu' }])).toContain(
+      '["in","certname",["from","inventory",["extract","certname",["=","facts.os.name","Ubuntu"]]]]',
+    );
+  });
+
+  it('ANDs several conditions, which is what the reported question needs', () => {
+    const built = q([
+      { path: 'os.name', operator: 'EQUALS', value: 'Ubuntu' },
+      { path: 'os.release.major', operator: 'EQUALS', value: '22.04' },
+    ]);
+
+    expect(built).toContain('"facts.os.name"');
+    expect(built).toContain('"facts.os.release.major"');
+    expect(built.startsWith('["and"')).toBe(true);
+  });
+
+  /*
+   * A node MISSING the fact must not be reported as "not equal to X" — it has
+   * no opinion. Conflating the two is how a filter quietly loses machines, and
+   * a bare `!=` in PQL does exactly that.
+   */
+  it('requires the fact to exist before excluding a value', () => {
+    const built = q([{ path: 'os.name', operator: 'NOT_EQUALS', value: 'Ubuntu' }]);
+
+    expect(built).toContain('["~","facts.os.name",".*"]');
+    expect(built).toContain('["not",["=","facts.os.name","Ubuntu"]]');
+  });
+
+  it('expands IN to an or, so one round trip answers a set', () => {
+    const built = q([{ path: 'os.name', operator: 'IN', value: ['Ubuntu', 'Debian'] }]);
+
+    expect(built).toContain('["or",["=","facts.os.name","Ubuntu"],["=","facts.os.name","Debian"]]');
+  });
+
+  it.each([
+    ['EXISTS', '["~","facts.role",".*"]'],
+    ['NOT_EXISTS', '["not",["~","facts.role",".*"]]'],
+  ])('%s asks only whether the fact is reported', (operator, expected) => {
+    expect(q([{ path: 'role', operator }])).toContain(expected);
+  });
+
+  /*
+   * The path becomes a FIELD in the AST, not a bound value — the one place a
+   * typed builder cannot protect (ADR-0004). The schema constrains its grammar;
+   * this asserts the builder does not invent one of its own.
+   */
+  it('never lets a value reach the field position', () => {
+    const built = q([{ path: 'os.name', operator: 'EQUALS', value: '"] , ["=","certname","x"' }]);
+
+    expect(built).toContain('"facts.os.name"');
+    // The hostile string survives as a VALUE, quoted by JSON, and closes nothing.
+    expect(built).toContain('\\"] , [\\"=\\",\\"certname\\",\\"x\\"');
+  });
+
+  it('is absent from the query when no fact filter is given', () => {
+    expect(JSON.stringify(buildNodeQuery({ includeInactive: false } as never))).not.toContain(
+      'inventory',
+    );
+  });
+});

@@ -76,8 +76,58 @@ export function resolveOrderBy(field: string | undefined): string {
  * @returns null when the filter is empty — PuppetDB treats an absent query as
  *          "everything", and an empty `["and"]` is a syntax error.
  */
+/**
+ * Fact conditions, as an `inventory` subquery on the `nodes` endpoint (#243).
+ *
+ * WHY A SUBQUERY rather than querying `inventory` directly: the node list needs
+ * `nodes` fields — report status, the three environment columns, timestamps —
+ * and `inventory` carries none of them. `certname in inventory[certname] {...}`
+ * keeps the existing endpoint, its paging and its ordering exactly as they are,
+ * and narrows the set.
+ *
+ * WHY PUPPETDB rather than the local projection: PuppetDB holds every fact and
+ * is built to query them; ManagedNode holds an allow-listed SUBSET chosen for
+ * rule evaluation (ADR-0004). Filtering locally would silently answer questions
+ * about a fraction of the facts and look authoritative doing it. The Nodes page
+ * already depends on PuppetDB, so nothing new breaks when it is down.
+ *
+ * The path becomes a FIELD in the AST, which is why the schema constrains its
+ * grammar. Values stay values — never interpolated, never concatenated.
+ */
+function factClauses(facts: NonNullable<NodeFilter['facts']>): PqlAst[] {
+  return facts.map((fact) => {
+    const field = `facts.${fact.path}`;
+
+    const condition: PqlAst = (() => {
+      switch (fact.operator) {
+        case 'EQUALS':
+          return ['=', field, fact.value];
+        case 'NOT_EQUALS':
+          // `not` rather than `!=`: a node MISSING the fact must not be
+          // reported as "not equal to X" — it has no opinion, and conflating
+          // the two is how a filter quietly loses machines.
+          return ['and', ['~', field, '.*'], ['not', ['=', field, fact.value]]];
+        case 'MATCHES_REGEX':
+          return ['~', field, String(fact.value)];
+        case 'IN':
+          return ['or', ...(fact.value as string[]).map((v) => ['=', field, v])];
+        case 'EXISTS':
+          return ['~', field, '.*'];
+        case 'NOT_EXISTS':
+          return ['not', ['~', field, '.*']];
+      }
+    })();
+
+    return ['in', 'certname', ['from', 'inventory', ['extract', 'certname', condition]]];
+  });
+}
+
 export function buildNodeQuery(filter: NodeFilter): PqlAst | null {
   const clauses: PqlAst[] = [];
+
+  if (filter.facts !== undefined && filter.facts.length > 0) {
+    clauses.push(...factClauses(filter.facts));
+  }
 
   if (filter.certnameContains !== undefined && filter.certnameContains !== '') {
     // Literal substring match, case-insensitive via PuppetDB's ~ operator.

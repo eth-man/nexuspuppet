@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import type { PuppetNode } from '@nexuspuppet/contracts';
 import { useEnvironments, useNodes } from '@/lib/queries';
+import { completeFactRows, FactFilters, type FactRow } from '@/components/data/fact-filters';
 import { absolute, isStale, relativeAge } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,9 @@ const PAGE_SIZE = 50;
 export default function NodesPage() {
   const [search, setSearch] = useState('');
   const [statuses, setStatuses] = useState<string[]>([]);
+  // Fact filters (#243). Held as UI rows so a half-typed one does not requery
+  // on every keystroke; only complete rows are sent.
+  const [factRows, setFactRows] = useState<FactRow[]>([]);
   const [environment, setEnvironment] = useState<string | null>(null);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -44,11 +48,12 @@ export default function NodesPage() {
       orderBy: sort.by,
       order: sort.dir,
       ...(search === '' ? {} : { certnameContains: search }),
+      ...(completeFactRows(factRows).length === 0 ? {} : { facts: completeFactRows(factRows) }),
       ...(statuses.length === 0 ? {} : { statuses }),
       ...(environment === null ? {} : { environments: [environment] }),
       includeInactive,
     }),
-    [offset, sort, search, statuses, environment, includeInactive],
+    [offset, sort, search, statuses, environment, includeInactive, factRows],
   );
 
   const nodes = useNodes(query);
@@ -71,7 +76,12 @@ export default function NodesPage() {
   };
 
   const total = nodes.data?.total ?? 0;
-  const filtered = search !== '' || statuses.length > 0 || environment !== null || includeInactive;
+  const filtered =
+    search !== '' ||
+    statuses.length > 0 ||
+    environment !== null ||
+    includeInactive ||
+    completeFactRows(factRows).length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -153,6 +163,20 @@ export default function NodesPage() {
           />
           Include deactivated
         </label>
+
+        {/* Fact filters (#243), on their own row: a path, an operator and a
+            value do not fit beside the status pills, and squeezing them there
+            is how a filter nobody can read gets built. */}
+      </div>
+
+      <div className="mb-2">
+        <FactFilters
+          rows={factRows}
+          onChange={(rows) => {
+            setOffset(0);
+            setFactRows(rows);
+          }}
+        />
 
         {filtered && (
           <Button
