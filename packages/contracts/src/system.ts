@@ -196,6 +196,20 @@ export const encReplicationHealthSchema = z.object({
   /** The most recent write to the ENC tree. Null when nothing is materialized. */
   lastMaterializedAt: z.string().nullable(),
   peers: z.array(encReplicationPeerSchema),
+  /**
+   * Certnames that have handed over compile receipts but have NEVER fetched a
+   * tree from this deployment (ADR-0022).
+   *
+   * A peer that never fetched cannot have compiled our classification, so its
+   * receipts describe a tree somebody else served. That happens when two
+   * deployments share one Puppet server and its collector points at the wrong
+   * one — configuration pulled from one origin, telemetry pushed to another.
+   *
+   * DERIVED LIVE, never stored on the receipt. A peer that starts fetching
+   * tomorrow makes yesterday's receipts legitimate, and a stored flag would
+   * keep insisting otherwise.
+   */
+  reportingStrangers: z.array(z.string()),
 });
 
 /**

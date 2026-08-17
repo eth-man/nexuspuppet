@@ -337,3 +337,64 @@ describe('replication.not-reporting', () => {
     expect(find({ status: statusWith({}) }, key)?.severity).toBe('warning');
   });
 });
+
+/*
+ * The mirror of replication.not-reporting, and the other half of one real fault:
+ * two deployments sharing a Puppet server whose collector posts receipts to one
+ * while its tree comes from the other. Measured on the affected instance:
+ *
+ *   receipts held: 1, peers that ever fetched: 0
+ */
+describe('replication.unexpected-receipts', () => {
+  const statusWith = (reportingStrangers: string[]) =>
+    ({
+      ...INPUT.status,
+      replication: {
+        enabled: true,
+        allowedCertnames: [],
+        lastMaterializedAt: null,
+        peers: [],
+        reportingStrangers,
+      },
+    }) as CatalogueInput['status'];
+
+  it('fires for a peer that reports without ever fetching', () => {
+    expect(failing({ status: statusWith(['puppet.corp.local']) })).toContain(
+      'replication.unexpected-receipts:puppet.corp.local',
+    );
+  });
+
+  it('says where the reports actually belong', () => {
+    const reading = find(
+      { status: statusWith(['puppet.corp.local']) },
+      'replication.unexpected-receipts:puppet.corp.local',
+    );
+
+    expect(reading?.summary).toContain('never');
+    expect(reading?.summary).toContain('somebody else served');
+    expect(reading?.summary).toContain('the origin it fetches from');
+  });
+
+  it('says nothing when every reporting peer also fetches', () => {
+    expect(
+      failing({ status: statusWith([]) }).filter((k) => k.startsWith('replication.unexpected')),
+    ).toEqual([]);
+  });
+
+  it('reports one condition per stranger, so each can be resolved on its own', () => {
+    const keys = failing({ status: statusWith(['a.example.com', 'b.example.com']) }).filter((k) =>
+      k.startsWith('replication.unexpected-receipts'),
+    );
+
+    expect(keys).toHaveLength(2);
+  });
+
+  it('is a warning — the estate is fine, the bookkeeping is not', () => {
+    expect(
+      find(
+        { status: statusWith(['x.example.com']) },
+        'replication.unexpected-receipts:x.example.com',
+      )?.severity,
+    ).toBe('warning');
+  });
+});
