@@ -49,6 +49,14 @@ export interface CatalogueInput {
   pruneSkippedReason: string | null;
 }
 
+/**
+ * How long a peer may hold a tree with nothing to report before that is odd.
+ *
+ * Four Puppet run intervals at the 30-minute default. Long enough that an agent
+ * which simply has not run yet is never mistaken for a broken collector.
+ */
+const RECEIPT_GRACE_SECONDS = 4 * 30 * 60;
+
 export function readConditions(input: CatalogueInput): ConditionReading[] {
   const { status } = input;
   const readings: ConditionReading[] = [];
@@ -91,7 +99,44 @@ export function readConditions(input: CatalogueInput): ConditionReading[] {
       selfResolving: false,
     });
 
+    /*
+     * A peer that fetches and never reports (ADR-0022).
+     *
+     * FOUND IN OUR OWN LAB, which is why it exists. The receipts collector was
+     * pointed at a different instance from the one serving the tree, so a
+     * Puppet server fetched 2705 times and reported nothing. The estate
+     * converged perfectly the whole time; what was broken was only the
+     * ANSWER to "did it land", and the console said `compiled 0/N` for ever
+     * with no way to tell that apart from "no agent has run yet".
+     *
+     * WARNING, not critical: nothing is misconfigured on the estate and no node
+     * is wrong. What is lost is visibility, and calling that critical would
+     * teach people to ignore critical.
+     *
+     * The grace window is generous on purpose. Receipts appear only when an
+     * agent actually runs, and Puppet's default runinterval is 30 minutes — so
+     * a peer holding a fresh tree with nothing to report is NORMAL for a while.
+     * Four agent cycles is long enough that silence means something.
+     */
     for (const peer of peers) {
+      const heldLongEnough =
+        peer.secondsSinceChange !== null && peer.secondsSinceChange > RECEIPT_GRACE_SECONDS;
+
+      readings.push({
+        key: `replication.not-reporting:${peer.certname}`,
+        kind: 'replication.not-reporting',
+        severity: 'warning',
+        summary:
+          heldLongEnough && peer.reportedCount === 0
+            ? `${peer.certname} has been fetching the tree for ` +
+              `${Math.floor(peer.secondsSinceChange! / 3600)}h and has never reported a compile. ` +
+              'Its receipts collector is either pointed at a different origin or not running, ' +
+              'so this deployment cannot tell which nodes have applied the classification.'
+            : `${peer.certname} is reporting compiles.`,
+        failing: heldLongEnough && peer.reportedCount === 0,
+        selfResolving: false,
+      });
+
       readings.push({
         key: `replication.behind:${peer.certname}`,
         kind: 'replication.behind',

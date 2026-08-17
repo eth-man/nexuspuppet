@@ -164,6 +164,22 @@ export const encReplicationPeerSchema = z.object({
    * what the console shows.
    */
   behind: z.boolean(),
+  /**
+   * Compile receipts this peer has handed over (ADR-0022).
+   *
+   * Zero on a peer that has been fetching for days means its collector is
+   * pointing somewhere else, or is not running. Both are invisible otherwise:
+   * the tree arrives, agents converge, and the propagation front sits at
+   * `compiled 0/N` for ever with nothing to say why.
+   */
+  reportedCount: z.number().int(),
+  /**
+   * Seconds since this peer last RECEIVED a tree, or null if it never has.
+   *
+   * Supplied by the status service because only it may read the clock — the
+   * condition catalogue is pure and owns the THRESHOLD, not the timestamp.
+   */
+  secondsSinceChange: z.number().int().nullable(),
 });
 
 export const encReplicationHealthSchema = z.object({
