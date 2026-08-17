@@ -183,6 +183,11 @@ export function ClassParameterForm({
           else blank to use the class default.
         </p>
       )}
+      {required.length === 0 && (
+        <p className="text-2xs text-ink-faint">
+          Every parameter has a default. Leave them blank to use it.
+        </p>
+      )}
 
       {klass.params.map((param) => (
         <ParameterField
@@ -212,6 +217,9 @@ function ParameterField({
       <Label htmlFor={fieldId}>
         <span className="font-mono">{param.name}</span>
         {param.kind === 'required' && <span className="ml-1 text-state-failed">required</span>}
+        {/* `= undef` is a DEFAULT, so this parameter is optional. Calling it
+            required told an operator four omissible parameters were mandatory. */}
+        {param.kind === 'undef' && <span className="ml-1 text-ink-faint">optional</span>}
         {param.type !== null && (
           <span className="ml-1.5 font-mono text-3xs text-ink-faint">{param.type}</span>
         )}
@@ -224,7 +232,9 @@ function ParameterField({
           <option value="">
             {param.kind === 'required'
               ? 'choose…'
-              : `default (${String(param.defaultValue ?? '')})`}
+              : param.kind === 'literal'
+                ? `default (${String(param.defaultValue ?? '')})`
+                : 'default'}
           </option>
           {param.enumValues.map((option) => (
             <option key={option} value={JSON.stringify(option)}>
@@ -240,6 +250,12 @@ function ParameterField({
           className="font-mono"
           placeholder={placeholderFor(param)}
         />
+      )}
+
+      {param.kind === 'undef' && (
+        <p className="text-2xs text-ink-faint">
+          Defaults to <span className="font-mono">undef</span> — leave blank to omit it entirely.
+        </p>
       )}
 
       {param.kind === 'expression' && (
@@ -263,6 +279,9 @@ function ParameterField({
 function placeholderFor(param: ClassParameterSuggestion): string {
   if (param.kind === 'literal') return `default: ${JSON.stringify(param.defaultValue)}`;
   if (param.kind === 'expression') return `default: ${param.defaultSource ?? ''}`;
+  // Optional, and there is no value to suggest — saying "required" here is what
+  // the reported bug looked like from the field itself.
+  if (param.kind === 'undef') return 'optional — leave blank to omit';
   return 'required — JSON value, e.g. "text" or 42';
 }
 

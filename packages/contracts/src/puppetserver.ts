@@ -20,7 +20,21 @@ export type ClassParameterDefaultKind =
    * quietly wrong. We show the source as a hint and prefill nothing.
    */
   | 'expression'
-  /** No default of any kind: the parameter is REQUIRED. */
+  /**
+   * Declared `= undef`, which IS a default — the parameter may be omitted.
+   *
+   * REPORTED BY AN OPERATOR, because the first version of this called it
+   * `required`. `Optional[String[1]] $cloud = undef` is optional: the `= undef`
+   * is what makes it so. A parameter with no `=` at all is the required one, and
+   * conflating the two told people four optional parameters were mandatory —
+   * and claimed "6 required parameters" on a class that has two.
+   *
+   * Distinct from `expression` because there is nothing to evaluate and nothing
+   * to show: the honest label is "optional", not "defaults to undef, computed at
+   * compile time".
+   */
+  | 'undef'
+  /** No default of any kind — no `=` in the declaration. Genuinely REQUIRED. */
   | 'required';
 
 export interface ClassParameterSuggestion {
