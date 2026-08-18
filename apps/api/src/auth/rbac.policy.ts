@@ -43,6 +43,25 @@ export const SEEDED_BUILT_IN_PERMISSIONS: Record<UserRole, ReadonlySet<Permissio
     // Raw PQL bypasses PqlBuilder and reaches PuppetDB with an estate-wide
     // certificate, so it is admin-only and audited (ADR-0004).
     'pql:raw',
+    /*
+     * Catalog resources and their parameters (ADR-0025 §3).
+     *
+     * ADMIN AND NOT BELOW. The disclosure this guards is real — managed file
+     * contents, and credentials passed as class parameters — so VIEWER and
+     * OPERATOR deliberately do not hold it. Those are the roles most people
+     * actually hold, and that is where the risk lives.
+     *
+     * ADMIN holds it because otherwise NOBODY can. Creating a custom role
+     * answers 501 without the enterprise layer (ADR-0018), so leaving this
+     * unheld would make the feature unreachable in every core deployment
+     * rather than merely restricted. `pql:raw` is not an alternative route —
+     * it is declared and has no endpoint.
+     *
+     * The cost is explicit: core cannot express "an admin who manages users
+     * but must not read file contents". With the enterprise layer it can, by
+     * granting this to a custom role and narrowing ADMIN.
+     */
+    'resources:read',
   ]),
 };
 

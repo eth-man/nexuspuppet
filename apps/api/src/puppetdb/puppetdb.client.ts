@@ -13,6 +13,8 @@ import {
   type FactRow,
   type ReportSummary,
   type ResourceEvent,
+  type ResourceFilter,
+  type ResourceSummary,
 } from '@nexuspuppet/contracts';
 import {
   buildCountQuery,
@@ -22,6 +24,8 @@ import {
   buildPagination,
   buildReportByHashQuery,
   buildReportQuery,
+  buildResourceListQuery,
+  buildResourceQuery,
   type PqlAst,
 } from './pql-builder';
 import {
@@ -30,6 +34,7 @@ import {
   mapReport,
   mapReportSummary,
   mapResourceEvent,
+  mapResourceSummary,
 } from './puppetdb.mapper';
 
 /**
@@ -201,6 +206,35 @@ export class PuppetDbClient implements IPuppetDbClient {
       .map((r) => r.name)
       .filter((n): n is string => typeof n === 'string')
       .sort();
+  }
+
+  async countResources(filter: ResourceFilter): Promise<number> {
+    // The CONDITION, deliberately not the list query: wrapping an already
+    // projected query in a count extract would nest two extracts and ask
+    // PuppetDB to count a projection rather than the matching rows.
+    return this.count('/resources', buildResourceQuery(filter));
+  }
+
+  async searchResources(filter: ResourceFilter, page: PageRequest): Promise<Page<ResourceSummary>> {
+    const [rows, total] = await Promise.all([
+      this.query<Record<string, unknown>[]>('/resources', buildResourceListQuery(filter), {
+        ...buildPagination({ ...page, orderBy: 'certname' }),
+        order_by: JSON.stringify([
+          // Grouping happens above this, but a stable order makes the grouping
+          // deterministic and the pagination honest.
+          { field: 'title', order: 'asc' },
+          { field: 'certname', order: 'asc' },
+        ]),
+      }),
+      this.countResources(filter),
+    ]);
+
+    return {
+      items: rows.map(mapResourceSummary),
+      total,
+      limit: page.limit,
+      offset: page.offset,
+    };
   }
 
   // -------------------------------------------------------------------------

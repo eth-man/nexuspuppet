@@ -1,4 +1,4 @@
-import type { NodeFilter, PageRequest } from '@nexuspuppet/contracts';
+import type { NodeFilter, PageRequest, ResourceFilter } from '@nexuspuppet/contracts';
 
 /**
  * Builds PuppetDB queries from typed filters (ADR-0004).
@@ -211,6 +211,116 @@ export function buildFactsQuery(factNames: readonly string[]): PqlAst | null {
 
 export function buildEventsQuery(reportHash: string): PqlAst {
   return ['=', 'report', reportHash];
+}
+
+/**
+ * Fields a resource list may return — `parameters` is NOT among them.
+ *
+ * ADR-0025 §4: the omission is a disclosure control, not an optimisation. A
+ * value that never crosses the wire cannot leak through a rendering bug, a log
+ * line, an error page, or a screenshot. Adding `parameters` here would silently
+ * undo that, so the list of fields is written out rather than derived.
+ */
+export const RESOURCE_LIST_FIELDS = [
+  'certname',
+  'type',
+  'title',
+  'file',
+  'line',
+  'environment',
+  'resource',
+  'exported',
+  'tags',
+] as const;
+
+/**
+ * Conditions on a resource's parameter VALUES.
+ *
+ * Structurally the fact-clause grammar, pointed at `parameters.<name>` instead
+ * of `facts.<name>` — PuppetDB supports dot notation on both. Reused rather
+ * than reinvented so an operator learns one grammar, and so the NOT_EQUALS
+ * subtlety is not re-derived incorrectly here.
+ *
+ * ADR-0025 §5: this is a disclosure oracle. Using it is audited.
+ */
+function parameterClauses(parameters: NonNullable<ResourceFilter['parameters']>): PqlAst[] {
+  return parameters.map((condition) => {
+    const field = `parameters.${condition.path}`;
+
+    switch (condition.operator) {
+      case 'EQUALS':
+        return ['=', field, condition.value];
+      case 'NOT_EQUALS':
+        // Same reasoning as facts: a resource that does not CARRY the parameter
+        // has no opinion, and reporting it as "not equal to X" would quietly
+        // include resources the operator did not ask about.
+        return ['and', ['~', field, '.*'], ['not', ['=', field, condition.value]]];
+      case 'MATCHES_REGEX':
+        return ['~', field, String(condition.value)];
+      case 'IN':
+        return ['or', ...(condition.value as string[]).map((v) => ['=', field, v])];
+      case 'EXISTS':
+        return ['~', field, '.*'];
+      case 'NOT_EXISTS':
+        return ['not', ['~', field, '.*']];
+    }
+  });
+}
+
+/**
+ * A resource search (ADR-0025).
+ *
+ * `type` is mandatory in the schema, so this never returns null the way
+ * `buildNodeQuery` can — an unnarrowed resource query is the estate's whole
+ * catalog and is refused before it reaches here (§10).
+ *
+ * Node-level conditions — facts and environments — are expressed as `in
+ * certname` subqueries rather than joins, exactly as the node fact filter does,
+ * because `resources` and `inventory` are different entities and only the
+ * certname is common to both.
+ */
+export function buildResourceQuery(filter: ResourceFilter): PqlAst {
+  const clauses: PqlAst[] = [['=', 'type', filter.type]];
+
+  if (filter.title !== undefined && filter.title !== '') {
+    clauses.push(['=', 'title', filter.title]);
+  }
+
+  if (filter.titleContains !== undefined && filter.titleContains !== '') {
+    clauses.push(['~', 'title', escapeRegex(filter.titleContains)]);
+  }
+
+  if (filter.environments !== undefined && filter.environments.length > 0) {
+    // The resource's OWN environment, not the node's three. A resource exists
+    // in exactly one catalog, so there is no mid-migration ambiguity to
+    // tolerate here — unlike a node, whose facts and report can disagree.
+    clauses.push(['or', ...filter.environments.map((env) => ['=', 'environment', env])]);
+  }
+
+  if (filter.exported !== undefined) {
+    clauses.push(['=', 'exported', filter.exported]);
+  }
+
+  if (filter.parameters !== undefined && filter.parameters.length > 0) {
+    clauses.push(...parameterClauses(filter.parameters));
+  }
+
+  if (filter.facts !== undefined && filter.facts.length > 0) {
+    clauses.push(...factClauses(filter.facts));
+  }
+
+  return clauses.length === 1 ? (clauses[0] as PqlAst) : ['and', ...clauses];
+}
+
+/**
+ * The same search, projected to the fields a list may show.
+ *
+ * Separate from `buildResourceQuery` so the condition and the projection can be
+ * tested independently — and so the count query, which needs the condition
+ * without the projection, cannot accidentally inherit one.
+ */
+export function buildResourceListQuery(filter: ResourceFilter): PqlAst {
+  return ['extract', [...RESOURCE_LIST_FIELDS], buildResourceQuery(filter)];
 }
 
 /**

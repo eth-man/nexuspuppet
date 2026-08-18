@@ -50,6 +50,20 @@ export const PERMISSION_CATALOG: Record<Permission, PermissionInfo> = {
       'Every built-in role holds this. A role without it can sign in but cannot see who it is or ' +
       'change its own password, which usually looks like a broken login rather than a policy choice.',
   },
+  'resources:read': {
+    summary: 'Search catalog resources across the estate, including their parameters',
+    detail:
+      'Read what nodes are actually managing — every resource in every catalog, and whether nodes ' +
+      'in the same environment agree about it. Read-only against PuppetDB; it cannot change what ' +
+      'Puppet does. It can, however, read resource PARAMETERS: the content of a managed file, and ' +
+      'any credential a class was given as a parameter.',
+    impact: 'read',
+    caution:
+      'Not the same as viewing facts, and deliberately separate from it. A holder can read managed ' +
+      'file contents, and can confirm a secret by filtering on parameter values even without ' +
+      'displaying them. Grant it to senior operators and auditors, not as a baseline. Expanding ' +
+      'parameters and filtering by them are recorded in the audit trail (ADR-0025).',
+  },
   'reports:read': {
     summary: 'View Puppet run reports and resource events',
     detail:

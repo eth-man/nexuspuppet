@@ -22,6 +22,7 @@ import { CapabilityRegistry } from './enterprise/capability.registry';
 import { EnterpriseLoader } from './enterprise/enterprise.loader';
 import { HealthController } from './health/health.controller';
 import { NodesController } from './inventory/nodes.controller';
+import { ResourcesController } from './inventory/resources.controller';
 import { ReportsController } from './reports/reports.controller';
 import {
   MaterializationController,
@@ -310,6 +311,7 @@ export class AppModule {
         AuthController,
         RolesController,
         NodesController,
+        ResourcesController,
         ReportsController,
         NodeGroupsController,
         MaterializationController,

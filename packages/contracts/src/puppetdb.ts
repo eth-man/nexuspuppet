@@ -259,7 +259,126 @@ export interface IPuppetDbClient {
   getReportEvents(hash: string): Promise<ResourceEvent[]>;
   getReportSummary(hash: string): Promise<ReportSummary | null>;
   listEnvironments(): Promise<string[]>;
+
+  /**
+   * How many resources match, asked BEFORE any are fetched (ADR-0025 §10).
+   *
+   * A thousand nodes at several hundred resources each is millions of rows.
+   * Asking first turns "the browser stopped responding" into a sentence the
+   * operator can act on.
+   */
+  countResources(filter: ResourceFilter): Promise<number>;
+
+  /**
+   * Resources matching the filter, WITHOUT their parameters (ADR-0025 §4).
+   *
+   * The omission is a disclosure control, not an optimisation: a value never
+   * fetched cannot leak through a rendering bug, a log line, or an error page.
+   */
+  searchResources(filter: ResourceFilter, page: PageRequest): Promise<Page<ResourceSummary>>;
 }
+
+/**
+ * A catalog resource WITHOUT its parameters (ADR-0025 §4).
+ *
+ * The absence is the point. `parameters` carries the configuration payload —
+ * a `File`'s `content` is the entire file body, and a class parameter may hold
+ * a credential — so it never travels in a list. It is fetched only when an
+ * operator expands one resource, which is an audited act (ADR-0025 §6).
+ */
+export interface ResourceSummary {
+  certname: string;
+  type: string;
+  title: string;
+  /** Manifest that declared it, and the line. Both null on older agents. */
+  file: string | null;
+  line: number | null;
+  environment: string;
+  /**
+   * PuppetDB's SHA-1 over type, title AND parameters.
+   *
+   * Two nodes sharing this hash have byte-identical parameters, which is what
+   * lets consistency be established without a parameter crossing the wire
+   * (ADR-0025 §7). If this ever stopped covering parameters, the consistency
+   * view would report agreement that does not exist.
+   */
+  resourceHash: string;
+  /** Collected from another node's exported catalog rather than declared here. */
+  exported: boolean;
+  tags: string[];
+}
+
+/** One distinct parameter-set among the nodes carrying a resource. */
+export interface ResourceVariant {
+  /** The `resource` hash shared by every node in this variant. */
+  resourceHash: string;
+  nodeCount: number;
+  /**
+   * One node carrying it — the node whose parameters get fetched on expand
+   * (ADR-0025 §9). One per variant, never one per node.
+   */
+  sampleCertname: string;
+  /** Up to a bounded number of certnames, for "which nodes are the odd ones". */
+  certnames: string[];
+}
+
+/**
+ * A resource across the estate, grouped for the consistency question.
+ *
+ * Keyed by type, title AND environment — variance is counted WITHIN an
+ * environment and never across it (ADR-0025 §8). A development node differing
+ * from a production node is not drift, and counting it as such would flag the
+ * whole estate as inconsistent on the first day.
+ */
+export interface ResourceGroup {
+  type: string;
+  title: string;
+  environment: string;
+  nodeCount: number;
+  /** Distinct parameter-sets. Greater than one means the nodes disagree. */
+  variantCount: number;
+  variants: ResourceVariant[];
+  /** Where it was declared, from the first node seen. Null on older agents. */
+  file: string | null;
+  line: number | null;
+}
+
+/**
+ * How a resource search is narrowed.
+ *
+ * `type` is REQUIRED (ADR-0025 §10). A search with no type is the estate's
+ * entire catalog, and this mirrors the rule already applied to facts: an empty
+ * allow-list fetches nothing rather than everything.
+ */
+export const resourceFilterSchema = z.object({
+  /** Capitalised resource type, e.g. `File`. Required — there is no "all". */
+  type: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(
+      /^[A-Z][A-Za-z0-9_]*(::[A-Z][A-Za-z0-9_]*)*$/,
+      'A resource type, e.g. File or Nginx::Config',
+    ),
+  /** Exact resource title, e.g. `/etc/ssh/sshd_config`. */
+  title: z.string().max(1024).optional(),
+  /** Substring of the title, for when the exact path is not known. */
+  titleContains: z.string().max(1024).optional(),
+  /** Restrict to nodes in these environments. */
+  environments: z.array(z.string()).max(50).optional(),
+  /** Restrict to nodes matching these facts — the #243 filter, composed in. */
+  facts: z.array(factFilterSchema).max(10).optional(),
+  /**
+   * Conditions on parameter VALUES (ADR-0025 §5).
+   *
+   * A disclosure oracle, and knowingly so: a holder can confirm a secret by
+   * guessing without any value being rendered. That is why `resources:read` is
+   * a separate, privileged grant and why using this writes an audit row.
+   */
+  parameters: z.array(factFilterSchema).max(10).optional(),
+  exported: z.boolean().optional(),
+});
+export type ResourceFilter = z.infer<typeof resourceFilterSchema>;
 
 /** Thrown when PuppetDB cannot be reached or returns an error. */
 export class PuppetDbUnavailableError extends Error {

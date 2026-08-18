@@ -44,7 +44,7 @@ const BUILT_IN_DEFAULTS: ReadonlyArray<{
   },
   {
     name: 'ADMIN',
-    description: 'Full administration, including users, settings and raw PQL.',
+    description: 'Full administration, including users, settings, raw PQL and catalog resources.',
     permissions: [
       'inventory:read',
       'reports:read',
@@ -54,6 +54,9 @@ const BUILT_IN_DEFAULTS: ReadonlyArray<{
       'users:manage',
       'settings:manage',
       'pql:raw',
+      // ADR-0025 §3. Added by 20260818120000_admin_resources_read, which is
+      // what actually grants it — this list only restores what that wrote.
+      'resources:read',
     ],
   },
 ];

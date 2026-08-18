@@ -46,6 +46,12 @@ Facts describe a machine: its OS, its addresses, its hardware. Resource paramete
 
 `resources:read` is intended for senior operators and auditors. It is not a default grant, and §5 explains why the split is necessary but not sufficient.
 
+**Held by `ADMIN`, and by nothing below it.** `VIEWER` and `OPERATOR` do not get it — those are the roles most people actually hold, and that is where the disclosure risk lives.
+
+This ADR originally said the permission would be implied by no existing role at all. That was written before checking what it would mean, and it was wrong: creating a custom role answers `501` without the enterprise layer ([ADR-0018](./0018-custom-roles.md)), and `pql:raw` is declared with no endpoint behind it. An unheld permission would therefore have made this feature **unreachable in every core deployment** rather than merely restricted — an open-core product shipping a screen no core operator can open.
+
+The cost of the correction is explicit and worth stating: **core cannot express "an admin who manages users but must not read managed file contents."** With the enterprise layer it can, by granting `resources:read` to a custom role and narrowing `ADMIN`. An operator who needs that separation today needs the enterprise layer to get it.
+
 ### 4. Parameters are never in list results
 
 The list query uses PQL `extract` to select `certname`, `type`, `title`, `file`, `line`, `environment`, `resource` and `exported` — and deliberately omits `parameters`.
@@ -120,7 +126,7 @@ The failure mode being designed out is an operator accidentally asking a product
 
 **Classification becomes verifiable.** The console can already state intent and can now show the result, which is the gap that made "the node has this class" an assertion nobody could check.
 
-**A new permission must be granted deliberately.** `resources:read` is not implied by any existing role. Existing deployments get nobody holding it until an operator says so — which is correct, and does mean the feature is invisible until then.
+**Every existing `ADMIN` gains the ability to read managed file contents on upgrade.** That is a real widening, applied without anybody asking for it, and it is the honest consequence of §3. Deployments that need a narrower admin need the enterprise layer to express it. `VIEWER` and `OPERATOR` are unaffected.
 
 **The audit trail gains rows that describe reads.** Anything consuming `AuditLog` — including SIEM forwarding — will see actions with null `before` and `after`. That is a wire-contract-visible change, and consumers that assume every row is a change will need to tolerate it.
 

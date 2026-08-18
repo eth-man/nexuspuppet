@@ -4,6 +4,7 @@ import type {
   PuppetReport,
   ReportSummary,
   ResourceEvent,
+  ResourceSummary,
 } from '@nexuspuppet/contracts';
 
 /**
@@ -126,6 +127,29 @@ export function durationBetween(startTime: string | null, endTime: string | null
 
   const seconds = (end - start) / 1000;
   return seconds >= 0 ? Number(seconds.toFixed(3)) : null;
+}
+
+/**
+ * A catalog resource, WITHOUT parameters (ADR-0025 §4).
+ *
+ * There is no `parameters` branch here on purpose. The list query does not ask
+ * for the field, and this mapper could not surface it if a future change did —
+ * so the disclosure control holds in two places rather than one.
+ */
+export function mapResourceSummary(raw: Record<string, unknown>): ResourceSummary {
+  return {
+    certname: String(raw['certname'] ?? ''),
+    type: String(raw['type'] ?? ''),
+    title: String(raw['title'] ?? ''),
+    file: str(raw['file']),
+    line: num(raw['line']),
+    environment: String(raw['environment'] ?? ''),
+    // PuppetDB calls this `resource`; we name it for what it is, because
+    // `resource.resource` reads as a mistake at every call site.
+    resourceHash: String(raw['resource'] ?? ''),
+    exported: raw['exported'] === true,
+    tags: Array.isArray(raw['tags']) ? (raw['tags'] as unknown[]).map((t) => String(t)) : [],
+  };
 }
 
 export function mapResourceEvent(raw: Record<string, unknown>): ResourceEvent {
