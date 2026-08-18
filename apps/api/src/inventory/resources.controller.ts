@@ -1,9 +1,10 @@
-import { Controller, Get, Inject, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
 import {
   PUPPETDB_CLIENT,
   factFilterSchema,
   resourceFilterSchema,
   type IPuppetDbClient,
+  type ResourceComparison,
   type ResourceFilter,
   type ResourceGroup,
 } from '@nexuspuppet/contracts';
@@ -11,6 +12,9 @@ import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission } from '../auth/auth.guard';
 import { groupResources } from './pure/group-resources';
+import { differingKeys } from './pure/diff-parameters';
+import { ResourceReadAudit } from './resource-read-audit';
+import type { AuthenticatedRequest } from '../auth/auth.guard';
 
 /**
  * Estate-wide resource search (ADR-0025).
@@ -109,6 +113,39 @@ export const searchQuerySchema = z
 type SearchQuery = z.infer<typeof searchQuerySchema>;
 
 /**
+ * Which nodes' parameters to fetch when a resource is expanded (ADR-0025 §9).
+ *
+ * An EXPLICIT list of certnames, capped, and never a pattern. One
+ * representative per variant is what the UI asks for — bounded by variant
+ * count rather than by the hundreds of nodes carrying the resource — and a cap
+ * here means no caller can turn this into a bulk export of the estate's
+ * configuration by passing the whole inventory.
+ */
+export const MAX_EXPANDED_NODES = 10;
+
+export const expandQuerySchema = z.object({
+  type: resourceFilterSchema.shape.type,
+  // Required and exact. Expansion is about ONE resource; a substring here
+  // would let a single call rake in every file whose path contains "conf".
+  title: z.string().min(1).max(1024),
+  environment: z.string().max(128).optional(),
+  certnames: z
+    .string()
+    .min(1)
+    .transform((raw) =>
+      raw
+        .split(',')
+        .map((c) => c.trim())
+        .filter((c) => c !== ''),
+    )
+    .refine((list) => list.length > 0 && list.length <= MAX_EXPANDED_NODES, {
+      message: `Name between 1 and ${String(MAX_EXPANDED_NODES)} nodes.`,
+    }),
+});
+
+type ExpandQuery = z.infer<typeof expandQuerySchema>;
+
+/**
  * What the search returns.
  *
  * `tooMany` is a first-class outcome, not an error. The operator asked a
@@ -126,12 +163,30 @@ export interface ResourceSearchResult {
 @RequirePermission('resources:read')
 @Controller('resources')
 export class ResourcesController {
-  constructor(@Inject(PUPPETDB_CLIENT) private readonly puppetdb: IPuppetDbClient) {}
+  constructor(
+    @Inject(PUPPETDB_CLIENT) private readonly puppetdb: IPuppetDbClient,
+    private readonly readAudit: ResourceReadAudit,
+  ) {}
 
   @Get()
   async search(
     @Query(new ZodValidationPipe(searchQuerySchema)) filter: SearchQuery,
+    @Req() request: AuthenticatedRequest,
   ): Promise<ResourceSearchResult> {
+    /*
+     * A parameter-VALUE filter is the oracle (§5), so it is recorded — before
+     * the query runs, not after. A trail written only on success would miss
+     * exactly the probe that errored, and an attacker learns as much from a
+     * failure as from a hit.
+     *
+     * Searching by type and title is NOT recorded: it discloses nothing, and
+     * burying the events that matter under thousands that do not is how an
+     * audit trail stops being read.
+     */
+    if (filter.parameters !== undefined && filter.parameters.length > 0) {
+      await this.readAudit.parameterQuery(request, filter);
+    }
+
     // COUNT BEFORE FETCH (§10). Cheap, and it turns "the browser stopped
     // responding" into a number the operator can narrow against.
     const total = await this.puppetdb.countResources(filter);
@@ -158,6 +213,41 @@ export class ResourcesController {
       tooMany: false,
       limit: MAX_GROUPED_RESOURCES,
       groups: groupResources(collected),
+    };
+  }
+
+  /**
+   * The parameters behind one resource, for named nodes (ADR-0025 §9).
+   *
+   * THE DISCLOSURE, and the only route that returns parameter values. One
+   * representative per variant, diffed server-side, and audited unconditionally
+   * — the audit row is written BEFORE the fetch, so a read cannot happen
+   * without the record of it existing first. Writing it afterwards would leave
+   * a window where a crash loses the evidence but not the disclosure.
+   */
+  @Get('parameters')
+  async parameters(
+    @Query(new ZodValidationPipe(expandQuerySchema)) query: ExpandQuery,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ResourceComparison> {
+    await this.readAudit.parametersRead(request, query.type, query.title, query.certnames);
+
+    const variants = await this.puppetdb.getResourceParameters(
+      query.type,
+      query.title,
+      query.certnames,
+    );
+
+    return {
+      type: query.type,
+      title: query.title,
+      environment: query.environment ?? '',
+      // In the order the caller named them, which is the order the group
+      // listed its variants: baseline first, then the odd ones out.
+      variants: query.certnames
+        .map((certname) => variants.find((v) => v.certname === certname))
+        .filter((v): v is NonNullable<typeof v> => v !== undefined),
+      differingKeys: differingKeys(variants),
     };
   }
 }

@@ -15,6 +15,7 @@ import {
   type ResourceEvent,
   type ResourceFilter,
   type ResourceSummary,
+  type ResourceParameters,
 } from '@nexuspuppet/contracts';
 import {
   buildCountQuery,
@@ -25,6 +26,7 @@ import {
   buildReportByHashQuery,
   buildReportQuery,
   buildResourceListQuery,
+  buildResourceParametersQuery,
   buildResourceQuery,
   type PqlAst,
 } from './pql-builder';
@@ -213,6 +215,36 @@ export class PuppetDbClient implements IPuppetDbClient {
     // projected query in a count extract would nest two extracts and ask
     // PuppetDB to count a projection rather than the matching rows.
     return this.count('/resources', buildResourceQuery(filter));
+  }
+
+  async getResourceParameters(
+    type: string,
+    title: string,
+    certnames: readonly string[],
+  ): Promise<ResourceParameters[]> {
+    const query = buildResourceParametersQuery(type, title, certnames);
+
+    // An empty list fetches nothing, not everything. This is the one call that
+    // returns the estate's configuration payload, so the degenerate case has
+    // to fail closed.
+    if (query === null) return [];
+
+    const rows = await this.query<Record<string, unknown>[]>('/resources', query, {
+      // Bounded by the caller's list, and bounded again here: a caller that
+      // somehow passed hundreds of certnames still cannot pull the estate.
+      limit: certnames.length,
+      offset: 0,
+      order_by: JSON.stringify([{ field: 'certname', order: 'asc' }]),
+    });
+
+    return rows.map((row) => ({
+      certname: String(row['certname'] ?? ''),
+      resourceHash: String(row['resource'] ?? ''),
+      parameters:
+        row['parameters'] !== null && typeof row['parameters'] === 'object'
+          ? (row['parameters'] as Record<string, unknown>)
+          : {},
+    }));
   }
 
   async searchResources(filter: ResourceFilter, page: PageRequest): Promise<Page<ResourceSummary>> {

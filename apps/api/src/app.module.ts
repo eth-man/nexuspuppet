@@ -23,6 +23,7 @@ import { EnterpriseLoader } from './enterprise/enterprise.loader';
 import { HealthController } from './health/health.controller';
 import { NodesController } from './inventory/nodes.controller';
 import { ResourcesController } from './inventory/resources.controller';
+import { ResourceReadAudit } from './inventory/resource-read-audit';
 import { ReportsController } from './reports/reports.controller';
 import {
   MaterializationController,
@@ -323,6 +324,10 @@ export class AppModule {
         AuditForwardingController,
       ],
       providers: [
+        // Read-audit for the resource surface (ADR-0025 §6). Registered
+        // unconditionally: the disclosure it records exists in every
+        // deployment that grants `resources:read`.
+        ResourceReadAudit,
         // Class suggestions from puppetserver (ADR-0024). Both registered
         // unconditionally; the client factory returns null when
         // PUPPETSERVER_URL is unset, and the service reports `disabled`.
