@@ -227,6 +227,66 @@ for (const n of nodes) {
  * Enough for the stand-in to behave like a real server for filtering and
  * sorting — anything less makes the console show numbers that are simply wrong.
  */
+/**
+ * An operator this stand-in cannot evaluate. Surfaced as a 400, the way real
+ * PuppetDB rejects a query it cannot parse.
+ *
+ * WHY THIS IS AN ERROR AND NOT `return true`. It used to be `return true`, and
+ * that made an unsupported operator indistinguishable from no filter at all:
+ * fact filtering (#243) shipped to staging returning the whole estate for every
+ * filter, including deliberately-impossible ones, and the honest reading of
+ * "48 of 48 nodes match `os.name = Nonsense`" was a broken feature. The feature
+ * was fine — the stand-in was silently ignoring the subquery. Failing loudly
+ * costs one clear error; failing open costs a day chasing the wrong bug.
+ */
+class UnsupportedQuery extends Error {}
+
+/**
+ * A field's value, resolving the dotted paths inventory queries use.
+ *
+ * Flat rows win on an exact key first, so a node's `certname` is never mistaken
+ * for a walk into an object, and `facts.os.name` walks into the fact map.
+ */
+function resolveField(row, field) {
+  if (row === null || typeof row !== 'object') return undefined;
+  if (field in row) return row[field];
+
+  let current = row;
+  for (const part of String(field).split('.')) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+/**
+ * The values a `["from", <entity>, ["extract", <field>, <condition>]]` subquery
+ * yields — the right-hand side of the `in` that fact filters compile to.
+ */
+function subqueryValues(sub) {
+  if (!Array.isArray(sub) || sub[0] !== 'from') {
+    throw new UnsupportedQuery(`expected a "from" subquery, got ${JSON.stringify(sub)}`);
+  }
+  const [, entity, extract] = sub;
+  const rows = ENTITIES[entity];
+  if (rows === undefined) {
+    throw new UnsupportedQuery(`unknown entity "${entity}" in subquery`);
+  }
+  if (!Array.isArray(extract) || extract[0] !== 'extract') {
+    throw new UnsupportedQuery(`expected an "extract" inside "from ${entity}"`);
+  }
+
+  const [, field, condition] = extract;
+  // PQL permits `["extract", "certname", …]` and `["extract", ["certname"], …]`.
+  const name = Array.isArray(field) ? field[0] : field;
+
+  return new Set(
+    rows
+      .filter((row) => (condition === undefined ? true : evaluate(condition, row)))
+      .map((row) => String(resolveField(row, name))),
+  );
+}
+
 function evaluate(node, row) {
   if (!Array.isArray(node) || node.length === 0) return true;
   const [op, ...rest] = node;
@@ -240,22 +300,35 @@ function evaluate(node, row) {
       return !evaluate(rest[0], row);
     case 'null?': {
       const [field, expected] = rest;
-      return (row[field] === null || row[field] === undefined) === expected;
+      const value = resolveField(row, field);
+      return (value === null || value === undefined) === expected;
     }
+    case 'in':
+      return subqueryValues(rest[1]).has(String(resolveField(row, rest[0])));
     case '=':
-      return String(row[rest[0]]) === String(rest[1]);
-    case '~':
+      return String(resolveField(row, rest[0])) === String(rest[1]);
+    case '~': {
+      const value = resolveField(row, rest[0]);
+      // A regex never matches a fact the node does not report. `?? ''` would
+      // make `["~", "facts.whatever", ".*"]` — how EXISTS compiles — true for
+      // every node in the estate.
+      if (value === null || value === undefined) return false;
       try {
-        return new RegExp(rest[1]).test(String(row[rest[0]] ?? ''));
+        return new RegExp(rest[1]).test(String(value));
       } catch {
         return false;
       }
-    case '<':
-      return row[rest[0]] !== null && String(row[rest[0]]) < String(rest[1]);
-    case '>':
-      return row[rest[0]] !== null && String(row[rest[0]]) > String(rest[1]);
+    }
+    case '<': {
+      const value = resolveField(row, rest[0]);
+      return value !== null && value !== undefined && String(value) < String(rest[1]);
+    }
+    case '>': {
+      const value = resolveField(row, rest[0]);
+      return value !== null && value !== undefined && String(value) > String(rest[1]);
+    }
     default:
-      return true;
+      throw new UnsupportedQuery(`operator "${op}" is not implemented by the stand-in`);
   }
 }
 
@@ -361,6 +434,94 @@ const environments = [
   ...new Set(nodes.map((n) => n.report_environment).filter((e) => e !== null)),
 ].sort();
 
+/**
+ * The `inventory` entity, in the documented shape: one row per node with its
+ * facts nested under `facts`, queried as `facts.os.name`.
+ *
+ * Fact filters (#243) compile to `["in", "certname", ["from", "inventory", …]]`
+ * rather than a join, so this is the entity that decides which nodes a filter
+ * keeps. Only nodes with a factset appear — a deactivated node reports nothing,
+ * here and in a real estate.
+ */
+const inventory = nodes
+  .filter((n) => factsByNode.has(n.certname))
+  .map((n) => ({
+    certname: n.certname,
+    timestamp: n.facts_timestamp,
+    environment: n.facts_environment ?? n.report_environment,
+    facts: factsByNode.get(n.certname),
+    trusted: { certname: n.certname, authenticated: 'remote' },
+  }));
+
+/** Entities a `["from", …]` subquery may name. */
+const ENTITIES = { inventory, nodes, factsets };
+
+function route(req, res) {
+  const url = new URL(req.url, 'https://x');
+  const q = url.searchParams.get('query');
+  const ast = q ? JSON.parse(q) : null;
+  const isCount = ast && ast[0] === 'extract';
+  const limit = Number(url.searchParams.get('limit') ?? 500);
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  res.setHeader('content-type', 'application/json');
+
+  if (url.pathname === '/pdb/meta/v1/version') return res.end(JSON.stringify({ version: '8.4.0' }));
+  if (url.pathname.endsWith('/nodes')) {
+    // Evaluate the AST for real. Substring-sniffing it meant every filtered
+    // query returned the whole estate, so the dashboard reported 48 failed
+    // out of 48 nodes and listed unchanged hosts under "Failing nodes".
+    const inner = isCount ? ast[2] : ast;
+    let visible = inner ? nodes.filter((n) => evaluate(inner, n)) : nodes;
+    visible = sortNodes(visible, url.searchParams.get('order_by'));
+    return res.end(
+      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
+    );
+  }
+  if (url.pathname.endsWith('/inventory')) {
+    const inner = isCount ? ast[2] : ast;
+    const visible = inner ? inventory.filter((r) => evaluate(inner, r)) : inventory;
+    return res.end(
+      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
+    );
+  }
+
+  if (url.pathname.endsWith('/facts')) {
+    const inner = isCount ? ast[2] : ast;
+    const visible = inner ? factRows.filter((r) => evaluate(inner, r)) : factRows;
+    return res.end(
+      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
+    );
+  }
+
+  if (url.pathname.endsWith('/factsets')) {
+    const inner = isCount ? ast[2] : ast;
+    const visible = inner ? factsets.filter((f) => evaluate(inner, f)) : factsets;
+    return res.end(
+      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
+    );
+  }
+
+  if (url.pathname.endsWith('/reports')) {
+    const inner = isCount ? ast[2] : ast;
+    let visible = inner ? reports.filter((r) => evaluate(inner, r)) : reports;
+    visible = sortNodes(visible, url.searchParams.get('order_by'));
+    return res.end(
+      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
+    );
+  }
+
+  if (url.pathname.endsWith('/events')) {
+    // Queried as ["=", "report", <hash>].
+    const hash = Array.isArray(ast) && ast[0] === '=' ? ast[2] : null;
+    return res.end(JSON.stringify(eventsByReport.get(hash) ?? []));
+  }
+
+  if (url.pathname.endsWith('/environments'))
+    return res.end(JSON.stringify(environments.map((name) => ({ name }))));
+
+  res.end('[]');
+}
+
 const srv = createServer(
   {
     key: readFileSync(`${C}/server.key`),
@@ -370,67 +531,17 @@ const srv = createServer(
     rejectUnauthorized: true,
   },
   (req, res) => {
-    const url = new URL(req.url, 'https://x');
-    const q = url.searchParams.get('query');
-    const ast = q ? JSON.parse(q) : null;
-    const isCount = ast && ast[0] === 'extract';
-    const limit = Number(url.searchParams.get('limit') ?? 500);
-    const offset = Number(url.searchParams.get('offset') ?? 0);
-    res.setHeader('content-type', 'application/json');
-
-    if (url.pathname === '/pdb/meta/v1/version')
-      return res.end(JSON.stringify({ version: '8.4.0' }));
-    if (url.pathname.endsWith('/nodes')) {
-      // Evaluate the AST for real. Substring-sniffing it meant every filtered
-      // query returned the whole estate, so the dashboard reported 48 failed
-      // out of 48 nodes and listed unchanged hosts under "Failing nodes".
-      const inner = isCount ? ast[2] : ast;
-      let visible = inner ? nodes.filter((n) => evaluate(inner, n)) : nodes;
-      visible = sortNodes(visible, url.searchParams.get('order_by'));
-      return res.end(
-        JSON.stringify(
-          isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit),
-        ),
-      );
+    try {
+      route(req, res);
+    } catch (error) {
+      if (!(error instanceof UnsupportedQuery)) throw error;
+      // Real PuppetDB rejects a query it cannot parse. So must this: a query
+      // answered with the whole estate is indistinguishable from no filter,
+      // which is how an unsupported operator masquerades as a broken feature.
+      res.statusCode = 400;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ error: error.message }));
     }
-    if (url.pathname.endsWith('/facts'))
-      return res.end(
-        JSON.stringify(
-          isCount ? [{ count: factRows.length }] : factRows.slice(offset, offset + limit),
-        ),
-      );
-
-    if (url.pathname.endsWith('/factsets')) {
-      const inner = isCount ? ast[2] : ast;
-      const visible = inner ? factsets.filter((f) => evaluate(inner, f)) : factsets;
-      return res.end(
-        JSON.stringify(
-          isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit),
-        ),
-      );
-    }
-
-    if (url.pathname.endsWith('/reports')) {
-      const inner = isCount ? ast[2] : ast;
-      let visible = inner ? reports.filter((r) => evaluate(inner, r)) : reports;
-      visible = sortNodes(visible, url.searchParams.get('order_by'));
-      return res.end(
-        JSON.stringify(
-          isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit),
-        ),
-      );
-    }
-
-    if (url.pathname.endsWith('/events')) {
-      // Queried as ["=", "report", <hash>].
-      const hash = Array.isArray(ast) && ast[0] === '=' ? ast[2] : null;
-      return res.end(JSON.stringify(eventsByReport.get(hash) ?? []));
-    }
-
-    if (url.pathname.endsWith('/environments'))
-      return res.end(JSON.stringify(environments.map((name) => ({ name }))));
-
-    res.end('[]');
   },
 );
 
