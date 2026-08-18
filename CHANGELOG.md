@@ -2,6 +2,36 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] — 2026-08-18
+
+The console can say what a node **does** get, not only what it should. An estate-wide resource search reads the catalogs PuppetDB already indexes and answers the question that is not a lookup: do these nodes AGREE (ADR-0025). **One migration**, `admin_resources_read`, which widens the built-in ADMIN role — see Upgrading.
+
+### Added
+
+**Estate-wide resource search.** Classification describes intent thoroughly — every class on a node, which group set it, why that group matched. The catalog is the RESULT, and nothing read it: six PuppetDB endpoints were in use and `/resources` was not one of them. So "is `/etc/ssh/sshd_config` the same on all 190 servers" had no answer here.
+
+**Consistency is the headline, not a detail.** Results group by resource and lead with variance — `190 nodes · 2 variants ⚠` — and disagreements sort to the top. A flat list of 190 identical rows hides the three that differ, which is the opposite of what an operator opened the screen to find.
+
+**Variance is established without a single parameter crossing the wire.** PuppetDB's `resource` field is a SHA-1 over type, title *and* parameters, so identical hashes mean byte-identical parameters. The list query uses `extract` to omit `parameters` outright: a value never fetched cannot leak through a rendering bug, a log line or an error page.
+
+**Variance is counted WITHIN an environment, never across it.** A development node and a production node legitimately differ, and counting that as drift would flag a two-environment estate as entirely inconsistent on the first day. ADR-0021 already records where that ends — the channel gets muted, and takes the alert that mattered with it.
+
+**Expanding names the nodes; comparing shows the difference.** Expansion lists which nodes carry which configuration — not a disclosure, a certname is on the Nodes page already. Comparing parameters is a separate, explicit act that fetches one representative per variant and diffs them, with a line diff for multi-line values so a 200-line config file shows the stanza that changed rather than two columns to compare by eye.
+
+**Composes with fact filtering.** "`File[/etc/resolv.conf]` on Ubuntu 22.04 nodes" is one query, reusing the inventory subquery added in 1.7.7.
+
+**Parameter-value filtering.** "Find every node where `sshd_config` permits root login" needs no parameter to be displayed. It is also an oracle — a holder can confirm a secret by guessing without ever seeing it rendered — which is stated plainly in ADR-0025 §5 rather than mitigated by a safe-list of "non-sensitive" parameter names that could never be complete.
+
+**`resources:read`, a new and privileged permission.** Deliberately NOT `inventory:read`. Facts describe a machine; resource parameters are its configuration payload — a `File`'s `content` is the whole file body, and a class parameter may hold a credential.
+
+**Read-only audit events, amending ADR-0005.** Expanding parameters, and any query filtering on a parameter value, write an `AuditLog` row. Ordinary browsing does not — burying the events that matter under thousands that do not is how a trail stops being read. The row is written BEFORE the read, so a crash cannot lose the evidence while keeping the disclosure, and it records the QUESTION rather than the answer: no parameter value is ever written into the audit log.
+
+### Upgrading
+
+**Every existing ADMIN gains the ability to read managed file contents.** The migration grants `resources:read` to the built-in ADMIN role. It is granted because otherwise nobody could hold it — creating a custom role answers 501 without the enterprise layer (ADR-0018) — so leaving it unheld would make the feature unreachable in every core deployment rather than merely restricted. VIEWER and OPERATOR are unaffected. A deployment needing "an admin who manages users but must not read file contents" needs the enterprise layer to express it.
+
+**`AuditLog` consumers must tolerate null `before` and `after`.** Read events have neither. This is visible on the wire, including to syslog and webhook forwarding.
+
 ## [1.7.0] — 2026-08-13
 
 The audit trail can name what it describes, and every row it writes while serving one request carries that request's id. **One migration**, `audit_request_correlation`, purely additive.
