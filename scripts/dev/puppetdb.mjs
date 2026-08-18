@@ -453,62 +453,171 @@ const inventory = nodes
     trusted: { certname: n.certname, authenticated: 'remote' },
   }));
 
+/**
+ * Catalog resources, with DELIBERATE drift (ADR-0025).
+ *
+ * A consistency view cannot be verified against a consistent estate. If every
+ * node agreed, "190 nodes, 1 variant ✓" would render whether the grouping
+ * worked or did nothing at all — the same trap as a query evaluator that
+ * answers everything with the whole estate. So variance is engineered in, and
+ * the expected numbers are asserted in the API's unit tests.
+ *
+ * Three shapes, each testing something different:
+ *
+ *   /etc/motd            every node identical      1 variant   the ✓ case
+ *   /etc/ssh/sshd_config three nodes drifted       2 variants  the ⚠ case
+ *   /etc/resolv.conf     differs BY ENVIRONMENT    1 variant per environment,
+ *                                                  never counted across (§8)
+ */
+const resources = [];
+
+/**
+ * PuppetDB's `resource` field: a SHA-1 over type, title AND parameters.
+ *
+ * Computed for real rather than faked, because the entire consistency design
+ * rests on this property — identical parameters must produce an identical hash,
+ * and any difference must produce a different one. A stand-in that handed out
+ * arbitrary ids would let the grouping look correct while proving nothing.
+ *
+ * Keys are sorted so parameter insertion order cannot change the hash, which is
+ * the same determinism the ENC materializer requires of itself.
+ */
+function resourceHash(type, title, parameters) {
+  const canonical = JSON.stringify([
+    type,
+    title,
+    Object.keys(parameters)
+      .sort()
+      .map((k) => [k, parameters[k]]),
+  ]);
+  return sha1(canonical);
+}
+
+function addResource(certname, environment, type, title, parameters, file, line) {
+  resources.push({
+    certname,
+    environment,
+    type,
+    title,
+    file,
+    line,
+    parameters,
+    exported: false,
+    tags: ['class', type.toLowerCase()],
+    resource: resourceHash(type, title, parameters),
+  });
+}
+
+{
+  const active = nodes.filter((n) => !n.deactivated && !n.expired);
+
+  active.forEach((n, i) => {
+    const env = n.facts_environment ?? n.report_environment ?? 'production';
+    const manifest =
+      '/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp';
+
+    // 1. Identical everywhere — the "consistent" row.
+    addResource(
+      n.certname,
+      env,
+      'File',
+      '/etc/motd',
+      { ensure: 'file', owner: 'root', group: 'root', mode: '0644' },
+      manifest,
+      12,
+    );
+
+    // 2. Real drift: three nodes were hand-edited and now permit root login.
+    //    Deterministic by index, so the fixture is reproducible.
+    const drifted = i % 16 === 3;
+    addResource(
+      n.certname,
+      env,
+      'File',
+      '/etc/ssh/sshd_config',
+      {
+        ensure: 'file',
+        owner: 'root',
+        group: 'root',
+        mode: drifted ? '0666' : '0600',
+        content: `# managed by puppet\nPermitRootLogin ${drifted ? 'yes' : 'no'}\n`,
+      },
+      manifest,
+      31,
+    );
+
+    // 3. Legitimately different per environment. Counted as one variant WITHIN
+    //    each environment and never as drift across them (§8) — the trap that
+    //    would otherwise flag a two-environment estate as entirely inconsistent.
+    addResource(
+      n.certname,
+      env,
+      'File',
+      '/etc/resolv.conf',
+      { ensure: 'file', content: `nameserver 10.0.${env === 'production' ? '0' : '9'}.53\n` },
+      manifest,
+      44,
+    );
+  });
+}
+
 /** Entities a `["from", …]` subquery may name. */
-const ENTITIES = { inventory, nodes, factsets };
+const ENTITIES = { inventory, nodes, factsets, resources };
 
 function route(req, res) {
   const url = new URL(req.url, 'https://x');
   const q = url.searchParams.get('query');
   const ast = q ? JSON.parse(q) : null;
-  const isCount = ast && ast[0] === 'extract';
   const limit = Number(url.searchParams.get('limit') ?? 500);
   const offset = Number(url.searchParams.get('offset') ?? 0);
   res.setHeader('content-type', 'application/json');
+
+  /*
+   * `extract` is TWO different things, and conflating them was a bug waiting to
+   * happen. `["extract", [["function","count"]], cond]` asks for a count;
+   * `["extract", ["certname","type",…], cond]` asks for a PROJECTION — the same
+   * rows with only some fields. This used to treat any extract as a count, so
+   * the resource list query (ADR-0025 §4, which projects precisely to avoid
+   * shipping `parameters`) would have been answered with `[{count: N}]`.
+   */
+  const isExtract = Array.isArray(ast) && ast[0] === 'extract';
+  const fields = isExtract && Array.isArray(ast[1]) ? ast[1] : [];
+  const isCount = fields.some((f) => Array.isArray(f) && f[0] === 'function' && f[1] === 'count');
+  const projection = isExtract && !isCount ? fields.filter((f) => typeof f === 'string') : null;
+  const inner = isExtract ? ast[2] : ast;
+
+  /** Count, project and paginate one entity's matching rows, uniformly. */
+  const respond = (rows, { sort = false } = {}) => {
+    let visible = inner ? rows.filter((row) => evaluate(inner, row)) : rows;
+    if (sort) visible = sortNodes(visible, url.searchParams.get('order_by'));
+    if (isCount) return res.end(JSON.stringify([{ count: visible.length }]));
+
+    const page = visible.slice(offset, offset + limit);
+    return res.end(
+      JSON.stringify(
+        projection === null
+          ? page
+          : page.map((row) => Object.fromEntries(projection.map((f) => [f, row[f]]))),
+      ),
+    );
+  };
 
   if (url.pathname === '/pdb/meta/v1/version') return res.end(JSON.stringify({ version: '8.4.0' }));
   if (url.pathname.endsWith('/nodes')) {
     // Evaluate the AST for real. Substring-sniffing it meant every filtered
     // query returned the whole estate, so the dashboard reported 48 failed
     // out of 48 nodes and listed unchanged hosts under "Failing nodes".
-    const inner = isCount ? ast[2] : ast;
-    let visible = inner ? nodes.filter((n) => evaluate(inner, n)) : nodes;
-    visible = sortNodes(visible, url.searchParams.get('order_by'));
-    return res.end(
-      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
-    );
+    return respond(nodes, { sort: true });
   }
-  if (url.pathname.endsWith('/inventory')) {
-    const inner = isCount ? ast[2] : ast;
-    const visible = inner ? inventory.filter((r) => evaluate(inner, r)) : inventory;
-    return res.end(
-      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
-    );
-  }
+  if (url.pathname.endsWith('/inventory')) return respond(inventory);
 
-  if (url.pathname.endsWith('/facts')) {
-    const inner = isCount ? ast[2] : ast;
-    const visible = inner ? factRows.filter((r) => evaluate(inner, r)) : factRows;
-    return res.end(
-      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
-    );
-  }
+  if (url.pathname.endsWith('/resources')) return respond(resources);
 
-  if (url.pathname.endsWith('/factsets')) {
-    const inner = isCount ? ast[2] : ast;
-    const visible = inner ? factsets.filter((f) => evaluate(inner, f)) : factsets;
-    return res.end(
-      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
-    );
-  }
+  if (url.pathname.endsWith('/facts')) return respond(factRows);
 
-  if (url.pathname.endsWith('/reports')) {
-    const inner = isCount ? ast[2] : ast;
-    let visible = inner ? reports.filter((r) => evaluate(inner, r)) : reports;
-    visible = sortNodes(visible, url.searchParams.get('order_by'));
-    return res.end(
-      JSON.stringify(isCount ? [{ count: visible.length }] : visible.slice(offset, offset + limit)),
-    );
-  }
+  if (url.pathname.endsWith('/factsets')) return respond(factsets);
+
+  if (url.pathname.endsWith('/reports')) return respond(reports, { sort: true });
 
   if (url.pathname.endsWith('/events')) {
     // Queried as ["=", "report", <hash>].

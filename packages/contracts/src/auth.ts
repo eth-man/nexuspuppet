@@ -316,6 +316,18 @@ export interface AuthProviderDescription {
 /** Actions the authorization policy arbitrates. Extended only alongside a new controller. */
 export const permissionSchema = z.enum([
   'inventory:read',
+  /**
+   * Catalog resources, including their parameters (ADR-0025 §3).
+   *
+   * DELIBERATELY NOT `inventory:read`. Facts describe a machine — its OS, its
+   * addresses. Resource parameters are its configuration payload: a `File`'s
+   * `content` is the whole file body, and a class parameter may hold a
+   * credential. Sharing one permission would mean anyone who can see an IP
+   * address can read managed file contents.
+   *
+   * Privileged, and not implied by any existing role.
+   */
+  'resources:read',
   'reports:read',
   'classification:read',
   'classification:write',
