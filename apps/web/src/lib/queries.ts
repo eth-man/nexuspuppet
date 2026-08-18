@@ -32,6 +32,7 @@ import type {
   PuppetReport,
   ReportSummary,
   ResourceEvent,
+  ResourceGroup,
   SystemStatus,
   ConsoleTlsStatus,
   Role,
@@ -110,6 +111,70 @@ export function useNodes(query: NodeQuery): UseQueryResult<Page<PuppetNode>> {
     queryFn: ({ signal }) => api.get<Page<PuppetNode>>(`/nodes?${toSearch(query)}`, signal),
     // Keeping the previous page visible while the next loads stops a dense
     // table from collapsing to a spinner on every keystroke or page change.
+    placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * An estate-wide resource search (ADR-0025).
+ *
+ * `type` is required by the API and so is required here — an unnarrowed search
+ * is the estate's entire catalog. The hook is only enabled once there is one,
+ * so an operator who has not typed a type yet sees an empty state rather than
+ * a 400.
+ *
+ * NO PARAMETERS COME BACK from this endpoint, by design: consistency is
+ * computed from the resource hash, so variance is known without a single
+ * parameter crossing the wire (ADR-0025 §4, §7).
+ */
+export interface ResourceSearchResult {
+  total: number;
+  /** The search matched more than the server will group. Narrow it. */
+  tooMany: boolean;
+  limit: number;
+  groups: ResourceGroup[];
+}
+
+export interface ResourceQuery {
+  type: string;
+  title?: string;
+  titleContains?: string;
+  environments?: string[];
+  facts?: FactFilter[];
+  parameters?: FactFilter[];
+}
+
+function resourceSearch(query: ResourceQuery): string {
+  const params = new URLSearchParams({ type: query.type });
+  if (query.title !== undefined && query.title !== '') params.set('title', query.title);
+  if (query.titleContains !== undefined && query.titleContains !== '') {
+    params.set('titleContains', query.titleContains);
+  }
+  if (query.environments !== undefined && query.environments.length > 0) {
+    params.set('environments', query.environments.join(','));
+  }
+  // JSON, like the node fact filter — these are the two filters that are not a
+  // scalar or a comma list.
+  if (query.facts !== undefined && query.facts.length > 0) {
+    params.set('facts', JSON.stringify(query.facts));
+  }
+  if (query.parameters !== undefined && query.parameters.length > 0) {
+    params.set('parameters', JSON.stringify(query.parameters));
+  }
+  return params.toString();
+}
+
+export function useResourceSearch(
+  query: ResourceQuery | null,
+): UseQueryResult<ResourceSearchResult> {
+  return useQuery({
+    queryKey: ['resources', query],
+    queryFn: ({ signal }) =>
+      api.get<ResourceSearchResult>(`/resources?${resourceSearch(query as ResourceQuery)}`, signal),
+    enabled: query !== null,
+    // The estate-wide grouping is real work for PuppetDB, so this does not
+    // refire on every keystroke — the page submits deliberately.
+    staleTime: 30_000,
     placeholderData: (previous) => previous,
   });
 }

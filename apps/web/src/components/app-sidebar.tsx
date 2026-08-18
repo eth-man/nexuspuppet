@@ -48,6 +48,20 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'inventory:read' },
   { href: '/nodes', label: 'Nodes', icon: Server, permission: 'inventory:read' },
+  {
+    href: '/resources',
+    label: 'Resources',
+    icon: Boxes,
+    /*
+     * A DIFFERENT AXIS from Nodes, which is why it is a peer rather than a tab
+     * (ADR-0025). Nodes answers "what should this machine get"; this answers
+     * "what is actually managed, and do these machines agree".
+     *
+     * Hidden from anyone without the permission — and most people will not
+     * have it, since it can read managed file contents (§3).
+     */
+    permission: 'resources:read',
+  },
   { href: '/reports', label: 'Reports', icon: FileText, permission: 'reports:read' },
   {
     href: '/classification',
