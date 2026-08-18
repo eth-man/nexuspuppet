@@ -68,11 +68,22 @@ const jsonFilterList = (label: string) =>
  * issued by forgetting a parameter — the same reasoning as the fact allow-list,
  * where an empty list fetches nothing rather than everything.
  */
-const searchQuerySchema = z
+export const searchQuerySchema = z
   .object({
-    type: z.string(),
-    title: z.string().optional(),
-    titleContains: z.string().optional(),
+    /*
+     * THE CONTRACT'S OWN FIELD SCHEMAS, reused rather than restated.
+     *
+     * One source for the constraint, and — the reason it is written this way —
+     * a violation is reported by the OUTER object, which the validation pipe
+     * turns into a 400 naming the field. The first version validated by calling
+     * `resourceFilterSchema.parse()` inside a `.transform()`, where the throw
+     * escaped the pipe: `type=file`, an operator forgetting one capital letter,
+     * answered 500 Internal Server Error. A 500 on user input reads as a broken
+     * server and gets escalated as one.
+     */
+    type: resourceFilterSchema.shape.type,
+    title: resourceFilterSchema.shape.title,
+    titleContains: resourceFilterSchema.shape.titleContains,
     environments: z
       .union([z.string(), z.array(z.string())])
       .optional()
@@ -84,17 +95,15 @@ const searchQuerySchema = z
       .optional()
       .transform((v) => (v === undefined ? undefined : v === 'true')),
   })
-  .transform((raw): ResourceFilter =>
-    resourceFilterSchema.parse({
-      type: raw.type,
-      ...(raw.title === undefined ? {} : { title: raw.title }),
-      ...(raw.titleContains === undefined ? {} : { titleContains: raw.titleContains }),
-      ...(raw.environments === undefined ? {} : { environments: raw.environments }),
-      ...(raw.facts === undefined ? {} : { facts: raw.facts }),
-      ...(raw.parameters === undefined ? {} : { parameters: raw.parameters }),
-      ...(raw.exported === undefined ? {} : { exported: raw.exported }),
-    }),
-  );
+  .transform((raw): ResourceFilter => ({
+    type: raw.type,
+    ...(raw.title === undefined ? {} : { title: raw.title }),
+    ...(raw.titleContains === undefined ? {} : { titleContains: raw.titleContains }),
+    ...(raw.environments === undefined ? {} : { environments: raw.environments }),
+    ...(raw.facts === undefined ? {} : { facts: raw.facts }),
+    ...(raw.parameters === undefined ? {} : { parameters: raw.parameters }),
+    ...(raw.exported === undefined ? {} : { exported: raw.exported }),
+  }));
 
 /** The parsed, validated filter — the schema transforms straight to it. */
 type SearchQuery = z.infer<typeof searchQuerySchema>;
