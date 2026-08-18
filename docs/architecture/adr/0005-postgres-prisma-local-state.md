@@ -52,9 +52,21 @@ The generated client is emitted to `apps/api/src/generated/prisma` and is gitign
 ### Rules
 
 1. **Only `apps/api` may import `@prisma/client`.** Enforced by ESLint. `apps/web` has no database credentials and no data-layer access ([C4 L2](../c4-l2-container.md)).
-2. **Every classification write is a transaction** containing the domain change, the `AuditLog` row, and the outbox upsert. Partial writes here mean the disk and database disagree about what a thousand machines should be running.
+2. **Every classification write is a transaction** containing the domain change, the `AuditLog` row, and the outbox upsert. Partial writes here mean the disk and database disagree about what a thousand machines should be running. Amended by [ADR-0025](./0025-estate-wide-resource-search.md) — see below.
 3. **Migrations are forward-only.** No `migrate reset` outside local development; the npm script that runs it is named `db:reset:dev` and refuses to run when `NODE_ENV=production`.
 4. **No raw SQL** except for advisory locks, which Prisma does not model. Those are isolated in `PrismaService`.
+
+### Amendment — read-only audit events ([ADR-0025](./0025-estate-wide-resource-search.md))
+
+Rule 2 above is about **writes**, and for writes it remains binding without exception.
+
+[ADR-0025](./0025-estate-wide-resource-search.md) §6 adds a second, narrower category of `AuditLog` row: a **read** that discloses configuration payloads — expanding a catalog resource's parameters, or querying by parameter value. Ordinary browsing is not recorded.
+
+Such a row has no domain change and no outbox job, so it cannot take rule 2's shape. `before` and `after` are both null, and it is written outside a transaction because there is no transaction for it to join.
+
+This is a deliberate carve-out, not a loosening. It exists because `resources:read` can read file contents and credentials, and a powerful read grant with no trail cannot be shown to have been used properly. Rule 2's requirement is that a change never reaches disk unrecorded; nothing here weakens that.
+
+**Consumers of `AuditLog`, including SIEM forwarding, must tolerate rows where `before` and `after` are null.**
 
 ## Consequences
 
