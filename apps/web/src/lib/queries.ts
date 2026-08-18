@@ -33,6 +33,7 @@ import type {
   ReportSummary,
   ResourceEvent,
   ResourceGroup,
+  ResourceComparison,
   SystemStatus,
   ConsoleTlsStatus,
   Role,
@@ -176,6 +177,48 @@ export function useResourceSearch(
     // refire on every keystroke — the page submits deliberately.
     staleTime: 30_000,
     placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * The parameters behind one resource, for named nodes (ADR-0025 §9).
+ *
+ * THE DISCLOSURE, and the only hook that returns parameter values. Fetching is
+ * an AUDITED act — the server writes an AuditLog row before it reads — so this
+ * must never be called speculatively. It is enabled only once an operator has
+ * explicitly asked to compare, never merely by expanding a row to see which
+ * nodes are involved.
+ *
+ * `staleTime: 0` and no `placeholderData` on purpose: a cached comparison
+ * would show values without a corresponding audit row, which is precisely the
+ * gap §6 exists to close.
+ */
+export interface ParameterQuery {
+  type: string;
+  title: string;
+  environment: string;
+  /** One representative per variant, in the order the group lists them. */
+  certnames: string[];
+}
+
+export function useResourceParameters(
+  query: ParameterQuery | null,
+): UseQueryResult<ResourceComparison> {
+  return useQuery({
+    queryKey: ['resource-parameters', query],
+    queryFn: ({ signal }) => {
+      const q = query as ParameterQuery;
+      const params = new URLSearchParams({
+        type: q.type,
+        title: q.title,
+        certnames: q.certnames.join(','),
+      });
+      if (q.environment !== '') params.set('environment', q.environment);
+      return api.get<ResourceComparison>(`/resources/parameters?${params.toString()}`, signal);
+    },
+    enabled: query !== null,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 

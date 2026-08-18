@@ -313,6 +313,32 @@ export function buildResourceQuery(filter: ResourceFilter): PqlAst {
 }
 
 /**
+ * One resource on an EXPLICIT list of nodes (ADR-0025 §9).
+ *
+ * No projection, because this is the one query that is allowed to return
+ * `parameters`. The certnames are an explicit `or` rather than a pattern: a
+ * regex could be widened into "every node", and this query is the estate's
+ * configuration payload. It must only ever answer about nodes the caller
+ * named.
+ */
+export function buildResourceParametersQuery(
+  type: string,
+  title: string,
+  certnames: readonly string[],
+): PqlAst | null {
+  // An empty list fetches NOTHING, not everything — the rule `listFacts`
+  // already applies to its allow-list, and it matters far more here.
+  if (certnames.length === 0) return null;
+
+  return [
+    'and',
+    ['=', 'type', type],
+    ['=', 'title', title],
+    ['or', ...certnames.map((certname) => ['=', 'certname', certname])],
+  ];
+}
+
+/**
  * The same search, projected to the fields a list may show.
  *
  * Separate from `buildResourceQuery` so the condition and the projection can be

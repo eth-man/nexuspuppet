@@ -276,6 +276,20 @@ export interface IPuppetDbClient {
    * fetched cannot leak through a rendering bug, a log line, or an error page.
    */
   searchResources(filter: ResourceFilter, page: PageRequest): Promise<Page<ResourceSummary>>;
+
+  /**
+   * One resource's parameters, for named nodes only (ADR-0025 §9).
+   *
+   * THE ONLY METHOD HERE THAT RETURNS PARAMETERS. Callers pass an explicit,
+   * short list of certnames — one representative per variant — so this can
+   * never become a bulk export of the estate's configuration by widening a
+   * filter.
+   */
+  getResourceParameters(
+    type: string,
+    title: string,
+    certnames: readonly string[],
+  ): Promise<ResourceParameters[]>;
 }
 
 /**
@@ -341,6 +355,42 @@ export interface ResourceGroup {
   /** Where it was declared, from the first node seen. Null on older agents. */
   file: string | null;
   line: number | null;
+}
+
+/**
+ * One node's parameters for one resource (ADR-0025 §9).
+ *
+ * THE DISCLOSURE. `parameters` is the configuration payload — a `File`'s
+ * `content` is the whole file body, and a class parameter may hold a
+ * credential. Fetching this is an audited act (§6); nothing else in the
+ * resource surface returns it.
+ */
+export interface ResourceParameters {
+  certname: string;
+  resourceHash: string;
+  parameters: Record<string, unknown>;
+}
+
+/**
+ * What an expanded resource shows: one representative per variant, diffed.
+ *
+ * ONE PER VARIANT, never one per node (§9). Bounded by variant count — usually
+ * two or three — rather than by the hundreds of nodes carrying it, and it
+ * answers the question actually being asked: how do these DIFFER.
+ */
+export interface ResourceComparison {
+  type: string;
+  title: string;
+  environment: string;
+  /** In the same order the group lists them: baseline first. */
+  variants: ResourceParameters[];
+  /**
+   * Parameter names whose value is not identical across every variant.
+   *
+   * Computed server-side so the UI cannot disagree with itself about what
+   * "differs" means, and so a single variant trivially yields none.
+   */
+  differingKeys: string[];
 }
 
 /**
