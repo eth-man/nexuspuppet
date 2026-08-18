@@ -513,8 +513,12 @@ function addResource(certname, environment, type, title, parameters, file, line)
 
   active.forEach((n, i) => {
     const env = n.facts_environment ?? n.report_environment ?? 'production';
-    const manifest =
-      '/etc/puppetlabs/code/environments/production/modules/profile/manifests/base.pp';
+    // The manifest path FOLLOWS THE ENVIRONMENT, because on a real server it
+    // does — each environment is its own directory of code. Hardcoding
+    // `production` here made every development and staging row cite a
+    // production manifest, which reads as a broken column rather than as
+    // fixture laziness.
+    const manifest = `/etc/puppetlabs/code/environments/${env}/modules/profile/manifests/base.pp`;
 
     // 1. Identical everywhere — the "consistent" row.
     addResource(
