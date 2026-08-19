@@ -509,6 +509,19 @@ step "Building images"
 # The working directory is the repository root — line 36 cd's there — so this
 # needs no path juggling of its own.
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    # TAGS FIRST, best-effort. `git describe` can only reach tags this clone
+    # actually has, and a host that tracks a branch — `git fetch origin main`,
+    # which is how staging is driven — never receives them. It then describes
+    # against whatever old tag it still holds: a checkout nine commits past
+    # v1.8.0 reported `v1.7.6-9-g…`, which is true about ancestry and understates
+    # the build by a whole release. That is a quieter version of the confusion
+    # this whole change exists to remove.
+    #
+    # Failure is ignored on purpose. An air-gapped host, no remote, or no
+    # network at deploy time must not turn a deployment into an error; the
+    # describe below simply stays as tight as the local tags allow.
+    git fetch --tags --quiet 2>/dev/null || true
+
     BUILD_REF="$(git describe --tags --always --dirty 2>/dev/null || true)"
     export BUILD_REF
     [ -n "$BUILD_REF" ] && echo "    building as ${BUILD_REF}"
