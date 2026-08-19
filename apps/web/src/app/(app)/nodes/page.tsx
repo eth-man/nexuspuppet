@@ -5,7 +5,13 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import type { PuppetNode } from '@nexuspuppet/contracts';
 import { useEnvironments, useNodes } from '@/lib/queries';
-import { completeFactRows, FactFilters, type FactRow } from '@/components/data/fact-filters';
+import {
+  completeFactRows,
+  FactFilters,
+  factRowsFrom,
+  type FactRow,
+  type StoredCondition,
+} from '@/components/data/fact-filters';
 import { SavedQueries } from '@/components/data/saved-queries';
 import { absolute, isStale, relativeAge } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -74,7 +80,7 @@ export default function NodesPage() {
       statuses?: string[];
       environments?: string[];
       includeInactive?: boolean;
-      facts?: Array<{ path: string; operator: FactRow['operator']; value?: unknown }>;
+      facts?: StoredCondition[];
     };
 
     setOffset(0);
@@ -82,19 +88,7 @@ export default function NodesPage() {
     setStatuses(f.statuses ?? []);
     setEnvironment(f.environments?.[0] ?? null);
     setIncludeInactive(f.includeInactive ?? false);
-    setFactRows(
-      (f.facts ?? []).map((fact) => ({
-        path: fact.path,
-        operator: fact.operator,
-        // IN arrives as an array and the row holds text; the two must round-trip
-        // or a saved "is one of" reopens as an empty field.
-        value: Array.isArray(fact.value)
-          ? fact.value.join(', ')
-          : fact.value === undefined
-            ? ''
-            : String(fact.value),
-      })),
-    );
+    setFactRows(factRowsFrom(f.facts));
   };
 
   const nodes = useNodes(query);
