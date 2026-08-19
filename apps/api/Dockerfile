@@ -141,12 +141,37 @@ RUN npm run build --workspace @nexuspuppet/contracts \
 # no build set, so every image reported `0.0.0-dev` — including the one running
 # in front of customers — until somebody remembered to hand-write it into .env.
 #
-# A file rather than an ENV baked from an ARG, because an ARG would have to be
-# passed in, which is the hand-editing this removes. A file rather than reading
-# package.json at runtime, because the runtime layout is `dist/` and a relative
-# path into a trimmed manifest is the fragile thing the original comment was
-# right to avoid. This path is fixed by the two lines that create and copy it.
-RUN node -p "require('./package.json').version" > /repo/VERSION
+# A file rather than reading package.json at runtime, because the runtime layout
+# is `dist/` and a relative path into a trimmed manifest is the fragile thing the
+# original comment was right to avoid. This path is fixed by the two lines that
+# create and copy it.
+#
+# BUILD_REF refines it, and is OPTIONAL. The manifest version only changes at
+# release time, so every commit between releases inherits the last release's
+# number: a console one commit past v1.7.6 reported `1.7.6`, and so did one
+# nine commits past it. An operator cannot tell a release from something after
+# it, which is the same confident wrong answer `0.0.0-dev` gave in a different
+# disguise.
+#
+# `git describe --tags` answers exactly that distinction:
+#
+#   at the v1.8.0 tag   -> v1.8.0
+#   three commits later -> v1.8.0-3-gabc1234
+#   uncommitted changes -> v1.8.0-3-gabc1234-dirty
+#
+# UNSET FALLS BACK TO THE MANIFEST, deliberately. The earlier note here rejected
+# an ARG because "an ARG would have to be passed in", and that reasoning holds:
+# a build arg nobody sets must degrade to today's answer, never to a worse one.
+# scripts/deploy.sh sets it; a hand-run `docker compose build` does not and
+# still reports a correct-at-a-release version. Git is never invoked here — the
+# build context has no .git, and requiring one would break installs from a
+# release tarball.
+ARG BUILD_REF=
+RUN if [ -n "$BUILD_REF" ]; then \
+      printf '%s' "$BUILD_REF" > /repo/VERSION; \
+    else \
+      node -p "require('./package.json').version" > /repo/VERSION; \
+    fi
 
 FROM node:22-alpine AS assembled
 WORKDIR /app

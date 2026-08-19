@@ -493,6 +493,40 @@ if [ -n "$TLS_HOSTNAME" ]; then
 fi
 
 step "Building images"
+
+# What this build IS, rather than which release it descends from.
+#
+# The manifest version only changes at release time, so every commit between
+# releases reports the previous release's number — a console one commit past
+# v1.7.6 said `1.7.6`, and so did one nine commits past it. `git describe` tells
+# the two apart: `v1.8.0` at the tag, `v1.8.0-3-gabc1234` after it.
+#
+# Best-effort by construction. No git, no repository, or a shallow clone with no
+# tags in reach all leave this empty, and the Dockerfile then falls back to the
+# manifest version — which is today's behaviour and correct at a release. An
+# install from a release tarball is a supported path and must not be worse off
+# for having no .git.
+# The working directory is the repository root — line 36 cd's there — so this
+# needs no path juggling of its own.
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    # TAGS FIRST, best-effort. `git describe` can only reach tags this clone
+    # actually has, and a host that tracks a branch — `git fetch origin main`,
+    # which is how staging is driven — never receives them. It then describes
+    # against whatever old tag it still holds: a checkout nine commits past
+    # v1.8.0 reported `v1.7.6-9-g…`, which is true about ancestry and understates
+    # the build by a whole release. That is a quieter version of the confusion
+    # this whole change exists to remove.
+    #
+    # Failure is ignored on purpose. An air-gapped host, no remote, or no
+    # network at deploy time must not turn a deployment into an error; the
+    # describe below simply stays as tight as the local tags allow.
+    git fetch --tags --quiet 2>/dev/null || true
+
+    BUILD_REF="$(git describe --tags --always --dirty 2>/dev/null || true)"
+    export BUILD_REF
+    [ -n "$BUILD_REF" ] && echo "    building as ${BUILD_REF}"
+fi
+
 docker compose build || die "docker compose build"
 
 step "Starting the database"
