@@ -308,6 +308,20 @@ export class UsersService {
         }
       }
 
+      /*
+       * PRIVATE saved queries go with the account; SHARED ones stay (ADR-0026 §4).
+       *
+       * The foreign key is `SetNull`, which orphans BOTH — so the private ones
+       * are removed here, deliberately, before that happens. By the time a
+       * query is shared the team relies on it, and losing it because somebody
+       * left is friction nobody asked for; a private one has no audience but
+       * the account being deleted.
+       *
+       * In THIS transaction, so a failed deletion does not leave a user whose
+       * private queries have already gone.
+       */
+      await tx.savedQuery.deleteMany({ where: { userId: id, isShared: false } });
+
       // Audit BEFORE the delete, in the same transaction: afterwards the row is
       // gone and its email with it, and an audit write that fails must take the
       // deletion down with it rather than leave an unexplained absence.

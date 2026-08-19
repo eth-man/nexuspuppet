@@ -11,6 +11,7 @@ import {
   type ResourceQuery,
 } from '@/lib/queries';
 import { completeFactRows, FactFilters, type FactRow } from '@/components/data/fact-filters';
+import { SavedQueries } from '@/components/data/saved-queries';
 import { cn } from '@/lib/utils';
 import { collapseUnchanged, diffLines, isMultiline } from '@/lib/diff-lines';
 import { Button } from '@/components/ui/button';
@@ -149,6 +150,34 @@ export default function ResourcesPage() {
           Search
         </Button>
       </form>
+
+      <div className="flex items-center gap-2 border-b border-line-soft px-3 py-1">
+        <SavedQueries
+          kind="resource"
+          currentFilter={submitted}
+          canSave={submitted !== null}
+          onApply={(filter) => {
+            /*
+             * A resource query REPLAYS immediately, unlike the node one.
+             *
+             * Its controls are a search form with a mandatory type, so there is
+             * no half-typed state to restore into — setting `submitted`
+             * directly is the honest equivalent of pressing Search. The visible
+             * fields are written too, so the form agrees with the results it is
+             * showing.
+             */
+            const f = (filter ?? {}) as {
+              type?: string;
+              titleContains?: string;
+              environments?: string[];
+            };
+            setType(f.type ?? '');
+            setTitleContains(f.titleContains ?? '');
+            setEnvironment(f.environments?.[0] ?? null);
+            setSubmitted(filter as ResourceQuery);
+          }}
+        />
+      </div>
 
       {/* Narrowing by node, and by parameter value. Both optional, and both
           deliberately below the primary row so the common case stays one line. */}

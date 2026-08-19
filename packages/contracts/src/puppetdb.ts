@@ -430,6 +430,66 @@ export const resourceFilterSchema = z.object({
 });
 export type ResourceFilter = z.infer<typeof resourceFilterSchema>;
 
+/**
+ * A filter somebody kept (ADR-0026).
+ *
+ * THE FIRST PER-USER OBJECT in the product. Node groups, roles and settings are
+ * global, so "mine" and "shared" are new concepts here rather than an
+ * established pattern being reused — which is why the visibility rules are
+ * written down rather than inferred.
+ */
+export const savedQueryKindSchema = z.enum(['node', 'resource']);
+export type SavedQueryKind = z.infer<typeof savedQueryKindSchema>;
+
+/**
+ * The filter a saved query holds, discriminated by `kind`.
+ *
+ * ONE CONCEPT, TWO SHAPES. Two tables would mean duplicate UI, duplicate
+ * sharing rules, and a second answer to every lifecycle question here.
+ */
+export const savedQueryFilterSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('node'), filter: nodeFilterSchema }),
+  z.object({ kind: z.literal('resource'), filter: resourceFilterSchema }),
+]);
+export type SavedQueryFilter = z.infer<typeof savedQueryFilterSchema>;
+
+export interface SavedQuery {
+  id: string;
+  name: string;
+  kind: SavedQueryKind;
+  /** A NodeFilter or a ResourceFilter, per `kind`. Never raw PQL (ADR-0004). */
+  filter: unknown;
+  isShared: boolean;
+  /**
+   * Who made it. Denormalised, so a shared query outlives its author's account
+   * — the same reason `AuditLog` keeps `actorEmail`.
+   */
+  ownerEmail: string;
+  /** True when the caller owns it. Decided server-side; the UI must not guess. */
+  isMine: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const createSavedQuerySchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    /**
+     * PRIVATE BY DEFAULT. Sharing is a deliberate act — it changes who can see
+     * what somebody is watching, and a default that shares would make that
+     * decision by omission.
+     */
+    isShared: z.boolean().default(false),
+  })
+  .and(savedQueryFilterSchema);
+export type CreateSavedQuery = z.infer<typeof createSavedQuerySchema>;
+
+export const updateSavedQuerySchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  isShared: z.boolean().optional(),
+});
+export type UpdateSavedQuery = z.infer<typeof updateSavedQuerySchema>;
+
 /** Thrown when PuppetDB cannot be reached or returns an error. */
 export class PuppetDbUnavailableError extends Error {
   readonly lastSuccessAt: string | null;

@@ -64,6 +64,30 @@ proves what was **served**, never what the agent applied — and it carries no
 compile time, only the time the origin received it.
 _Avoid_: compile log, catalog record, "when the node last compiled"
 
+### Reporting
+
+**Saved query**:
+A filter somebody kept and named, replayed against PuppetDB when opened
+(ADR-0026). It stores which results, never how they are displayed — sort order,
+columns and pagination are not part of it. Private unless deliberately shared.
+_Avoid_: report (implies an output — a document, a schedule, an export — that a
+saved query does not produce), saved filter, saved search, view
+
+**Shared query**:
+A saved query its owner has made visible to others. Visible only to people who
+hold the permission needed to RUN it, because a name discloses what its author
+is watching. It outlives its owner's account; a private one does not.
+_Avoid_: public query, team query, global query (nothing about it is global —
+`isShared` is per row, and every other object in the product genuinely is
+global)
+
+**Owner**:
+The account a saved query belongs to. The first ownership relationship in the
+product — node groups, roles and settings are all global — so "mine" and
+"shared" mean something here and nowhere else.
+_Avoid_: creator, author (both survive deletion in a way ownership does not:
+after the account goes, a shared query has an `ownerEmail` and no owner)
+
 ### Certnames
 
 Two different identities share the word `certname`, and they appear in the same
