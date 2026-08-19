@@ -28,6 +28,16 @@ services:
       #   EDITION=enterprise   docker compose build api
       args:
         EDITION: ${EDITION:-core}
+        # What this build actually IS, from `git describe` (see the Dockerfile).
+        #
+        # OPTIONAL, and empty by default on purpose: unset falls back to the
+        # version in the root manifest, which is exactly today's behaviour. A
+        # build arg nobody sets must degrade to the current answer, never to a
+        # worse one — that is the mistake `0.0.0-dev` made.
+        #
+        # scripts/deploy.sh sets it. A hand-run `docker compose build` does not,
+        # and reports the manifest version.
+        BUILD_REF: ${BUILD_REF:-}
     restart: unless-stopped
     # Make the Puppet server's CERTNAME resolve inside this container.
     #
