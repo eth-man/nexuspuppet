@@ -77,7 +77,7 @@ export interface NodeQuery {
   order?: 'asc' | 'desc';
 }
 
-function toSearch(query: NodeQuery): string {
+export function toSearch(query: NodeQuery): string {
   const params = new URLSearchParams();
   params.set('limit', String(query.limit));
   params.set('offset', String(query.offset));
@@ -267,6 +267,25 @@ export function useDeleteSavedQuery(): UseMutationResult<void, Error, string> {
     mutationFn: (id: string) => api.delete<void>(`/saved-queries/${id}`),
     onSuccess: () => client.invalidateQueries({ queryKey: ['saved-queries'] }),
   });
+}
+
+/**
+ * Where the browser fetches a CSV of the current filter (#243 phase 3).
+ *
+ * A plain URL, not a fetch. The download has to be a NAVIGATION so the browser
+ * handles `Content-Disposition` and names the file — reading it into JavaScript
+ * to re-offer it as a blob would put the whole export in memory to achieve
+ * nothing the browser was not already doing.
+ *
+ * Same-origin `/api/*`, so the HttpOnly session cookie is sent automatically
+ * and the API address stays server-side (ADR-0008). `limit` and `offset` are
+ * dropped: an export is the whole result set, not the page on screen.
+ */
+export function nodesCsvHref(query: NodeQuery): string {
+  const params = new URLSearchParams(toSearch({ ...query, limit: 1, offset: 0 }));
+  params.delete('limit');
+  params.delete('offset');
+  return `/api/nodes/export.csv?${params.toString()}`;
 }
 
 /**

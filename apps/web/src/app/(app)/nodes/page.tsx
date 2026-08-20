@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Search, X } from 'lucide-react';
 import type { PuppetNode } from '@nexuspuppet/contracts';
-import { useEnvironments, useNodes } from '@/lib/queries';
+import { nodesCsvHref, useEnvironments, useNodes } from '@/lib/queries';
 import {
   completeFactRows,
   FactFilters,
@@ -138,6 +138,25 @@ export default function NodesPage() {
           canSave={filtered}
           onApply={applySaved}
         />
+
+        {/* A LINK, not a button with an onClick. The download is a navigation
+            so the browser handles the filename and the save dialog; fetching it
+            into JavaScript would hold the whole export in memory to reproduce
+            what the browser already does. `download` is advisory — the server
+            sends Content-Disposition regardless. */}
+        <a
+          href={nodesCsvHref(query)}
+          download
+          className="ml-auto inline-flex h-7 items-center gap-1 rounded px-2 text-2xs text-ink-muted hover:bg-panel-raised hover:text-ink"
+          title={
+            total > 0
+              ? `Export all ${total.toLocaleString()} matching nodes as CSV`
+              : 'Export the current filter as CSV'
+          }
+        >
+          <Download className="size-3" aria-hidden />
+          Export CSV
+        </a>
       </div>
 
       {/* Filters. Kept on one dense row so the table starts as high as possible. */}
