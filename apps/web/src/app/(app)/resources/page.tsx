@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo, useState, type FormEvent } from 'react';
-import { AlertTriangle, Check, Eye, Search } from 'lucide-react';
+import { AlertTriangle, Check, Download, Eye, Search } from 'lucide-react';
 import type { ResourceComparison, ResourceGroup } from '@nexuspuppet/contracts';
 import {
+  resourcesCsvHref,
   useEnvironments,
   useResourceParameters,
   useResourceSearch,
@@ -224,6 +225,20 @@ export default function ResourcesPage() {
             setSubmitted(filter as ResourceQuery);
           }}
         />
+
+        {/* Only once a search has run: exporting before there are results would
+            hand over an empty file that looks like an answer. */}
+        {submitted !== null && (
+          <a
+            href={resourcesCsvHref(submitted)}
+            download
+            className="ml-auto inline-flex h-7 items-center gap-1 rounded px-2 text-2xs text-ink-muted hover:bg-panel-raised hover:text-ink"
+            title="Export these resources as CSV, one row per node"
+          >
+            <Download className="size-3" aria-hidden />
+            Export CSV
+          </a>
+        )}
       </div>
 
       {/* Narrowing by node, and by parameter value. Both optional, and both

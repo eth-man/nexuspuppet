@@ -1,5 +1,6 @@
-import type { IPuppetDbClient, Page, PuppetNode } from '@nexuspuppet/contracts';
+import type { IPuppetDbClient, Page, PuppetNode, ResourceSummary } from '@nexuspuppet/contracts';
 import { NodesController } from './nodes.controller';
+import { ResourcesController } from './resources.controller';
 
 /*
  * CSV export, through the route (#243 phase 3).
@@ -129,5 +130,85 @@ describe('node CSV export', () => {
     await controllerServing([[node(), node({ certname: 'b' })]]).exportCsv(query as never, res);
 
     expect(body()).not.toContain('# truncated');
+  });
+});
+
+/*
+ * Resource export (#243 phase 3).
+ *
+ * ONE ROW PER NODE, not per group. The screen leads with variance because that
+ * is the question on screen; what somebody carries to a ticket is which
+ * machines, and a summary row saying "2 variants" cannot be filtered or pasted
+ * into a change record.
+ */
+describe('resource CSV export', () => {
+  const summary = (over: Partial<ResourceSummary> = {}): ResourceSummary => ({
+    certname: 'web01.example.com',
+    type: 'File',
+    title: '/etc/ssh/sshd_config',
+    file: '/etc/puppetlabs/code/.../base.pp',
+    line: 31,
+    environment: 'production',
+    resourceHash: 'aaaaaaaa1111',
+    exported: false,
+    tags: [],
+    ...over,
+  });
+
+  function controllerFor(items: ResourceSummary[]) {
+    const puppetdb = {
+      countResources: () => Promise.resolve(items.length),
+      searchResources: () => Promise.resolve({ items, total: items.length, limit: 500, offset: 0 }),
+    } as unknown as IPuppetDbClient;
+    return new ResourcesController(puppetdb, { parameterQuery: async () => undefined } as never);
+  }
+
+  const filter = { type: 'File' } as never;
+
+  it('writes a row per node, with the group context on each', async () => {
+    const { res, body } = fakeResponse();
+
+    await controllerFor([
+      summary({ certname: 'ok1', resourceHash: 'same' }),
+      summary({ certname: 'ok2', resourceHash: 'same' }),
+      summary({ certname: 'drifted', resourceHash: 'other' }),
+    ]).exportCsv(filter, res);
+
+    const rows = body().trimEnd().split('\r\n');
+    expect(rows).toHaveLength(4); // header + three nodes
+    expect(rows[1]).toContain('"ok1"');
+    expect(rows[3]).toContain('"drifted"');
+    // Baseline first, and every row carries the group's variant count.
+    expect(rows[1]).toContain('"true"');
+    expect(rows[3]).toContain('"false"');
+    expect(rows[3]).toContain('"2"');
+  });
+
+  /*
+   * NO PARAMETER VALUES. That is what keeps this an ordinary read rather than
+   * a disclosure, and therefore unaudited (ADR-0025 §4, §6).
+   */
+  it('contains no parameter values at all', async () => {
+    const { res, body } = fakeResponse();
+
+    await controllerFor([summary()]).exportCsv(filter, res);
+
+    expect(body()).not.toContain('parameters');
+    expect(body()).not.toContain('PermitRootLogin');
+  });
+
+  it('says so rather than exporting a sample when the match is too large', async () => {
+    const puppetdb = {
+      countResources: () => Promise.resolve(999_999),
+      searchResources: () => Promise.resolve({ items: [], total: 0, limit: 500, offset: 0 }),
+    } as unknown as IPuppetDbClient;
+    const { res, body } = fakeResponse();
+
+    await new ResourcesController(puppetdb, {
+      parameterQuery: async () => undefined,
+    } as never).exportCsv(filter, res);
+
+    expect(body()).toContain('# 999999 resources match');
+    expect(body().trimEnd().split('\r\n')).toHaveLength(2); // header + the notice
   });
 });

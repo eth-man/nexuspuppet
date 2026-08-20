@@ -204,6 +204,17 @@ export interface ParameterQuery {
   certnames: string[];
 }
 
+/**
+ * Where the browser fetches a CSV of the current resource search.
+ *
+ * ONE ROW PER NODE, not per group — the screen leads with variance, but what
+ * somebody carries to a ticket is which machines. Contains no parameter
+ * values, exactly as the list does not (ADR-0025 §4).
+ */
+export function resourcesCsvHref(query: ResourceQuery): string {
+  return `/api/resources/export.csv?${resourceSearch(query)}`;
+}
+
 export function useResourceParameters(
   query: ParameterQuery | null,
 ): UseQueryResult<ResourceComparison> {

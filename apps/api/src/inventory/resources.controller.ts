@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
+import { Controller, Get, Header, Inject, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   PUPPETDB_CLIENT,
   factFilterSchema,
@@ -7,12 +8,14 @@ import {
   type ResourceComparison,
   type ResourceFilter,
   type ResourceGroup,
+  type ResourceSummary,
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RequirePermission } from '../auth/auth.guard';
 import { groupResources } from './pure/group-resources';
 import { differingKeys } from './pure/diff-parameters';
+import { CSV_BOM, csvRow } from './pure/csv';
 import { ResourceReadAudit } from './resource-read-audit';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
 
@@ -195,7 +198,115 @@ export class ResourcesController {
       return { total, tooMany: true, limit: MAX_GROUPED_RESOURCES, groups: [] };
     }
 
-    const collected = [];
+    return {
+      total,
+      tooMany: false,
+      limit: MAX_GROUPED_RESOURCES,
+      groups: groupResources(await this.collect(filter, total)),
+    };
+  }
+
+  /**
+   * The filtered resources as CSV (#243 phase 3).
+   *
+   * ONE ROW PER NODE, not per group. The screen leads with variance because
+   * that is the question on screen; what somebody carries to a ticket is WHICH
+   * MACHINES, and a summary row saying "2 variants" cannot be filtered, sorted
+   * or pasted into a change record. The group context rides on every row, so a
+   * spreadsheet can collapse it back if that is what was wanted.
+   *
+   * NO PARAMETERS, exactly as the list has none (ADR-0025 §4). That is what
+   * keeps this an ordinary read rather than a disclosure, and therefore
+   * unaudited — the same line §6 draws for browsing.
+   *
+   * Declared before nothing in particular, but `parameters` is a sibling route
+   * and both are literal segments, so neither shadows the other.
+   */
+  @Get('export.csv')
+  @Header('content-type', 'text/csv; charset=utf-8')
+  @Header('content-disposition', 'attachment; filename="nexuspuppet-resources.csv"')
+  @Header('cache-control', 'no-store')
+  async exportCsv(
+    @Query(new ZodValidationPipe(searchQuerySchema)) filter: SearchQuery,
+    @Res() response: Response,
+  ): Promise<void> {
+    const total = await this.puppetdb.countResources(filter);
+
+    response.write(CSV_BOM);
+    response.write(
+      csvRow([
+        'type',
+        'title',
+        'environment',
+        'certname',
+        'variant',
+        'is_baseline',
+        'nodes_in_variant',
+        'variants_in_group',
+        'declared_in',
+        'line',
+      ]),
+    );
+
+    if (total > MAX_GROUPED_RESOURCES) {
+      response.write(
+        csvRow([
+          `# ${String(total)} resources match, more than the ${String(MAX_GROUPED_RESOURCES)} this export will group — narrow the search`,
+        ]),
+      );
+      response.end();
+      return;
+    }
+
+    for (const group of groupResources(await this.collect(filter, total))) {
+      group.variants.forEach((variant, index) => {
+        for (const certname of variant.certnames) {
+          response.write(
+            csvRow([
+              group.type,
+              group.title,
+              group.environment,
+              certname,
+              // Short, because a full SHA-1 in a spreadsheet column is noise —
+              // it only has to distinguish variants within one group.
+              variant.resourceHash.slice(0, 8),
+              index === 0,
+              variant.nodeCount,
+              group.variantCount,
+              group.file,
+              group.line,
+            ]),
+          );
+        }
+
+        // The certname list is capped server-side, so a large variant would
+        // otherwise export a sample and look like the whole thing.
+        const missing = variant.nodeCount - variant.certnames.length;
+        if (missing > 0) {
+          response.write(
+            csvRow([
+              group.type,
+              group.title,
+              group.environment,
+              `# and ${String(missing)} more nodes not listed`,
+              variant.resourceHash.slice(0, 8),
+              index === 0,
+              variant.nodeCount,
+              group.variantCount,
+              group.file,
+              group.line,
+            ]),
+          );
+        }
+      });
+    }
+
+    response.end();
+  }
+
+  /** Every matching resource, paged. Shared so search and export cannot drift. */
+  private async collect(filter: SearchQuery, total: number): Promise<ResourceSummary[]> {
+    const collected: ResourceSummary[] = [];
     for (let offset = 0; offset < total; offset += FETCH_PAGE) {
       const page = await this.puppetdb.searchResources(filter, {
         limit: FETCH_PAGE,
@@ -207,13 +318,7 @@ export class ResourcesController {
       // rather than looping against a total that was true one request ago.
       if (page.items.length < FETCH_PAGE) break;
     }
-
-    return {
-      total,
-      tooMany: false,
-      limit: MAX_GROUPED_RESOURCES,
-      groups: groupResources(collected),
-    };
+    return collected;
   }
 
   /**
