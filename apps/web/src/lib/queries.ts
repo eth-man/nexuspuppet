@@ -34,6 +34,9 @@ import type {
   ResourceEvent,
   ResourceGroup,
   ResourceComparison,
+  SavedQuery,
+  CreateSavedQuery,
+  UpdateSavedQuery,
   SystemStatus,
   ConsoleTlsStatus,
   Role,
@@ -219,6 +222,50 @@ export function useResourceParameters(
     enabled: query !== null,
     staleTime: 0,
     gcTime: 0,
+  });
+}
+
+/**
+ * Saved queries (ADR-0026).
+ *
+ * The list is FILTERED SERVER-SIDE by permission — a shared resource query is
+ * absent entirely for somebody without `resources:read`, because a name
+ * discloses what its author is watching. Nothing here re-checks that: `can()`
+ * in the UI hides what a user cannot use and is never the control.
+ */
+export function useSavedQueries(): UseQueryResult<SavedQuery[]> {
+  return useQuery({
+    queryKey: ['saved-queries'],
+    queryFn: ({ signal }) => api.get<SavedQuery[]>('/saved-queries', signal),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateSavedQuery(): UseMutationResult<SavedQuery, Error, CreateSavedQuery> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateSavedQuery) => api.post<SavedQuery>('/saved-queries', body),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['saved-queries'] }),
+  });
+}
+
+export function useUpdateSavedQuery(): UseMutationResult<
+  SavedQuery,
+  Error,
+  { id: string; body: UpdateSavedQuery }
+> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }) => api.patch<SavedQuery>(`/saved-queries/${id}`, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['saved-queries'] }),
+  });
+}
+
+export function useDeleteSavedQuery(): UseMutationResult<void, Error, string> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/saved-queries/${id}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['saved-queries'] }),
   });
 }
 

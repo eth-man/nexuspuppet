@@ -96,6 +96,34 @@ export function valueSuggestions(
   return observed.map((v) => (typeof v === 'string' ? v : JSON.stringify(v)));
 }
 
+/** One condition as a saved query stores it (ADR-0026). */
+export interface StoredCondition {
+  path: string;
+  operator: FactFilterOperator;
+  value?: unknown;
+}
+
+/**
+ * The INVERSE of `completeFactRows`: stored conditions back into editable rows.
+ *
+ * Lives beside its counterpart so the pair cannot drift. `IN` is stored as an
+ * ARRAY and edited as a comma-separated string, so it has to round-trip — a
+ * saved "is one of" that reopened as an empty field would still RUN correctly,
+ * leaving the operator looking at a filter box that disagreed with the results
+ * beside it.
+ */
+export function factRowsFrom(conditions: readonly StoredCondition[] | undefined): FactRow[] {
+  return (conditions ?? []).map((condition) => ({
+    path: condition.path,
+    operator: condition.operator,
+    value: Array.isArray(condition.value)
+      ? condition.value.join(', ')
+      : condition.value === undefined
+        ? ''
+        : String(condition.value),
+  }));
+}
+
 export function FactFilters({
   rows,
   onChange,

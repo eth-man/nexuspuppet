@@ -10,7 +10,14 @@ import {
   type ParameterQuery,
   type ResourceQuery,
 } from '@/lib/queries';
-import { completeFactRows, FactFilters, type FactRow } from '@/components/data/fact-filters';
+import {
+  completeFactRows,
+  FactFilters,
+  factRowsFrom,
+  type FactRow,
+  type StoredCondition,
+} from '@/components/data/fact-filters';
+import { SavedQueries } from '@/components/data/saved-queries';
 import { cn } from '@/lib/utils';
 import { collapseUnchanged, diffLines, isMultiline } from '@/lib/diff-lines';
 import { Button } from '@/components/ui/button';
@@ -50,6 +57,19 @@ export default function ResourcesPage() {
   // keystroke the way the node list does.
   const [type, setType] = useState('');
   const [titleContains, setTitleContains] = useState('');
+  /*
+   * Whether the title box currently holds an EXACT title rather than a
+   * substring.
+   *
+   * The form only offers "title contains", but the API also accepts an exact
+   * `title` and a saved query may hold one. Without this the value came back
+   * as a substring match — silently a different question, and one that returns
+   * more than the query its author saved.
+   *
+   * Typing clears it: editing the box means you are searching for a substring,
+   * which is what the box says it does.
+   */
+  const [titleExact, setTitleExact] = useState(false);
   const [environment, setEnvironment] = useState<string | null>(null);
   const [factRows, setFactRows] = useState<FactRow[]>([]);
   const [paramRows, setParamRows] = useState<FactRow[]>([]);
@@ -69,7 +89,11 @@ export default function ResourcesPage() {
 
     setSubmitted({
       type: type.trim(),
-      ...(titleContains.trim() === '' ? {} : { titleContains: titleContains.trim() }),
+      ...(titleContains.trim() === ''
+        ? {}
+        : titleExact
+          ? { title: titleContains.trim() }
+          : { titleContains: titleContains.trim() }),
       ...(environment === null ? {} : { environments: [environment] }),
       ...(facts.length === 0 ? {} : { facts }),
       ...(parameters.length === 0 ? {} : { parameters }),
@@ -122,7 +146,10 @@ export default function ResourcesPage() {
           />
           <Input
             value={titleContains}
-            onChange={(event) => setTitleContains(event.target.value)}
+            onChange={(event) => {
+              setTitleContains(event.target.value);
+              setTitleExact(false);
+            }}
             placeholder="Title contains… e.g. sshd_config"
             className="h-8 pl-7 font-mono text-xs"
             aria-label="Title contains"
@@ -149,6 +176,55 @@ export default function ResourcesPage() {
           Search
         </Button>
       </form>
+
+      <div className="flex items-center gap-2 border-b border-line-soft px-3 py-1">
+        <SavedQueries
+          kind="resource"
+          currentFilter={submitted}
+          canSave={submitted !== null}
+          onApply={(filter) => {
+            /*
+             * A resource query REPLAYS immediately, unlike the node one.
+             *
+             * Its controls are a search form with a mandatory type, so there is
+             * no half-typed state to restore into — setting `submitted`
+             * directly is the honest equivalent of pressing Search. The visible
+             * fields are written too, so the form agrees with the results it is
+             * showing.
+             */
+            const f = (filter ?? {}) as {
+              type?: string;
+              title?: string;
+              titleContains?: string;
+              environments?: string[];
+              facts?: StoredCondition[];
+              parameters?: StoredCondition[];
+            };
+
+            setType(f.type ?? '');
+            setEnvironment(f.environments?.[0] ?? null);
+
+            // An exact title and a substring are different questions. Showing
+            // one as the other would put a filter in the box that does not
+            // match the results beside it.
+            if (f.title !== undefined && f.title !== '') {
+              setTitleContains(f.title);
+              setTitleExact(true);
+            } else {
+              setTitleContains(f.titleContains ?? '');
+              setTitleExact(false);
+            }
+
+            // The rows, which were previously not restored at all: a saved
+            // query with fact or parameter conditions reopened with both
+            // sections empty while the results reflected them.
+            setFactRows(factRowsFrom(f.facts));
+            setParamRows(factRowsFrom(f.parameters));
+
+            setSubmitted(filter as ResourceQuery);
+          }}
+        />
+      </div>
 
       {/* Narrowing by node, and by parameter value. Both optional, and both
           deliberately below the primary row so the common case stays one line. */}
@@ -201,7 +277,7 @@ export default function ResourcesPage() {
             </THead>
             <TBody>
               {groups.map((group) => (
-                <GroupRow key={`${group.title} ${group.environment}`} group={group} />
+                <GroupRow key={`${group.title}\u0000${group.environment}`} group={group} />
               ))}
             </TBody>
           </Table>

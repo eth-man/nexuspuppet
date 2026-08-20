@@ -5,7 +5,14 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import type { PuppetNode } from '@nexuspuppet/contracts';
 import { useEnvironments, useNodes } from '@/lib/queries';
-import { completeFactRows, FactFilters, type FactRow } from '@/components/data/fact-filters';
+import {
+  completeFactRows,
+  FactFilters,
+  factRowsFrom,
+  type FactRow,
+  type StoredCondition,
+} from '@/components/data/fact-filters';
+import { SavedQueries } from '@/components/data/saved-queries';
 import { absolute, isStale, relativeAge } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -56,6 +63,34 @@ export default function NodesPage() {
     [offset, sort, search, statuses, environment, includeInactive, factRows],
   );
 
+  /**
+   * Put a saved filter back into the controls (ADR-0026).
+   *
+   * The page's state is the SOURCE, and `query` is derived from it — so a
+   * saved query is applied by writing the controls, not by bypassing them.
+   * Setting `query` directly would show results the filter bar disagreed with,
+   * which is the same class of lie as a screen that hides half a comparison.
+   *
+   * Pagination resets: page 4 of the previous filter is meaningless under a
+   * new one.
+   */
+  const applySaved = (filter: unknown) => {
+    const f = (filter ?? {}) as {
+      certnameContains?: string;
+      statuses?: string[];
+      environments?: string[];
+      includeInactive?: boolean;
+      facts?: StoredCondition[];
+    };
+
+    setOffset(0);
+    setSearch(f.certnameContains ?? '');
+    setStatuses(f.statuses ?? []);
+    setEnvironment(f.environments?.[0] ?? null);
+    setIncludeInactive(f.includeInactive ?? false);
+    setFactRows(factRowsFrom(f.facts));
+  };
+
   const nodes = useNodes(query);
   const environments = useEnvironments();
 
@@ -95,6 +130,15 @@ export default function NodesPage() {
           </p>
         </div>
       </header>
+
+      <div className="flex items-center gap-2 border-b border-line-soft px-3 py-1">
+        <SavedQueries
+          kind="node"
+          currentFilter={filtered ? { ...query, limit: undefined, offset: undefined } : null}
+          canSave={filtered}
+          onApply={applySaved}
+        />
+      </div>
 
       {/* Filters. Kept on one dense row so the table starts as high as possible. */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-3 py-2">

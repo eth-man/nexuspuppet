@@ -24,6 +24,8 @@ import { HealthController } from './health/health.controller';
 import { NodesController } from './inventory/nodes.controller';
 import { ResourcesController } from './inventory/resources.controller';
 import { ResourceReadAudit } from './inventory/resource-read-audit';
+import { SavedQueriesController } from './inventory/saved-queries.controller';
+import { SavedQueriesService } from './inventory/saved-queries.service';
 import { ReportsController } from './reports/reports.controller';
 import {
   MaterializationController,
@@ -313,6 +315,7 @@ export class AppModule {
         RolesController,
         NodesController,
         ResourcesController,
+        SavedQueriesController,
         ReportsController,
         NodeGroupsController,
         MaterializationController,
@@ -328,6 +331,9 @@ export class AppModule {
         // unconditionally: the disclosure it records exists in every
         // deployment that grants `resources:read`.
         ResourceReadAudit,
+        // Saved queries (ADR-0026). Per-row visibility is decided in the
+        // service, because a route-level permission cannot express it.
+        SavedQueriesService,
         // Class suggestions from puppetserver (ADR-0024). Both registered
         // unconditionally; the client factory returns null when
         // PUPPETSERVER_URL is unset, and the service reports `disabled`.

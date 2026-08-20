@@ -525,18 +525,44 @@ model AppSetting {
   @@map("app_settings")
 }
 
+/// A filter somebody kept, and may have shared (ADR-0026).
+///
+/// The first per-user object in the product: node groups, roles and settings
+/// are all global, so "mine" and "shared" are new concepts here rather than an
+/// established pattern being reused.
 model SavedQuery {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String
-  /// A typed NodeFilter, never a raw PQL string (ADR-0004).
-  filter    Json
-  isShared  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id       String  @id @default(uuid()) @db.Uuid
+  /// NULLABLE, and that is the deletion policy (ADR-0026 §4).
+  ///
+  /// A user's PRIVATE queries are deleted with their account; their SHARED
+  /// ones survive, owner emptied, because by the time a query is shared the
+  /// team relies on it and losing it when somebody leaves is friction nobody
+  /// asked for. `SetNull` orphans them; UsersService.remove deletes the
+  /// private ones first, in the same transaction.
+  userId   String? @db.Uuid
+  user     User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Who made it, denormalised for exactly the reason `AuditLog.actorEmail` is:
+  /// the row outlives the account, and "shared by nobody" names nothing.
+  ownerEmail String
+  name       String
+  /// Which surface this queries — `node` or `resource` (ADR-0026 §2).
+  ///
+  /// One table rather than two: the alternative is duplicate UI, duplicate
+  /// sharing rules and duplicate answers to every lifecycle question. The
+  /// shape of `filter` follows from this column.
+  kind       String   @default("node")
+  /// A typed NodeFilter or ResourceFilter, never a raw PQL string (ADR-0004).
+  /// Validated against the schema `kind` selects, on write AND on read — a row
+  /// written by an older version must not reach PqlBuilder unchecked.
+  filter     Json
+  isShared   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
+  /// Per owner, not global (ADR-0026 §6). Global uniqueness means the first
+  /// person to save "prod web" takes the name from everybody.
   @@unique([userId, name])
+  @@index([isShared])
   @@map("saved_queries")
 }
 

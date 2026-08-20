@@ -1,4 +1,4 @@
-import { completeFactRows, valueSuggestions, type FactRow } from './fact-filters';
+import { completeFactRows, factRowsFrom, valueSuggestions, type FactRow } from './fact-filters';
 
 const row = (over: Partial<FactRow> = {}): FactRow => ({
   path: 'os.name',
@@ -118,5 +118,57 @@ describe('valueSuggestions', () => {
    */
   it('offers nothing for `is one of`, whose input is a list', () => {
     expect(valueSuggestions(row({ operator: 'IN' }), paths)).toBeUndefined();
+  });
+});
+
+/*
+ * Restoring a saved query into the editor (ADR-0026 §8).
+ *
+ * The operator applied a saved resource query, saw correct results, and an
+ * EMPTY filter box: the conditions were never put back into the rows. The
+ * query ran fine, which is what makes it insidious — the screen showed one
+ * thing and stated another, and only a person looking at it could tell.
+ */
+describe('factRowsFrom', () => {
+  it('is the inverse of completeFactRows', () => {
+    const rows: FactRow[] = [
+      { path: 'os.name', operator: 'EQUALS', value: 'Ubuntu' },
+      { path: 'os.release.major', operator: 'NOT_EQUALS', value: '22.04' },
+      { path: 'role', operator: 'MATCHES_REGEX', value: '^web' },
+      { path: 'is_virtual', operator: 'EXISTS', value: '' },
+    ];
+
+    expect(factRowsFrom(completeFactRows(rows))).toEqual(rows);
+  });
+
+  /*
+   * THE ONE THAT BREAKS SILENTLY. `IN` is stored as an array and edited as a
+   * comma-separated string; without the join, a saved "is one of" reopens as an
+   * empty field while still returning its results.
+   */
+  it('round-trips IN through its comma-separated form', () => {
+    const rows: FactRow[] = [{ path: 'os.name', operator: 'IN', value: 'Ubuntu, Debian' }];
+
+    expect(completeFactRows(rows)).toEqual([
+      { path: 'os.name', operator: 'IN', value: ['Ubuntu', 'Debian'] },
+    ]);
+    expect(factRowsFrom(completeFactRows(rows))).toEqual(rows);
+  });
+
+  it('renders a non-string value as the text the editor holds', () => {
+    expect(factRowsFrom([{ path: 'is_virtual', operator: 'EQUALS', value: true }])).toEqual([
+      { path: 'is_virtual', operator: 'EQUALS', value: 'true' },
+    ]);
+  });
+
+  it('gives a value-less operator an empty field, not "undefined"', () => {
+    expect(factRowsFrom([{ path: 'os.name', operator: 'EXISTS' }])).toEqual([
+      { path: 'os.name', operator: 'EXISTS', value: '' },
+    ]);
+  });
+
+  it('has nothing to restore from nothing', () => {
+    expect(factRowsFrom(undefined)).toEqual([]);
+    expect(factRowsFrom([])).toEqual([]);
   });
 });
