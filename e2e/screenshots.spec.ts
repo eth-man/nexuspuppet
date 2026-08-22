@@ -291,6 +291,61 @@ test.describe('@screenshots', () => {
 
     await page.screenshot({ path: `${SHOTS}/report-detail.png` });
   });
+
+  /*
+   * The USER_GUIDE captures.
+   *
+   * Same argument as the README ones, and the same neglect: these were taken
+   * on 29 July and the guide has been showing a product several releases old
+   * ever since.
+   */
+  test('sign in', async ({ page, context }) => {
+    /*
+     * SIGNED OUT, which the beforeEach has just undone. Clearing the cookies is
+     * what makes /login render the form rather than redirect to the dashboard —
+     * without it this captures the page nobody sees.
+     */
+    await context.clearCookies();
+    await page.goto('/login');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible({ timeout: 15_000 });
+    // The identifier field, whatever this deployment calls it.
+    await expect(page.getByLabel(/^(Email|Username)$/)).toBeVisible();
+
+    await page.screenshot({ path: `${SHOTS}/login.png` });
+  });
+
+  test('dashboard', async ({ page }) => {
+    await page.goto('/');
+    // Wait for real numbers. A dashboard of zeroes and skeletons is a
+    // screenshot of the product still loading.
+    await expect(page.getByText(/Nodes/).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('text=/\d+/').first()).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/dashboard.png` });
+  });
+
+  test('reports list', async ({ page }) => {
+    await page.goto('/reports');
+    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/reports.png` });
+  });
+
+  test('classification list', async ({ page }) => {
+    await page.goto('/classification');
+    await expect(page.locator('a[href^="/classification/"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await page.screenshot({ path: `${SHOTS}/classification.png` });
+  });
+
+  test('settings', async ({ page }) => {
+    await page.goto('/settings');
+    await expect(page.getByRole('heading', { name: /Settings/ })).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/settings.png` });
+  });
 });
 
 async function put(request: APIRequestContext, url: string, data: unknown): Promise<void> {
