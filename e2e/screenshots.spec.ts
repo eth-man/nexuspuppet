@@ -175,7 +175,25 @@ test.describe('@screenshots', () => {
     if (key === undefined) throw new Error('no conflict to photograph');
     await expect(page.getByText(key).first()).toBeVisible({ timeout: 15_000 });
 
-    await page.screenshot({ path: `${SHOTS}/conflict-report.png` });
+    /*
+     * THE PANEL, not the page.
+     *
+     * The conflict report and the group list live on the same route, so two
+     * full-page captures of /classification produced BYTE-IDENTICAL files —
+     * the README's "estate-wide conflict report" and the guide's
+     * "classification" were the same picture, each captioned as something
+     * different. Framing the card makes the image show what its caption
+     * claims, and reads better besides.
+     */
+    const panel = page
+      .getByText('Overrides in effect')
+      // The Card, not the CardHeader. `.last()` on a filtered div list returned
+      // the innermost match — a 2092x74 strip containing the title and nothing
+      // the caption promises. `glass-panel` is the class Card carries and its
+      // header does not.
+      .locator('xpath=ancestor::div[contains(@class,"glass-panel")][1]');
+    await expect(panel).toBeVisible();
+    await panel.screenshot({ path: `${SHOTS}/conflict-report.png` });
   });
 
   /**

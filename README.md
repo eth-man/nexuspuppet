@@ -43,7 +43,7 @@ A preview tells you what a change *will* do. This tells you what your estate is 
 
 When two groups both set the same class parameter on the same node, the higher-ranked one wins and the other value is discarded. That is how group hierarchies are supposed to work — base plus override is the normal pattern, not a bug. The problem is that it is invisible.
 
-This is every override in the estate, grouped by *which* override it is and counted by how many machines it touches. Above, `redhat-hardening` is quietly winning `profile::base.ntp_servers` from `base-linux` on 20 of 48 nodes.
+This is every override in the estate, grouped by *which* override it is and counted by how many machines it touches. Above, `Web tier` is quietly winning `monitoring_tier` from `Base platform` on 11 nodes, and three other overrides are in effect across 18 of 48 machines — none of it visible anywhere else.
 
 **Environment conflicts sort to the top regardless of count.** An environment disagreement decides which branch of your control repository a machine compiles against, so three nodes disagreeing about it matters more than three hundred disagreeing about a timeout — and ordering by breadth alone would bury exactly the dangerous case.
 
