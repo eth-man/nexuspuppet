@@ -284,6 +284,22 @@ describe('capability wiring', () => {
 
       if (resolveImplementation(token) !== null) return;
 
+      /*
+       * AN ENTERPRISE-PROVIDED IMPLEMENTATION IS OPAQUE BY DESIGN.
+       *
+       * With the layer installed, a seam may be satisfied by a value the layer
+       * constructed — LICENSE_SERVICE is, because the licence file is read once
+       * at boot and the resulting service handed over. This repository cannot
+       * name that class, and FACTORY_BACKED exists to name classes that live
+       * HERE. Requiring an entry would mean writing the private layer's
+       * internals into the public repository, which is the boundary ADR-0002
+       * exists to hold.
+       *
+       * The check still bites where it was aimed: in core, every one of these
+       * resolves to a class in this tree, and CI runs with no layer installed.
+       */
+      if (enterpriseLoaded) return;
+
       // Named in the failure rather than passed to expect(): Jest's expect
       // takes one argument, and a bare `undefined` here would say nothing
       // about what to do next.
@@ -318,10 +334,18 @@ describe('capability wiring', () => {
 
     it('is what AUDIT_SINK resolves to, or is composed over, by edition', () => {
       if (enterpriseLoaded) {
-        // The enterprise sink REPLACES the binding and composes over the core
-        // sink — registered unconditionally since forwarding became
-        // settings-driven (ADR-0016 §4).
-        expect(resolveImplementation(AUDIT_SINK)?.cls.name).toBe('ForwardingAuditSinkModule');
+        /*
+         * REGISTERED WHEN LICENSED, which is a change from "unconditionally"
+         * (ADR-0016 §4 → ADR-0014 §6). Forwarding is an entitlement now, so an
+         * enterprise build without a licence registers no forwarding sink.
+         *
+         * BOTH OUTCOMES ARE CORRECT, and the fallback is the one ADR-0014 §3
+         * insists on: losing audit EXPORT must never lose audit RECORDS, so an
+         * unlicensed deployment keeps writing to Postgres through core's sink
+         * rather than losing the trail.
+         */
+        const resolved = resolveImplementation(AUDIT_SINK)?.cls.name;
+        expect(['ForwardingAuditSinkModule', 'PrismaAuditSink']).toContain(resolved);
         return;
       }
       // Core behaviour must be unchanged by the existence of the seam: with
