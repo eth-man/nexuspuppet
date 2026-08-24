@@ -337,7 +337,9 @@ test.describe('@screenshots', () => {
     // Wait for real numbers. A dashboard of zeroes and skeletons is a
     // screenshot of the product still loading.
     await expect(page.getByText(/Nodes/).first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('text=/\d+/').first()).toBeVisible({ timeout: 20_000 });
+    // A real RegExp, not a `text=/…/` string selector — the backslash inside a
+    // string is an escape ESLint rightly flags, and this reads as what it is.
+    await expect(page.getByText(/^\d+$/).first()).toBeVisible({ timeout: 20_000 });
 
     await page.screenshot({ path: `${SHOTS}/dashboard.png` });
   });
