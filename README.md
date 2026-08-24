@@ -9,10 +9,6 @@ A web console and node classifier for Puppet and OpenVox. It previews the blast 
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.12-brightgreen.svg)](package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-![Previewing a classification change before applying it](docs/images/demo.gif)
-
-_Editing a node group, reviewing the blast radius, and deciding against it — nothing was written._
-
 ---
 
 ## Plan before apply
