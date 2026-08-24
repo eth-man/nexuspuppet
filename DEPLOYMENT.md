@@ -270,26 +270,33 @@ deployment lacks it.
 
 ### Provision your directory accounts BEFORE you set `LDAP_URL` or `OIDC_ISSUER`
 
-Setting either one replaces `AUTH_PROVIDER` **wholesale**. At the next restart:
+**Your local accounts keep working.** A directory provider is contributed
+*alongside* core's local provider, never instead of it, and `authSource` on the
+account decides which one handles a login ([ADR-0015](docs/architecture/adr/0015-hybrid-authentication.md)).
+An attempt by the enterprise layer to override `AUTH_PROVIDER` is refused
+outright. So `admin@example.com` signs in after the switch exactly as before.
 
-- `admin@example.com`, and every other account with `authSource: local`, **can no
-  longer sign in.** There is no fallback — the enterprise provider owns the token.
-- Directory users cannot sign in either. NexusPuppet does **not** auto-provision:
-  it authenticates them against the directory and then refuses, logging
-  `authenticated against the directory, but no NexusPuppet account exists`.
+> **This section used to say the opposite** — that enabling a directory locked
+> every local account out with no way back. That was true before ADR-0015 and is
+> the behaviour it was written to remove. The paragraph outlived the defect, was
+> read as current, and produced at least one production upgrade plan built
+> around a lockout that cannot happen. If you read it previously, that is why.
 
-If you have not created the accounts first, that is **everybody locked out**, and
-the obvious escape does not work. Unsetting `LDAP_URL` again makes the API refuse
-to start:
+What is still true, and still catches people:
 
-```
-Fatal: The enterprise layer is installed but no authentication provider is configured.
-```
+- **There is no auto-provisioning, and the refusal is silent.** A directory user
+  with no row in `users` is rejected, and *nothing is logged* — the resolver
+  looks the account up before choosing a provider, so a missing account and a
+  wrong password are indistinguishable from the outside. This is deliberate
+  (ADR-0015 §2: dispatch must not become a user-enumeration oracle), and it is
+  the single most common cause of "LDAP is configured correctly and nobody can
+  log in".
 
-A throw from `register()` is fatal by design (ADR-0002) — once the layer is in the
-image, a working provider is mandatory. You cannot back out by removing config.
+So the ordering below is about your **directory users** being able to sign in,
+not about you being able to. Getting it wrong is an inconvenience you fix from a
+console you can still reach.
 
-**So do it in this order**, while local authentication still works:
+**Do it in this order:**
 
 ```bash
 # 1. Sign in as the bootstrap admin and create each directory account.
@@ -306,8 +313,10 @@ The `role` you set here is a placeholder. Group mapping is authoritative and
 overrides it at every login — an account stored as `VIEWER` whose group maps to
 `ADMIN` signs in as `ADMIN`.
 
-**If you are already locked out**, the account must be inserted directly, which
-bypasses the audit trail and is a recovery action rather than a way to provision:
+**If a directory user cannot sign in and you want to fix it from the database**
+— you should not need to, since your local admin account still works and the
+console is the supported path — the row can be inserted directly. This bypasses
+the audit trail and is a recovery action, not a way to provision:
 
 ```bash
 sudo docker compose exec -T db psql -U nexuspuppet -d nexuspuppet -c "
@@ -316,10 +325,12 @@ sudo docker compose exec -T db psql -U nexuspuppet -d nexuspuppet -c "
   ON CONFLICT (email) DO UPDATE SET \"authSource\" = 'ldap', \"isActive\" = true;"
 ```
 
-Keeping one local break-glass administrator is not possible today: the local
-provider is replaced, not supplemented. [ADR-0014](docs/architecture/adr/0014-enterprise-licensing.md)
-§3 proposes an audited break-glass for the licence-expiry case, and the same
-mechanism would cover this one.
+**Every local account is already a break-glass administrator**, because the
+local provider is supplemented rather than replaced ([ADR-0015](docs/architecture/adr/0015-hybrid-authentication.md) §3).
+This paragraph previously said the opposite and pointed at
+[ADR-0014](docs/architecture/adr/0014-enterprise-licensing.md) §3 as a future
+fix; that need was met by ADR-0015. ADR-0014 §3's `LICENSE_GRACE_LOGIN` remains
+relevant to a different case — an expired licence — and not to this one.
 
 ---
 

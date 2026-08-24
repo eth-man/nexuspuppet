@@ -1,8 +1,35 @@
 # ADR-0015 — Hybrid authentication: local and directory accounts at the same time
 
-- **Status:** Proposed
+- **Status:** Accepted — implemented; see *Delivered* below
 - **Deciders:** Architect
 - **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0014](./0014-enterprise-licensing.md)
+
+## Delivered
+
+**This shipped, and the Context below describes the behaviour it REPLACED.**
+
+That distinction is the reason this note exists. The status said `Proposed`
+while all five decisions were in the code, so a reader — including one writing
+a production upgrade procedure — took the Context as a description of current
+behaviour and warned an operator that enabling a directory would lock them out.
+It does not. `DEPLOYMENT.md` §2 repeated the same stale claim and has been
+corrected alongside this.
+
+Verified in the code rather than assumed, one decision at a time:
+
+| Decision | Evidence |
+| --- | --- |
+| §1 `authSource` is authoritative | `AuthProviderResolver` dispatches on it, with no chaining or fallback |
+| §2 Not a user-enumeration oracle | `AUTH_LOGIN_FLOOR_MS` (default 1500ms) applied in the resolver; covered by unit and integration tests |
+| §3 Additive registration, core owns the resolver | `CapabilityRegistry` refuses an `AUTH_PROVIDER` override outright |
+| §4 Environment bootstraps, database wins once set | `SettingsStore` resolves to `'database' \| 'environment' \| 'unset'` and never merges the two |
+| §5 What does not change | No change required |
+
+The consequence that matters most, and the one the stale status obscured: **an
+expired licence or a misconfigured directory can no longer lock an
+administrator out of their own console.** [ADR-0014](./0014-enterprise-licensing.md)
+§3 depends on that being true — its entire "degrade without locking anyone out"
+argument assumes this resolver exists.
 
 ## Context
 
