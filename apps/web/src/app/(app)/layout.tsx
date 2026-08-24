@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/app-sidebar';
+import { LicenceBanner } from '@/components/data/licence-banner';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -33,7 +34,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <AppSidebar />
       {/* Fluid width, never boxed: the inventory table must be free to use
           every available pixel. Scrolling is per-pane so the shell stays put. */}
-      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      {/* ABOVE the content, inside the scroll container's parent, so it is seen
+          once per session rather than pinned over every screen. It renders
+          nothing at all unless an enterprise licence is actually running out. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <LicenceBanner />
+        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      </div>
     </div>
   );
 }

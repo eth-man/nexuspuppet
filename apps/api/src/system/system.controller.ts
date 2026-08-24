@@ -5,12 +5,15 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Post,
   Put,
   Req,
 } from '@nestjs/common';
 import type {
   ConsoleTlsStatus,
+  ILicenseService,
+  LicenseStatus,
   DeploymentInfo,
   LogLevelSetting,
   OperationalCondition,
@@ -19,7 +22,7 @@ import type {
   UpdateCheck,
   PropagationFront,
 } from '@nexuspuppet/contracts';
-import { setLogLevelSchema } from '@nexuspuppet/contracts';
+import { LICENSE_SERVICE, setLogLevelSchema } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { SystemStatusService } from './system-status.service';
 import { PropagationService } from './propagation.service';
@@ -43,6 +46,7 @@ import { openConditions } from '../notifications/notification-evaluator.service'
 @Controller('system')
 export class SystemController {
   constructor(
+    @Inject(LICENSE_SERVICE) private readonly licence: ILicenseService,
     private readonly status: SystemStatusService,
     private readonly tls: ConsoleTlsService,
     private readonly grants: ConsoleTlsGrantService,
@@ -77,6 +81,25 @@ export class SystemController {
    * call only ever happens when an operator presses the button. The verb is the
    * cheapest way to say that to every intermediary at once.
    */
+  /**
+   * This deployment's entitlement (ADR-0014).
+   *
+   * SEPARATE FROM `GET /capabilities`, which is `@Public()` because the login
+   * screen needs it before a session exists. That endpoint says WHICH features
+   * exist; this one says who the licence names and when it runs out — a
+   * customer's organisation name and their commercial terms, neither of which
+   * belongs on an unauthenticated route.
+   *
+   * `settings:manage`, because a VIEWER cannot renew a licence. Telling them it
+   * expires in nine days is noise, and noise is how a banner that matters gets
+   * ignored.
+   */
+  @RequirePermission('settings:manage')
+  @Get('licence')
+  licenceStatus(): Promise<LicenseStatus> {
+    return this.licence.status();
+  }
+
   @RequirePermission('settings:manage')
   @Post('update-check')
   @HttpCode(HttpStatus.OK)

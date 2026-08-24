@@ -129,6 +129,16 @@ services:
       - ${PUPPETDB_CERT_DIR:-./certs}:/etc/nexuspuppet/certs:ro
       # The ONLY writer of the ENC volume.
       - enc-data:/srv/nexuspuppet/enc
+      # The enterprise licence, if this deployment has one (ADR-0014).
+      #
+      # NO DEFAULT, and commented out for the same reason as the certificate
+      # below: Docker silently creates a DIRECTORY for a bind source that does
+      # not exist, and a directory where a JWT is expected produces a worse
+      # error than an absent file. Absent is a supported state — core ignores
+      # it, and enterprise degrades loudly rather than failing to start.
+      #
+      #   volumes:
+      #     - ./licence.jwt:/etc/nexuspuppet/licence.jwt:ro
       # The PUBLIC certificate, as a SINGLE FILE — never the directory holding
       # the key. The api reports the certificate's expiry in Settings and has no
       # reason to be able to read a private key, so it is not given the

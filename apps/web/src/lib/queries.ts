@@ -13,6 +13,7 @@ import type {
   AuditForwardingView,
   AuthProviderDescription,
   DeploymentCapabilities,
+  LicenseStatus,
   ClassIndex,
   FactFilter,
   FactPathIndex,
@@ -610,6 +611,27 @@ export function useConflictReport(): UseQueryResult<ConflictReport> {
     queryKey: ['conflict-report'],
     queryFn: ({ signal }) => api.get<ConflictReport>('/classification/conflicts', signal),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * This deployment's entitlement (ADR-0014).
+ *
+ * `settings:manage` only — a VIEWER cannot renew a licence, and telling them it
+ * expires in nine days is noise. Noise is how a banner that matters gets
+ * ignored, so this is not fetched for anyone who could do nothing about it.
+ *
+ * Separate from `useCapabilities`, which is public and says which features
+ * exist. This says who the licence names and when it runs out.
+ */
+export function useLicence(enabled: boolean): UseQueryResult<LicenseStatus> {
+  return useQuery({
+    queryKey: ['licence'],
+    queryFn: ({ signal }) => api.get<LicenseStatus>('/system/licence', signal),
+    enabled,
+    // An entitlement changes on a scale of months. Re-asking on every mount
+    // would be a request per navigation for an answer that cannot have moved.
+    staleTime: 15 * 60_000,
   });
 }
 
