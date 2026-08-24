@@ -1,4 +1,14 @@
-import { Controller, Get, Inject, NotFoundException, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Header,
+  Inject,
+  NotFoundException,
+  Param,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import {
   PUPPETDB_CLIENT,
   factFilterSchema,
@@ -13,6 +23,7 @@ import {
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CSV_BOM, csvRow } from './pure/csv';
 import { RequirePermission } from '../auth/auth.guard';
 import { ClassificationService } from '../classification/classification.service';
 
@@ -27,6 +38,18 @@ import { ClassificationService } from '../classification/classification.service'
  * PuppetDB outages surface as 503 PUPPETDB_UNAVAILABLE via
  * PuppetDbExceptionFilter, never as an empty list.
  */
+
+/**
+ * How many rows one export may contain.
+ *
+ * An export is a file somebody opens in a spreadsheet, and it is also a query
+ * this process pages through synchronously. Both have a limit; this is the
+ * lower of the two, and it is stated in the file when it is reached.
+ */
+const MAX_EXPORT_ROWS = 50_000;
+
+/** One PuppetDB page while streaming. The API caps a page request at 500. */
+const EXPORT_PAGE = 500;
 
 /** Query string arrives as strings; coerce before the contract schema sees it. */
 const listQuerySchema = z
@@ -124,6 +147,89 @@ export class NodesController {
   @Get()
   list(@Query(new ZodValidationPipe(listQuerySchema)) query: ListQuery): Promise<Page<PuppetNode>> {
     return this.puppetdb.listNodes(query.filter, query.page);
+  }
+
+  /**
+   * The filtered node list as CSV (#243 phase 3).
+   *
+   * "Give me all the Ubuntu 22.04 boxes" is usually a question somebody has to
+   * answer SOMEWHERE ELSE — a ticket, a change record, a spreadsheet somebody
+   * else owns. That is the whole reason this exists.
+   *
+   * THE WHOLE RESULT SET, not the page on screen. Exporting 50 of 3,000 rows
+   * because that is what the table was showing would answer a different
+   * question than the one asked, and silently.
+   *
+   * STREAMED, page by page, so a large estate is never assembled in memory
+   * first. Bounded by MAX_EXPORT_ROWS, and when the bound is hit the file says
+   * so in its last line rather than simply stopping — a truncated export that
+   * looks complete is the worst of the three possible outcomes.
+   *
+   * Declared BEFORE `:certname`, or Nest routes `export.csv` into it as a
+   * certname. The same shadowing already bites `/node-groups/fact-paths`.
+   */
+  @Get('export.csv')
+  @Header('content-type', 'text/csv; charset=utf-8')
+  @Header('content-disposition', 'attachment; filename="nexuspuppet-nodes.csv"')
+  // No caching: an export is a point-in-time answer, and a stale one presented
+  // as current is how somebody acts on an estate that has moved on.
+  @Header('cache-control', 'no-store')
+  async exportCsv(
+    @Query(new ZodValidationPipe(listQuerySchema)) query: ListQuery,
+    @Res() response: Response,
+  ): Promise<void> {
+    response.write(CSV_BOM);
+    response.write(
+      csvRow([
+        'certname',
+        'environment',
+        'status',
+        'last_report',
+        'facts_timestamp',
+        'noop',
+        'active',
+      ]),
+    );
+
+    let written = 0;
+    for (let offset = 0; ; offset += EXPORT_PAGE) {
+      const page = await this.puppetdb.listNodes(query.filter, {
+        limit: Math.min(EXPORT_PAGE, MAX_EXPORT_ROWS - written),
+        offset,
+        order: 'asc',
+        orderBy: 'certname',
+      });
+
+      for (const node of page.items) {
+        response.write(
+          csvRow([
+            node.certname,
+            node.environment,
+            node.latestReportStatus,
+            node.reportTimestamp,
+            node.factsTimestamp,
+            node.latestReportNoop,
+            node.isActive,
+          ]),
+        );
+      }
+
+      written += page.items.length;
+      if (page.items.length < EXPORT_PAGE || written >= MAX_EXPORT_ROWS) {
+        if (written >= MAX_EXPORT_ROWS && written < page.total) {
+          // A comment row, because a CSV has nowhere else to say this and a
+          // file that simply stops looks exactly like a complete one.
+          response.write(
+            csvRow([
+              `# truncated at ${String(MAX_EXPORT_ROWS)} rows of ${String(page.total)} — narrow the filter`,
+            ]),
+          );
+        }
+        break;
+      }
+    }
+
+    response.end();
   }
 
   @Get(':certname')
