@@ -162,9 +162,209 @@ test.describe('@screenshots', () => {
 
     await page.goto('/classification');
     await expect(page.getByRole('heading', { name: 'Overrides in effect' })).toBeVisible();
-    await expect(page.getByText('profile::base.ntp_servers')).toBeVisible();
+    /*
+     * The conflict THIS estate has, not one named in this file. The guarantee
+     * is unchanged — refuse to photograph an empty report — but naming
+     * `profile::base.ntp_servers` tied it to the dev fixtures, and staging's
+     * genuine conflict is on a different key.
+     */
+    const found = (await (await request.get('/api/classification/conflicts')).json()) as {
+      conflicts: Array<{ key: string }>;
+    };
+    const key = found.conflicts[0]?.key;
+    if (key === undefined) throw new Error('no conflict to photograph');
+    await expect(page.getByText(key).first()).toBeVisible({ timeout: 15_000 });
 
-    await page.screenshot({ path: `${SHOTS}/conflict-report.png` });
+    /*
+     * THE PANEL, not the page.
+     *
+     * The conflict report and the group list live on the same route, so two
+     * full-page captures of /classification produced BYTE-IDENTICAL files —
+     * the README's "estate-wide conflict report" and the guide's
+     * "classification" were the same picture, each captioned as something
+     * different. Framing the card makes the image show what its caption
+     * claims, and reads better besides.
+     */
+    const panel = page
+      .getByText('Overrides in effect')
+      // The Card, not the CardHeader. `.last()` on a filtered div list returned
+      // the innermost match — a 2092x74 strip containing the title and nothing
+      // the caption promises. `glass-panel` is the class Card carries and its
+      // header does not.
+      .locator('xpath=ancestor::div[contains(@class,"glass-panel")][1]');
+    await expect(panel).toBeVisible();
+    await panel.screenshot({ path: `${SHOTS}/conflict-report.png` });
+  });
+
+  /**
+   * The screens the README shows, captured rather than photographed by hand.
+   *
+   * These were hand-captured once and then aged: by the time fact filtering,
+   * the Resources page and saved queries had shipped, the README was showing a
+   * product three releases old. That is precisely the failure the note at the
+   * top of this file describes, and the fix is to bring them under the same
+   * command as the other two.
+   *
+   * Each one WAITS FOR ITS CONTENT before shooting. A screenshot of a loading
+   * skeleton is worse than a stale one — it looks like the product is empty.
+   */
+  test('node inventory, filtered by fact', async ({ page }) => {
+    await page.goto('/nodes');
+    await expect(page.getByRole('heading', { name: 'Nodes' })).toBeVisible();
+    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+
+    // Filter by a fact, because that is the feature — an unfiltered table is
+    // the screenshot this already had.
+    await page.getByRole('button', { name: /Filter by fact/ }).click();
+    await page.locator('input[aria-label="Fact"]').last().fill('os.name');
+    await page.locator('input[aria-label="Value"]').last().fill('Ubuntu');
+    await expect(page.getByText(/nodes? matching/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('table tbody tr').first()).toBeVisible();
+
+    await page.screenshot({ path: `${SHOTS}/nodes.png` });
+  });
+
+  /**
+   * Estate-wide resource search — the feature the README does not mention at
+   * all, and the one that answers "do these nodes agree".
+   */
+  test('resource consistency search', async ({ page }) => {
+    /*
+     * WIDER THAN THE OTHERS. The consistency table carries eight columns, and
+     * at 1280 the two that the screen exists for — nodes and variants — fall
+     * off the right edge. A screenshot of this feature that omits the variant
+     * count shows everything except the point.
+     */
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto('/resources');
+    await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+
+    await page.locator('input[aria-label="Resource type (required)"]').fill('File');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+
+    // Refuse to photograph a consistent estate: the whole point of the screen
+    // is the row that disagrees, and a table of ticks demonstrates nothing.
+    await expect(page.getByText('sshd_config').first()).toBeVisible({ timeout: 20_000 });
+    const drifted = page.locator('tr', { has: page.locator('[aria-label="Nodes disagree"]') });
+    await expect(drifted.first()).toBeVisible({ timeout: 20_000 });
+
+    // Open one, so the capture shows WHICH nodes differ rather than only that
+    // some do.
+    await drifted.first().click();
+    await expect(page.getByText(/Differs ·/).first()).toBeVisible({ timeout: 15_000 });
+
+    await page.screenshot({ path: `${SHOTS}/resource-search.png` });
+  });
+
+  test('classification group detail', async ({ page }) => {
+    await page.goto('/classification');
+    await expect(page.getByRole('heading', { name: /Classification/ })).toBeVisible();
+
+    /*
+     * WHATEVER GROUP IS THERE, not one named in this file. The dev fixtures
+     * call theirs `base-linux`; staging's are "Base platform" and "Web tier".
+     * A hardcoded name makes the capture runnable against exactly one estate,
+     * which is how these screenshots went a month without being refreshed.
+     */
+    const firstGroup = page.locator('a[href^="/classification/"]').first();
+    await expect(firstGroup).toBeVisible({ timeout: 15_000 });
+    await firstGroup.click();
+    await expect(page.getByText('Matching rules')).toBeVisible({ timeout: 15_000 });
+
+    await page.screenshot({ path: `${SHOTS}/classification-detail.png` });
+  });
+
+  test('node classification detail', async ({ page, request }) => {
+    await apiLogin(request);
+    const response = await request.get('/api/nodes?limit=1');
+    const body = (await response.json()) as { items: Array<{ certname: string }> };
+    const certname = body.items[0]?.certname;
+    if (certname === undefined) throw new Error('no nodes in the estate to photograph');
+
+    await page.goto(`/nodes/${certname}`);
+    // The classification panel is the point of this screenshot, not the facts.
+    await expect(page.getByText(/Classification|Applied groups/).first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await page.screenshot({ path: `${SHOTS}/node-detail.png` });
+  });
+
+  test('report detail', async ({ page, request }) => {
+    await apiLogin(request);
+    /*
+     * Reports hang off a NODE — there is no top-level list to take the first
+     * of, and asking for one returns 404. Find a node that has reported.
+     */
+    const nodes = (await (await request.get('/api/nodes?limit=25')).json()) as {
+      items: Array<{ latestReportHash: string | null }>;
+    };
+    const hash = nodes.items.find((n) => n.latestReportHash !== null)?.latestReportHash;
+    if (hash === undefined || hash === null) {
+      throw new Error('no node in the estate has reported, so there is nothing to photograph');
+    }
+
+    await page.goto(`/reports/${hash}`);
+    await expect(page.getByText(/Resource events|events/).first()).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/report-detail.png` });
+  });
+
+  /*
+   * The USER_GUIDE captures.
+   *
+   * Same argument as the README ones, and the same neglect: these were taken
+   * on 29 July and the guide has been showing a product several releases old
+   * ever since.
+   */
+  test('sign in', async ({ page, context }) => {
+    /*
+     * SIGNED OUT, which the beforeEach has just undone. Clearing the cookies is
+     * what makes /login render the form rather than redirect to the dashboard —
+     * without it this captures the page nobody sees.
+     */
+    await context.clearCookies();
+    await page.goto('/login');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible({ timeout: 15_000 });
+    // The identifier field, whatever this deployment calls it.
+    await expect(page.getByLabel(/^(Email|Username)$/)).toBeVisible();
+
+    await page.screenshot({ path: `${SHOTS}/login.png` });
+  });
+
+  test('dashboard', async ({ page }) => {
+    await page.goto('/');
+    // Wait for real numbers. A dashboard of zeroes and skeletons is a
+    // screenshot of the product still loading.
+    await expect(page.getByText(/Nodes/).first()).toBeVisible({ timeout: 20_000 });
+    // A real RegExp, not a `text=/…/` string selector — the backslash inside a
+    // string is an escape ESLint rightly flags, and this reads as what it is.
+    await expect(page.getByText(/^\d+$/).first()).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/dashboard.png` });
+  });
+
+  test('reports list', async ({ page }) => {
+    await page.goto('/reports');
+    await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/reports.png` });
+  });
+
+  test('classification list', async ({ page }) => {
+    await page.goto('/classification');
+    await expect(page.locator('a[href^="/classification/"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await page.screenshot({ path: `${SHOTS}/classification.png` });
+  });
+
+  test('settings', async ({ page }) => {
+    await page.goto('/settings');
+    await expect(page.getByRole('heading', { name: /Settings/ })).toBeVisible({ timeout: 20_000 });
+
+    await page.screenshot({ path: `${SHOTS}/settings.png` });
   });
 });
 

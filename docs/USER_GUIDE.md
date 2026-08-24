@@ -10,10 +10,12 @@ How to use the console once it is running. If you are still installing, see the 
 4. [Node inventory](#4-node-inventory)
 5. [A single node](#5-a-single-node)
 6. [Run reports](#6-run-reports)
-7. [Classification](#7-classification)
-8. [How classification reaches your nodes](#8-how-classification-reaches-your-nodes)
-9. [Administration](#9-administration)
-10. [Troubleshooting](#10-troubleshooting)
+7. [What your nodes are actually running](#7-what-your-nodes-are-actually-running)
+8. [Filters worth keeping, and answers needed elsewhere](#8-filters-worth-keeping-and-answers-needed-elsewhere)
+9. [Classification](#9-classification)
+10. [How classification reaches your nodes](#10-how-classification-reaches-your-nodes)
+11. [Administration](#11-administration)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
@@ -36,7 +38,9 @@ If you only remember one thing: **eventual consistency is deliberate here, and i
 
 ![Sign in](images/login.png)
 
-Sign in with the address and password of your account. The first administrator is seeded from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` the first time the API starts against an empty database; those variables do nothing afterwards and should be removed from the environment.
+Sign in with your account and password. **The first field is labelled for the deployment** — `Email` where accounts are local, `Username` where a directory supplies them, as above — so it asks for whatever you actually type rather than a name that only fits one setup.
+
+The first administrator is seeded from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` the first time the API starts against an empty database; those variables do nothing afterwards and should be removed from the environment.
 
 Repeated failed attempts lock the account temporarily. This is deliberate and applies even to correct passwords once the account is locked — wait it out, or have another administrator reset it.
 
@@ -72,6 +76,7 @@ Estate health at a glance:
 
 Every node PuppetDB knows about, with its status, environment, last run, and last fact submission.
 
+- **Filter by fact** — the question everyone asks first: *"which machines are Ubuntu 22.04?"* Add a fact path, an operator and a value, using the same vocabulary classification rules use, so there is one grammar to learn rather than two. The value field suggests what the estate actually reports, because knowing a fact is called `os.name` does not tell you whether this estate spells it `Ubuntu` or `ubuntu`.
 - **Filter by certname** — a literal substring match. Regex metacharacters are matched literally, so typing `.` finds a dot rather than everything.
 - **Status chips** — click to include or exclude *Failed*, *Changed*, *Unchanged*, *Unknown*.
 - **Environment** — narrow to one environment. A node whose report, facts and catalog environments disagree is usually mid-migration; NexusPuppet shows the effective one and keeps all three.
@@ -79,6 +84,8 @@ Every node PuppetDB knows about, with its status, environment, last run, and las
 - **Sort** by clicking a column header.
 
 **Last run** and **Facts** can differ, and the gap is informative: facts arriving without a report usually means catalog compilation is failing.
+
+A filter worth keeping can be saved, and the whole filtered set exported — see [Filters worth keeping](#8-filters-worth-keeping-and-answers-needed-elsewhere).
 
 ---
 
@@ -130,7 +137,42 @@ A skipped resource is not a failure: Puppet skips resources whose dependencies f
 
 ---
 
-## 7. Classification
+## 7. What your nodes are actually running
+
+Classification describes what a machine *should* get. **Resources** shows what it *does* get, read from the catalogs PuppetDB already stores, and answers the question that is not a lookup: do these machines agree?
+
+![Estate-wide resource search](images/resource-search.png)
+
+Search by resource type — `File`, `Package`, `Service` — and optionally a title. Results group by resource and lead with **variants**: how many genuinely different configurations exist among the nodes carrying it.
+
+- **1 variant** means every node is byte-identical. Nothing to look at.
+- **More than 1** means nodes that should match do not. Expanding names them.
+
+Above, one development node carries a different `sshd_config` from the other twenty. **Compare parameters** shows what differs — here `mode` and the file's contents — with the unchanged parameters dimmed.
+
+**A type is required**, and a search that would match more than the page can group tells you the number instead of trying. Both exist because an unnarrowed resource query is the whole estate's catalog.
+
+**Variance is counted within an environment, never across it.** Development and production are supposed to differ.
+
+Reading parameters needs `resources:read`, which is deliberately separate from inventory access: a managed file's contents can hold a credential. Expanding parameters, and searching by parameter value, are recorded in the audit trail.
+
+---
+
+## 8. Filters worth keeping, and answers needed elsewhere
+
+Any filter on **Nodes** or **Resources** can be saved and named.
+
+Saved filters are **private by default**. Sharing one makes it visible to colleagues — but only to those who hold the permission needed to run it, because a name like "sudoers on the payment boxes" is itself information about your estate.
+
+If you leave, your private filters go with your account and your shared ones stay, still showing who made them. The team keeps what it depends on.
+
+**Export CSV** downloads the whole filtered result set — not the page on screen. On the Nodes page that is a row per node; on Resources it is a row per node with its variant, so sorting by `is_baseline` puts every drifted machine together.
+
+Values are defused before they are written: a fact or certname beginning `=` would otherwise be run as a formula by a spreadsheet, and those values come from the nodes themselves.
+
+---
+
+## 9. Classification
 
 ![Classification](images/classification.png)
 
@@ -246,7 +288,7 @@ The estate-wide view groups by *which* override it is — the setting, the winni
 
 ---
 
-## 8. How classification reaches your nodes
+## 10. How classification reaches your nodes
 
 Understanding this makes the console's timing behaviour obvious.
 
@@ -275,7 +317,7 @@ Separately, a **projector** polls PuppetDB for changed facts and refreshes the c
 
 ---
 
-## 9. Administration
+## 11. Administration
 
 ![Settings](images/settings.png)
 
@@ -325,7 +367,7 @@ Administrators can queue a full reconcile from the console. This re-materializes
 
 ---
 
-## 10. Troubleshooting
+## 12. Troubleshooting
 
 ### A rule matches nothing
 

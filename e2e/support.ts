@@ -85,7 +85,35 @@ export function uniqueGroupName(label: string): string {
 
 export async function login(page: Page): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Email').fill(ADMIN_EMAIL);
+  /*
+   * EITHER LABEL. The identifier field is called "Email" on a local-auth
+   * deployment and "Username" where a directory is configured — the login page
+   * takes it from `credentialSource.identifierLabel` so the form matches what
+   * the operator actually types.
+   *
+   * Hardcoding "Email" made this suite silently unrunnable against any
+   * deployment with AD configured, which is every one that matters: the
+   * screenshot capture failed on all seven tests with a timeout that named the
+   * locator and not the cause.
+   */
+  /*
+   * ALREADY SIGNED IN IS A VALID OUTCOME. /login redirects to the dashboard
+   * when a session exists, so the form unmounts — and a locator holding the
+   * identifier input then reports "element was detached from the DOM" for the
+   * full timeout, naming the input rather than the redirect. Six of seven
+   * screenshot captures failed this way.
+   */
+  await page.waitForLoadState('domcontentloaded');
+  if (!page.url().includes('/login')) return;
+
+  /*
+   * The form only mounts once the credential source has loaded — it decides
+   * whether the field says Email or Username — so waiting for the input to be
+   * EDITABLE, not merely present, is what makes this stable.
+   */
+  const identifier = page.getByLabel(/^(Email|Username)$/);
+  await identifier.waitFor({ state: 'visible' });
+  await identifier.fill(ADMIN_EMAIL);
   await page.getByLabel('Password').fill(ADMIN_PASSWORD);
   await Promise.all([page.waitForURL('/'), page.getByRole('button', { name: 'Sign in' }).click()]);
 }

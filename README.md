@@ -9,10 +9,6 @@ A web console and node classifier for Puppet and OpenVox. It previews the blast 
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.12-brightgreen.svg)](package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-![Previewing a classification change before applying it](docs/images/demo.gif)
-
-_Editing a node group, reviewing the blast radius, and deciding against it — nothing was written._
-
 ---
 
 ## Plan before apply
@@ -43,17 +39,42 @@ A preview tells you what a change *will* do. This tells you what your estate is 
 
 When two groups both set the same class parameter on the same node, the higher-ranked one wins and the other value is discarded. That is how group hierarchies are supposed to work — base plus override is the normal pattern, not a bug. The problem is that it is invisible.
 
-This is every override in the estate, grouped by *which* override it is and counted by how many machines it touches. Above, `redhat-hardening` is quietly winning `profile::base.ntp_servers` from `base-linux` on 20 of 48 nodes.
+This is every override in the estate, grouped by *which* override it is and counted by how many machines it touches. Above, `Web tier` is quietly winning `monitoring_tier` from `Base platform` on 11 nodes, and three other overrides are in effect across 18 of 48 machines — none of it visible anywhere else.
 
 **Environment conflicts sort to the top regardless of count.** An environment disagreement decides which branch of your control repository a machine compiles against, so three nodes disagreeing about it matters more than three hundred disagreeing about a timeout — and ordering by breadth alone would bury exactly the dangerous case.
 
 ---
 
-<details>
-<summary><b>More screenshots</b> — inventory, classification, reports</summary>
+## What your nodes are actually running
 
-### Node inventory
-![Node inventory](docs/images/nodes.png)
+Classification says what a machine *should* get. This says what it *does* get — and answers the question that is not a lookup: do these machines **agree**?
+
+![Estate-wide resource search](docs/images/resource-search.png)
+
+Results group by resource and lead with variance. `File[/etc/ssh/sshd_config]` is on 21 development nodes and **20 of them are identical** — one is not. Expanding names it: `cache35`. Comparing shows why: `mode` is `0666` instead of `0600`, and the file permits root login.
+
+**Consistency is established without reading a single parameter.** PuppetDB hashes each resource over its type, title *and* parameters, so identical hashes mean identical configuration. The browser is never sent the contents of a managed file to work out that two nodes disagree.
+
+**Variance is counted within an environment, never across it.** A development node and a production node legitimately differ; counting that as drift would flag the whole estate on day one and train you to ignore the screen.
+
+Reading resource parameters is a separate, privileged permission — a managed file's contents can hold a credential — and every parameter read is recorded in the audit trail.
+
+---
+
+## Filter by fact, save it, export it
+
+![Node inventory filtered by fact](docs/images/nodes.png)
+
+*"Which machines are Ubuntu 22.04?"* is asked constantly and used to have no answer here. Now it is a filter, in the same vocabulary classification rules already use, so there is one grammar to learn rather than two.
+
+A filter worth keeping can be **saved** — private by default, shareable to the team, and a shared query is invisible to anyone who lacks the permission to run it, because a name like *"sudoers on the payment boxes"* is itself information.
+
+And because the answer is usually needed **somewhere else** — a ticket, a change record — the whole filtered result set exports as CSV. Not the page on screen: the whole set.
+
+---
+
+<details>
+<summary><b>More screenshots</b> — classification, reports</summary>
 
 ### Classification: a group, its rules and its classes
 ![Classification group](docs/images/classification-detail.png)
