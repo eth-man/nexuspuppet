@@ -26,7 +26,6 @@ const TOKENS = {
   AUTHORIZATION_POLICY: Symbol.for('nexuspuppet.AuthorizationPolicy'),
   USER_DIRECTORY: Symbol.for('nexuspuppet.UserDirectory'),
   AUDIT_SINK: Symbol.for('nexuspuppet.AuditSink'),
-  LICENSE_SERVICE: Symbol.for('nexuspuppet.LicenseService'),
   PUPPETDB_CLIENT: Symbol.for('nexuspuppet.PuppetDbClient'),
   ENC_FILE_WRITER: Symbol.for('nexuspuppet.EncFileWriter'),
   AUDIT_TRANSPORT: Symbol.for('nexuspuppet.AuditTransport'),
@@ -37,7 +36,6 @@ export const AUTH_PROVIDER = TOKENS.AUTH_PROVIDER;
 export const AUTHORIZATION_POLICY = TOKENS.AUTHORIZATION_POLICY;
 export const USER_DIRECTORY = TOKENS.USER_DIRECTORY;
 export const AUDIT_SINK = TOKENS.AUDIT_SINK;
-export const LICENSE_SERVICE = TOKENS.LICENSE_SERVICE;
 export const PUPPETDB_CLIENT = TOKENS.PUPPETDB_CLIENT;
 export const ENC_FILE_WRITER = TOKENS.ENC_FILE_WRITER;
 export const AUDIT_TRANSPORT = TOKENS.AUDIT_TRANSPORT;
