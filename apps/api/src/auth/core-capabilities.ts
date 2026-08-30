@@ -1,9 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type {
-  AuditRecord,
-  AuditTransaction,
-  IAuditSink,
-} from '@nexuspuppet/contracts';
+import type { AuditRecord, AuditTransaction, IAuditSink } from '@nexuspuppet/contracts';
 import { auditLabel } from './audit-label';
 import { currentRequestId } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';

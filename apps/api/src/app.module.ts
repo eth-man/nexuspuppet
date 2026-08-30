@@ -91,11 +91,7 @@ import { RolesController } from './auth/roles.controller';
 import { LdapMappingSource } from './auth/ldap-mapping-source';
 import { DirectoryMappingSource, OidcMappingSource } from './auth/directory-mapping-source';
 import { TokenService } from './auth/token.service';
-import {
-  BootstrapService,
-    LoginRateLimiter,
-  PrismaAuditSink,
-} from './auth/core-capabilities';
+import { BootstrapService, LoginRateLimiter, PrismaAuditSink } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import type {
