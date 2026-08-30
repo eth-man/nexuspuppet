@@ -1,8 +1,24 @@
 # ADR-0014 — Enterprise licensing: a signed offline claim, and degradation that never touches the estate
 
-- **Status:** Proposed
+- **Status:** Rejected (2026-08-27, never ratified)
 - **Deciders:** Architect
 - **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0003](./0003-enc-generate-dont-serve.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0007](./0007-apache-2-0-for-public-core.md)
+
+
+> **Rejected before ratification.** NexusPuppet became fully open source: every
+> capability that this ADR proposed to gate is now part of the Apache-2.0 core,
+> and there is no entitlement left to verify. The licensing code, the
+> `LICENSE_SERVICE` token, `ILicenseService` and `LicenseStatus` were removed
+> rather than left dormant — an unused entitlement checker is exactly the kind
+> of "documented field that nothing populates" this ADR was written to end.
+>
+> What it got right is worth keeping in mind if licensing ever returns: offline
+> verification with no phone-home, and degradation that never touches
+> classification or the ENC. What it got wrong was the timing — the product had
+> no paying users, so the gate cost adoption and protected nothing.
+>
+> The record below is left intact rather than deleted, because the reasoning
+> about degradation and grace periods outlives the decision itself.
 
 ## Context
 

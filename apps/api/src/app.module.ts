@@ -13,7 +13,6 @@ import {
   AUTH_PROVIDER,
   AUTH_PROVIDERS,
   ENC_FILE_WRITER,
-  LICENSE_SERVICE,
   PUPPETDB_CLIENT,
   USER_DIRECTORY,
   type CapabilityToken,
@@ -92,12 +91,7 @@ import { RolesController } from './auth/roles.controller';
 import { LdapMappingSource } from './auth/ldap-mapping-source';
 import { DirectoryMappingSource, OidcMappingSource } from './auth/directory-mapping-source';
 import { TokenService } from './auth/token.service';
-import {
-  BootstrapService,
-  CoreLicenseService,
-  LoginRateLimiter,
-  PrismaAuditSink,
-} from './auth/core-capabilities';
+import { BootstrapService, LoginRateLimiter, PrismaAuditSink } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import type {
@@ -202,7 +196,6 @@ export class AppModule {
       // enterprise layer). An estate that gains a SIEM must not lose its local
       // audit trail.
       [AUDIT_SINK, { provide: AUDIT_SINK, useExisting: CORE_AUDIT_SINK }],
-      [LICENSE_SERVICE, { provide: LICENSE_SERVICE, useClass: CoreLicenseService }],
       // Core forwards audit records nowhere. That is a complete product, not a
       // gap: the records are in Postgres and queryable. The no-op reports
       // itself unconfigured so the worker leaves the queue alone rather than
@@ -610,8 +603,8 @@ export class AppModule {
           useFactory: (audit: IAuditSink): ConsoleTlsGrantService =>
             new ConsoleTlsGrantService(audit, env.CERT_HELPER_SECRET),
         },
-        // RbacPolicy, LocalUserDirectory, PrismaAuditSink and CoreLicenseService
-        // are NOT registered here. They reach the container only through their
+        // RbacPolicy, LocalUserDirectory and PrismaAuditSink are NOT
+        // registered here. They reach the container only through their
         // capability tokens above (ADR-0002).
         //
         // Registering a class as well as aliasing it is what makes a seam

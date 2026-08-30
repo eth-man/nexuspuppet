@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { CapabilityName } from './tokens';
 
 /**
  * Authentication and authorization contracts (ADR-0006).
@@ -580,21 +579,6 @@ export interface IAuditTransport {
    * backstop and not permission to return a token or client key here.
    */
   currentConfiguration?(): { kind: AuditTransportKind; config: unknown } | null;
-}
-
-export interface LicenseStatus {
-  licensed: boolean;
-  /** Capabilities this deployment may use. Core returns an empty set. */
-  capabilities: CapabilityName[];
-  /** ISO-8601; absent in core. */
-  expiresAt?: string;
-  subject?: string;
-}
-
-/** Core's implementation reports an unlicensed deployment with no capabilities. */
-export interface ILicenseService {
-  status(): Promise<LicenseStatus>;
-  has(capability: CapabilityName): Promise<boolean>;
 }
 
 /**

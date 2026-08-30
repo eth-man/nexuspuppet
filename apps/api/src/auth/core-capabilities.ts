@@ -1,12 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type {
-  AuditRecord,
-  AuditTransaction,
-  CapabilityName,
-  IAuditSink,
-  ILicenseService,
-  LicenseStatus,
-} from '@nexuspuppet/contracts';
+import type { AuditRecord, AuditTransaction, IAuditSink } from '@nexuspuppet/contracts';
 import { auditLabel } from './audit-label';
 import { currentRequestId } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
@@ -84,45 +77,6 @@ export interface AuditCapableClient {
   auditLog: {
     create(args: { data: Record<string, unknown>; select: { id: true } }): Promise<{ id: string }>;
   };
-}
-
-/**
- * Core is unlicensed and has no enterprise capabilities, by definition.
- *
- * This is not a stub to be filled in later — it is the correct answer for the
- * open-core edition.
- *
- * WHAT THE ENTERPRISE LAYER DOES NOT YET DO. This comment used to end "the
- * enterprise layer overrides LICENSE_SERVICE with one that validates a real
- * licence." It does not. Its `register()` returns overrides for AUTH_PROVIDER,
- * AUDIT_SINK and AUDIT_TRANSPORT, and LICENSE_SERVICE appears nowhere outside
- * the binding in app.module.ts below.
- *
- * So an enterprise capability activates today when the package is present and
- * the relevant environment variable is set. Nothing checks an entitlement, and
- * GET /capabilities reports what the BUILD contains rather than what the
- * deployment is licensed for — while `LicenseStatus` continues to advertise
- * `expiresAt` and `subject` that nothing ever populates.
- *
- * The sentence was worse than the gap. Somebody auditing entitlement reads an
- * assertion that the mechanism exists and stops looking, which is how this
- * survived to v1.0.0.
- *
- * ADR-0014 designs the replacement — a signed offline claim, verified in the
- * enterprise layer, degrading to core on expiry rather than refusing to boot.
- * Until it is implemented, this file is the whole of licensing.
- *
- * @see docs/architecture/adr/0014-enterprise-licensing.md
- */
-@Injectable()
-export class CoreLicenseService implements ILicenseService {
-  async status(): Promise<LicenseStatus> {
-    return { licensed: false, capabilities: [] };
-  }
-
-  async has(_capability: CapabilityName): Promise<boolean> {
-    return false;
-  }
 }
 
 /**
