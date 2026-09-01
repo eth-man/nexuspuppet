@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // rootDir is src/ in the base config, for the build. Type-CHECKING the
+    // tests means reaching outside it, and nothing is emitted here anyway.
+    "rootDir": ".",
+    "types": ["node", "jest"]
+  },
+  // `exclude` is INHERITED through extends, and it filters `include` — without
+  // restating it here, the base config's "test" exclusion silently wins and
+  // this project typechecks nothing at all.
+  "exclude": ["dist", "node_modules"],
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

@@ -13,7 +13,7 @@ A web console for Puppet estates running open-source `puppetserver` + PuppetDB, 
 1. **Visibility** — node inventory, facts, run reports, failure triage. Read-only projection of PuppetDB.
 2. **Classification** — a native ENC (External Node Classifier): node groups, fact-based matching rules, class and parameter assignment, stored in PostgreSQL and **materialized to YAML files on disk** for `puppetserver` to consume.
 
-It is delivered as **open core**: a public Apache-2.0 repository containing the entire product above, plus an optional, separately-licensed enterprise layer loaded at runtime.
+It is **fully open source**: one public Apache-2.0 repository containing the entire product, with no paid tier and no feature held back. It was open core until 2026 — the directory and audit integrations lived in a private repository behind a licence — and `packages/enterprise` is what remains of that split: a separate package loaded at runtime, now an internal boundary rather than a commercial one.
 
 ## 2. What NexusPuppet is not
 

@@ -1,0 +1,56 @@
+{
+  "realm": "nexuspuppet",
+  "enabled": true,
+  "sslRequired": "none",
+  "groups": [{ "name": "puppet-admins" }, { "name": "unmapped-folk" }],
+  "clients": [
+    {
+      "clientId": "nexuspuppet",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "test-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://127.0.0.1:3001/auth/callback"],
+      "webOrigins": ["+"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@nexuspuppet.test",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Ng",
+      "credentials": [{ "type": "password", "value": "alice-password", "temporary": false }],
+      "groups": ["/puppet-admins"]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@nexuspuppet.test",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Stone",
+      "credentials": [{ "type": "password", "value": "bob-password", "temporary": false }],
+      "groups": ["/unmapped-folk"]
+    }
+  ]
+}
