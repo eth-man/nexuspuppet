@@ -233,15 +233,24 @@ Test fixtures are **captured from a real estate**, not generated from documentat
 
 ---
 
-## Open core
+## Fully open source
 
-The enterprise layer lives in a separate private repository. This one contains no reference to it. It is fetched by an environment-driven script and discovered at runtime:
+Everything is in this repository, under Apache-2.0. There is no paid tier, no
+licence key and no feature held back — directory authentication (LDAP and
+Active Directory), single sign-on (OIDC), custom roles and audit forwarding are
+all here.
 
-```bash
-NEXUSPUPPET_ENTERPRISE_REPO=... npm run enterprise:fetch && npm install
-```
+It was open core until 2026: the directory and audit integrations lived in a
+private repository, loaded at runtime, and a signed licence decided what a
+deployment could use. That gate protected nothing and cost adoption, so it was
+removed and the code published. See
+[ADR-0014](docs/architecture/adr/0014-enterprise-licensing.md) for the
+reasoning that was abandoned, and why.
 
-Without that variable the script is a no-op and you get the core edition — a complete product, not a demo. See [ADR-0002](docs/architecture/adr/0002-open-core-runtime-discovery.md).
+The runtime-discovery seam it left behind is still in place — `packages/enterprise`
+registers implementations through interfaces in `packages/contracts` rather than
+being imported directly. That is now an internal boundary rather than a
+commercial one.
 
 ---
 

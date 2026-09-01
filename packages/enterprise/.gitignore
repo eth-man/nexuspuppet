@@ -1,0 +1,9 @@
+# This directory becomes its own PRIVATE repository. It is separately ignored
+# by the public repository's .gitignore (ADR-0002), so nothing here can be
+# committed there by accident.
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+certs/

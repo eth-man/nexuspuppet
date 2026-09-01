@@ -14,7 +14,7 @@ layer loaded at runtime.
 apps/api            NestJS      all business logic, authz, PuppetDB, materializer
 apps/web            Next.js     rendering only
 packages/contracts  types       interfaces, DI tokens, Zod schemas
-packages/enterprise private     optional, gitignored, absent in this repo
+packages/enterprise Apache-2.0  LDAP/AD, OIDC, audit forwarding; loaded at runtime
 ```
 
 ## The three rules that are not negotiable
@@ -127,7 +127,6 @@ npm run typecheck
 npm run lint                 # includes the ADR boundary rules
 npm test                     # unit tests
 npm run db:generate          # after any schema.prisma change
-npm run enterprise:fetch     # no-op without NEXUSPUPPET_ENTERPRISE_REPO
 ```
 
 ## Environments

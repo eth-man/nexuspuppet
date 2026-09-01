@@ -29,16 +29,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Assert the enterprise layer is absent
+      - name: Assert the runtime seam and no committed secrets
         run: |
-          if [ -e packages/enterprise ]; then
-            echo "::error::packages/enterprise must never exist in the public repository (ADR-0002)."
-            exit 1
-          fi
-          if [ -e .gitmodules ]; then
-            echo "::error::.gitmodules would publish the private repository URL (ADR-0002)."
-            exit 1
-          fi
+          # The "enterprise layer must not exist" assertion was removed when
+          # NexusPuppet went fully open source (ADR-0002, amended 2026-08-31).
+          # The package now ships here under Apache-2.0. What still holds is
+          # that core must not IMPORT it — the seam keeps the auth and audit
+          # integrations independently testable, and the loader is the one
+          # place allowed to know the package exists.
           if git grep -nIE 'from .@nexuspuppet/enterprise' -- 'apps' 'packages' \
                | grep -v 'enterprise.loader.ts'; then
             echo "::error::Static import of the enterprise package outside the loader (ADR-0002)."
@@ -57,13 +55,9 @@ jobs:
             exit 1
           fi
 
-          echo "Core isolation checks passed."
+          echo "Runtime-seam and secret checks passed."
 
       - run: npm ci
-
-      # No-op without NEXUSPUPPET_ENTERPRISE_REPO. Running it here proves the
-      # script is safe in the public pipeline.
-      - run: npm run enterprise:fetch
 
       # Both shared packages, before anything typechecks against them: consumers
       # resolve them through dist/index.d.ts, absent in a fresh clone.

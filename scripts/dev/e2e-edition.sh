@@ -52,12 +52,13 @@ have_enterprise() { [ -e "$LINK" ] || [ -L "$LINK" ]; }
 
 if [ "$EDITION" = 'enterprise' ] && ! have_enterprise; then
   cat >&2 <<'EOF'
-The enterprise layer is not installed, so there is nothing to test.
+The enterprise layer is missing from packages/enterprise.
 
-  export NEXUSPUPPET_ENTERPRISE_REPO='git@github.com:yourorg/nexuspuppet-enterprise.git'
-  npm run enterprise:fetch
+It ships in this repository now, so this should not happen on a normal
+checkout. Restore it with:
 
-This is expected on an open-core checkout — run `core` instead.
+  git checkout -- packages/enterprise
+  npm install
 EOF
   exit 1
 fi

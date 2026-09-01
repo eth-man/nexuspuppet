@@ -1,0 +1,100 @@
+# Test directory tree for validating LdapAuthProvider.
+#
+# Deliberately shaped to exercise the decisions that matter, not just a happy
+# path. Four accounts:
+#
+#   alice   in ops              -> OPERATOR
+#   bob     in viewers          -> VIEWER
+#   dave    in ops AND admins   -> ADMIN   (highest role wins, not first match)
+#   carol   in no mapped group  -> REFUSED (no default role)
+#
+# Passwords are the plaintext below; slapd hashes them on write. They are known
+# test values in a throwaway container bound to loopback.
+
+dn: ou=people,dc=nexuspuppet,dc=test
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=nexuspuppet,dc=test
+objectClass: organizationalUnit
+ou: groups
+
+# --- service account -------------------------------------------------------
+# Used for the SEARCH bind only. Never for authenticating a person.
+
+dn: cn=svc-nexuspuppet,dc=nexuspuppet,dc=test
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: svc-nexuspuppet
+description: Read-only service account used by NexusPuppet to search for users
+userPassword: svc-password
+
+# --- people ----------------------------------------------------------------
+
+dn: uid=alice,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Ng
+sn: Ng
+displayName: Alice Ng
+mail: alice@nexuspuppet.test
+userPassword: alice-password
+
+dn: uid=bob,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Silva
+sn: Silva
+displayName: Bob Silva
+mail: bob@nexuspuppet.test
+userPassword: bob-password
+
+# No displayName attribute: the provider must fall back to the stored name
+# rather than emitting undefined.
+dn: uid=carol,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol Meyer
+sn: Meyer
+mail: carol@nexuspuppet.test
+userPassword: carol-password
+
+dn: uid=dave,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: dave
+cn: Dave Okafor
+sn: Okafor
+displayName: Dave Okafor
+mail: dave@nexuspuppet.test
+userPassword: dave-password
+
+# --- groups ----------------------------------------------------------------
+# groupOfNames requires at least one member, which is why each lists its people
+# inline rather than being created empty and populated later.
+
+dn: cn=ops,ou=groups,dc=nexuspuppet,dc=test
+objectClass: groupOfNames
+cn: ops
+description: Day-to-day operators
+member: uid=alice,ou=people,dc=nexuspuppet,dc=test
+member: uid=dave,ou=people,dc=nexuspuppet,dc=test
+
+dn: cn=viewers,ou=groups,dc=nexuspuppet,dc=test
+objectClass: groupOfNames
+cn: viewers
+description: Read-only access
+member: uid=bob,ou=people,dc=nexuspuppet,dc=test
+
+dn: cn=puppet-admins,ou=groups,dc=nexuspuppet,dc=test
+objectClass: groupOfNames
+cn: puppet-admins
+description: Full administrative access
+member: uid=dave,ou=people,dc=nexuspuppet,dc=test
+
+# An unmapped group. Carol belongs only to this, so she authenticates
+# successfully and is still refused — the "no default role" rule.
+dn: cn=contractors,ou=groups,dc=nexuspuppet,dc=test
+objectClass: groupOfNames
+cn: contractors
+description: Not mapped to any NexusPuppet role
+member: uid=carol,ou=people,dc=nexuspuppet,dc=test
