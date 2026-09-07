@@ -2,6 +2,45 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] — 2026-09-07
+
+**NexusPuppet is now fully open source.** Directory authentication (LDAP and Active Directory), single sign-on (OIDC), custom roles and audit forwarding move from a private repository into this one, under Apache-2.0. There is no paid tier, no licence key, and no feature held back. **No migration.**
+
+### Changed
+
+**The enterprise layer ships here.** `packages/enterprise` — LDAP/AD, OIDC and audit forwarding — is part of this repository. It carried its own *"Proprietary and Confidential"* LICENSE and declared `"license": "UNLICENSED"`; both are gone, and the root Apache-2.0 licence governs the whole tree.
+
+**Licensing is removed, not disabled.** `LICENSE_SERVICE`, `ILicenseService` and `LicenseStatus` are deleted from `@nexuspuppet/contracts`, and the enterprise layer no longer filters what it registers by entitlement. An unused entitlement checker is precisely the "documented field that nothing populates" that ADR-0014 was written to end, so it was removed rather than left dormant.
+
+**ADR-0014 is Rejected, never ratified.** What it got right is worth keeping if licensing ever returns: offline verification with no phone-home, and degradation that can never touch classification or the ENC. What it got wrong was timing — the product had no paying users, so the gate cost adoption and protected nothing. The record is left intact rather than deleted.
+
+**ADR-0002 is amended, not superseded.** Core still does not import the enterprise package: it depends on interfaces in `@nexuspuppet/contracts`, and the layer registers implementations at runtime. ESLint still forbids a direct import. That seam is now an internal boundary keeping the auth and audit integrations independently testable, rather than a commercial one.
+
+**One `npm install` builds everything.** `packages/enterprise` is a real workspace member: `ldapts` moves from an optional peer dependency to an ordinary one, its private lockfile is gone, and the root lockfile covers it. This ends the split instruction where a deployment host and a development checkout needed different install commands.
+
+### Removed
+
+**`npm run enterprise:fetch`, `scripts/enterprise.mjs`, `NEXUSPUPPET_ENTERPRISE_REPO` and `NEXUSPUPPET_ENTERPRISE_REF`.** They could not survive the code being in-repo: with `packages/enterprise` tracked, the script's existing-checkout branch would run `git -C packages/enterprise fetch`, and with no nested `.git` that walks up and operates on the NexusPuppet repository itself.
+
+### Upgrading
+
+**If you deploy the core edition, nothing changes.** `EDITION=core` still builds an image without `packages/enterprise`, and CI still proves core builds without it.
+
+**If your pipeline calls `enterprise:fetch`, remove that step.** It no longer exists, and the environment variables it read are gone. Node on the deployment host is no longer required for the enterprise edition — Docker is enough, as it always was for core.
+
+**To switch a deployment from core to enterprise**, no licence and no repository access are needed:
+
+```bash
+git fetch --tags && git checkout v1.9.0
+sed -i 's/^EDITION=core/EDITION=enterprise/' .env
+docker compose build api
+docker compose up -d
+```
+
+`GET /capabilities` then reports the capabilities the build contains and that are configured — `directory.ldap` only once LDAP is configured, and so on. `edition` reflects whether the optional package is in the image; it has never indicated a licence, and now indicates nothing commercial at all.
+
+**Switching edition and configuring a directory are separate changes.** Flip the edition, confirm the API boots and local login still works, and only then point it at a directory. Local accounts are never displaced by doing so: `AuthProviderResolver` dispatches on each account's `authSource` and the local provider is never overridden (ADR-0015 §3).
+
 ## [1.8.0] — 2026-08-18
 
 The console can say what a node **does** get, not only what it should. An estate-wide resource search reads the catalogs PuppetDB already indexes and answers the question that is not a lookup: do these nodes AGREE (ADR-0025). **One migration**, `admin_resources_read`, which widens the built-in ADMIN role — see Upgrading.
