@@ -211,54 +211,25 @@ the build if `.gitmodules` appears (ADR-0002). The private layer is fetched from
 an environment variable and discovered at runtime:
 
 ```bash
-# Core edition — skip this section entirely. This is the normal path.
-
-# Enterprise edition — this section, and only this section, needs Node >= 22.12
-# on the host. The core install needs nothing but Docker.
+# Everything ships in this repository. There is no separate layer to fetch and
+# no licence to install -- LDAP/AD, OIDC, custom roles and audit forwarding are
+# all present after a plain checkout.
 #
-# The distribution's `nodejs` package is NOT new enough on Ubuntu 22.04 (it
-# ships 12.x), and `enterprise:fetch` fails in ways that do not mention Node.
-# Install a current one first:
-#   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-#   sudo apt-get install -y nodejs
-export NEXUSPUPPET_ENTERPRISE_REPO='git@github.com:yourorg/nexuspuppet-enterprise.git'
-export NEXUSPUPPET_ENTERPRISE_REF=v1.0.0      # default: main
-npm run enterprise:fetch                       # clones into packages/enterprise/
+# The EDITION build argument still selects what goes into the image:
+#   EDITION=core         omits packages/enterprise (smaller image, no LDAP/OIDC)
+#   EDITION=enterprise   includes it -- the usual choice
 npm install
-npm install ldapts --workspace @nexuspuppet/enterprise   # LDAP deployments only
 ```
 
-> **`npm install` here is correct, and is the opposite of the rule on a
-> development machine.** The root `workspaces` glob is `packages/*`, so on a
-> checkout you commit from, installing with the enterprise layer present writes
-> its dependencies into the public `package-lock.json` — and the
-> `core-isolation` CI job asserts that package does not exist. On a DEPLOYMENT
-> host nothing is ever committed, so there is no such hazard. Do not carry this
-> instruction back to a dev checkout.
+> **`npm install` is now the same instruction everywhere.** It used to differ
+> between a deployment host and a development checkout, because installing with
+> the private layer present would write its dependencies into the public
+> lockfile and CI asserted that package did not exist. The layer is part of the
+> repository now, `ldapts` is an ordinary dependency of it, and one lockfile
+> covers everything.
 
-**That last line is needed again after every `npm install` that replaces
-`packages/enterprise`** — a fresh clone, a new tag, another `enterprise:fetch`.
-It is not a one-off.
-
-`ldapts` is declared as an *optional peer* dependency, so an OIDC-only deployment
-does not pull an LDAP client it will never use. The consequence is that
-`npm install ldapts --workspace …` adds **no** entry to that package's
-`dependencies` — npm treats the install as satisfying the peer — and it survives
-in `package-lock.json` alone. Replace the package and the next `npm install`
-reconciles the tree, finds nothing requiring an optional peer, and removes it.
-
-The deployment then starts, loads the enterprise layer, reports `directory.ldap`
-in `GET /capabilities`, and fails **every** LDAP login with:
-
-```
-The `ldapts` package is not installed, so LDAP authentication cannot run.
-```
-
-Loud and self-explaining, but after deploy rather than during build.
-
-`npm run enterprise:fetch` with no repository set exits 0 with a notice and does
-nothing. That is intended: the public pipeline runs it on every commit to prove
-it is safe.
+Older releases needed Node >= 22.12 on the host to fetch the private layer.
+That step is gone; this install needs nothing but Docker.
 
 The URL belongs in `.env` or your secret store — never in a committed file. The
 fetch script does not echo it, because CI logs get shared.
@@ -1666,7 +1637,6 @@ Also back up `.env` (it holds `JWT_SECRET`) into your secret store. Losing
 ```bash
 cd /opt/nexuspuppet
 git fetch --tags && git checkout <new-tag>
-npm run enterprise:fetch          # enterprise edition only — needs Node on this host
 docker compose build
 docker compose run --rm api npx prisma migrate deploy
 docker compose up -d
@@ -1767,8 +1737,8 @@ SQL
 | A rule matches nothing | The fact is not in `PUPPETDB_PROJECTED_FACTS`. The rule editor warns about this |
 | All nodes get `default.yaml` | The ENC directory is not reaching puppetserver, or is at a different path. Run the script by hand (§6) |
 | Change saved, nodes unchanged | Expected until the node's next Puppet run. Check `EncMaterialization` confirmed it |
-| Enterprise route returns 501 | Core edition. The feature exists; this deployment lacks it. Not a bug |
-| `npm install` fails on `packages/enterprise` | `enterprise:fetch` ran with a repo URL you cannot clone. Unset it for the core edition |
+| A route returns 501 | The image was built with `EDITION=core`, which omits `packages/enterprise`. Rebuild with `EDITION=enterprise` |
+| `npm install` fails on `packages/enterprise` | Stale `node_modules` or a partial checkout. `git checkout -- packages/enterprise && npm install` |
 
 ## Security checklist
 

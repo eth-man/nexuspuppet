@@ -1,0 +1,33 @@
+# A real OpenID Connect provider, for verifying the OIDC layer against
+# something that actually implements the spec.
+#
+#   sudo docker compose -f docker-compose.oidc.yml up -d
+#
+# Every test above this file uses signatures we generate ourselves. That proves
+# the verifier accepts what it should and refuses what it should not — it does
+# NOT prove we speak the protocol a real provider speaks: the discovery
+# document's shape, the claims Keycloak actually emits, how groups are
+# formatted, whether PKCE is accepted as sent.
+#
+# Development fixture. Never deployed.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: nexuspuppet-test-oidc
+    command: ['start-dev', '--import-realm', '--http-port=8092']
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: 'true'
+    volumes:
+      - ./test/oidc/realm.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - '127.0.0.1:8092:8092'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/127.0.0.1/8092 && echo -e 'GET /realms/nexuspuppet HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | head -1 | grep -q 200"
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 40s

@@ -4,6 +4,23 @@
 - **Deciders:** Project owner, architect
 - **Related:** [ADR-0001](./0001-typescript-monorepo-npm-workspaces.md), [ADR-0007](./0007-apache-2-0-for-public-core.md)
 
+
+> **Amended 2026-08-31.** NexusPuppet became fully open source. The enterprise
+> layer is no longer private, no longer fetched, and no longer separately
+> licensed — `packages/enterprise` ships in this repository under Apache-2.0,
+> and `scripts/enterprise.mjs` (the environment-driven clone described below)
+> has been deleted along with `NEXUSPUPPET_ENTERPRISE_REPO` and
+> `NEXUSPUPPET_ENTERPRISE_REF`.
+>
+> **What still holds:** core does not import the package. It depends on
+> interfaces in `@nexuspuppet/contracts`, and the layer registers
+> implementations at runtime through `EnterpriseLoader`. ESLint still forbids a
+> direct import. That seam is now an internal boundary — it keeps the auth and
+> audit integrations independently testable — rather than a commercial one.
+>
+> Whether the seam still earns its keep with nothing private behind it is a
+> separate question, deliberately not answered here.
+
 ## Context
 
 NexusPuppet ships as open core: a public Apache-2.0 repository containing the whole product, plus a private enterprise layer (SSO, advanced RBAC, licensing) that only paying deployments receive.

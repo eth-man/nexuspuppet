@@ -12,7 +12,6 @@
     "apps/*"
   ],
   "scripts": {
-    "enterprise:fetch": "node scripts/enterprise.mjs",
     "build": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run build --workspaces --if-present",
     "typecheck": "npm run build --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant && npm run typecheck --workspaces --if-present && npm run typecheck:e2e",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
@@ -23,7 +22,6 @@
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
     "test:e2e:core": "./scripts/dev/e2e-edition.sh core",
-    "test:e2e:enterprise": "./scripts/dev/e2e-edition.sh enterprise",
     "db:generate": "npm run db:generate --workspace @nexuspuppet/api",
     "db:migrate": "npm run db:migrate --workspace @nexuspuppet/api",
     "db:deploy": "npm run db:deploy --workspace @nexuspuppet/api",
@@ -33,7 +31,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:puppetdb": "node scripts/test-puppetdb.mjs",
     "qa:fuzz": "node scripts/qa/fuzz.mjs",
-    "qa:contrast": "node scripts/qa/contrast.mjs"
+    "qa:contrast": "node scripts/qa/contrast.mjs",
+    "test:e2e:enterprise": "./scripts/dev/e2e-edition.sh enterprise"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,0 +1,72 @@
+# A throwaway OpenLDAP for validating the LDAP provider against a real
+# directory server rather than a fake.
+#
+#   ./test/ldap/up.sh          bring it up, load the tree, enable memberOf
+#   npm run test:ldap          run the integration suite against it
+#   docker compose -f docker-compose.ldap.yml down -v
+#
+# Test fixture only. The admin password is in this file on purpose — this
+# container holds nothing real, is bound to loopback, and is destroyed after
+# each run. Nothing here is a template for a deployment.
+
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: nexuspuppet-test-ldap
+    # osixia generates the TLS certificate for the container's hostname, and it
+    # is the only name in the SAN. Left to default it would be the container ID,
+    # so verifying ldaps://localhost:6360 would fail on the HOSTNAME rather than
+    # on trust — and a test asserting "verification works" would be asserting
+    # the wrong thing. Pinning it to the name we actually connect to keeps the
+    # CA the only variable.
+    hostname: localhost
+    # --copy-service is required for the bootstrap LDIF mount to be read.
+    command: ['--copy-service', '--loglevel', 'info']
+    environment:
+      LDAP_ORGANISATION: NexusPuppet Test
+      LDAP_DOMAIN: nexuspuppet.test
+      LDAP_BASE_DN: dc=nexuspuppet,dc=test
+      LDAP_ADMIN_PASSWORD: test-admin-password
+      LDAP_CONFIG_PASSWORD: test-config-password
+      # TLS is on by default with a self-signed CA the container generates.
+      # The suite exercises both ldap:// and ldaps:// — see the note in
+      # ldap-integration.spec.ts about why a CA path matters on-prem.
+      LDAP_TLS: 'true'
+      LDAP_TLS_VERIFY_CLIENT: 'never'
+      # Our own CA — see up.sh. The image's is expired.
+      LDAP_TLS_CRT_FILENAME: ldap.crt
+      LDAP_TLS_KEY_FILENAME: ldap.key
+      LDAP_TLS_CA_CRT_FILENAME: ca.crt
+    # No bootstrap LDIF mount, deliberately. osixia applies those at FIRST
+    # BOOT, which is before the memberOf overlay can be enabled — and that
+    # overlay only populates memberOf for entries written after it is active.
+    # Loading the tree afterwards, from up.sh, is what makes group membership
+    # actually appear. See test/ldap/up.sh.
+    volumes:
+      - ./test/ldap/certs:/container/service/slapd/assets/certs
+    ports:
+      # Loopback only. This directory contains test accounts with known
+      # passwords and must never be reachable from the network.
+      - '127.0.0.1:3890:389'
+      - '127.0.0.1:6360:636'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'ldapsearch',
+          '-x',
+          '-H',
+          'ldap://localhost:389',
+          '-b',
+          'dc=nexuspuppet,dc=test',
+          '-D',
+          'cn=admin,dc=nexuspuppet,dc=test',
+          '-w',
+          'test-admin-password',
+          '-s',
+          'base',
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s

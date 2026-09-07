@@ -1,0 +1,41 @@
+{
+  "name": "@nexuspuppet/enterprise",
+  "version": "0.1.0",
+  "description": "NexusPuppet directory authentication (LDAP/AD), single sign-on (OIDC) and audit forwarding, discovered at runtime.",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+    "test": "jest",
+    "clean": "rm -rf dist coverage tsconfig.tsbuildinfo",
+    "test:ldap": "jest --config jest.ldap.config.js",
+    "ldap:up": "./test/ldap/up.sh",
+    "ldap:down": "docker compose -f docker-compose.ldap.yml down -v"
+  },
+  "dependencies": {
+    "@nexuspuppet/contracts": "*",
+    "ldapts": "^9.0.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.1.28"
+  },
+  "peerDependenciesMeta": {
+    "ldapts": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.10.2",
+    "jest": "^30.0.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "~5.9.3"
+  }
+}

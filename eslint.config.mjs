@@ -21,7 +21,6 @@ export default tseslint.config(
       '**/.next/**',
       '**/coverage/**',
       '**/node_modules/**',
-      'packages/enterprise/**',
       '**/*.config.mjs',
       '**/.prisma/**',
       'apps/api/src/generated/**',

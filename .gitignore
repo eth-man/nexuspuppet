@@ -39,10 +39,6 @@ certs/*
 # key material never reaches the repository, whatever the estate.
 certs-openvox/
 
-# ADR-0002: the private enterprise layer is fetched by scripts/enterprise.mjs
-# from NEXUSPUPPET_ENTERPRISE_REPO. It is never committed here, and this
-# repository contains no reference to its location.
-packages/enterprise/
 
 # Fixtures may contain real hostnames and facts from a customer estate.
 # Commit only anonymized samples, explicitly un-ignored.
