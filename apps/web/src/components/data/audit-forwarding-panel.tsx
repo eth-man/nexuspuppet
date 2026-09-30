@@ -9,7 +9,7 @@ import type {
   SyslogSettings,
   WebhookSettings,
 } from '@nexuspuppet/contracts';
-import { useAuditForwarding, useCapabilities } from '@/lib/queries';
+import { useAuditForwarding } from '@/lib/queries';
 import {
   useClearAuditTransport,
   useSaveAuditTransport,
@@ -20,7 +20,6 @@ import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { CapabilityCard } from '@/components/ui/capability-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -59,20 +58,8 @@ export function AuditForwardingPanel() {
   const { can } = useAuth();
   const manages = can('settings:manage');
 
-  /*
-   * Entitlement is the capability, not a licence flag. `audit.export` is
-   * advertised only when a transport that can actually send is registered.
-   *
-   * Without it each card renders as a header alone (see CapabilityCard). This
-   * used to render the whole form with every input disabled, so an open-core
-   * operator could see what the enterprise layer offers — the discoverability
-   * survives in the header; the screen of unfillable fields does not.
-   */
-  const capabilities = useCapabilities();
-  const licensed = capabilities.data?.capabilities.includes('audit.export') === true;
-
-  // Fetched in every edition — core owns the endpoint, and a disabled query
-  // pends forever (learned on the directory card).
+  // Every deployment can forward (ADR-0027), so both cards are always real
+  // forms. Until then each rendered as a header alone without `audit.export`.
   const stored = useAuditForwarding(manages);
   const setActive = useSetActiveAuditTransport();
 
@@ -99,7 +86,6 @@ export function AuditForwardingPanel() {
       <SyslogCard
         view={view.syslog}
         active={view.active === 'syslog'}
-        licensed={licensed}
         onError={setError}
         onMakeActive={() => {
           setError(null);
@@ -111,7 +97,6 @@ export function AuditForwardingPanel() {
       <WebhookCard
         view={view.webhook}
         active={view.active === 'webhook'}
-        licensed={licensed}
         onError={setError}
         onMakeActive={() => {
           setError(null);
@@ -129,7 +114,7 @@ export function AuditForwardingPanel() {
         find by accident. The bar states what is currently on, so the button
         has a subject.
       */}
-      {licensed && view.active !== 'none' && (
+      {view.active !== 'none' && (
         <div className="flex items-center justify-between gap-3 rounded border border-line-soft bg-panel px-3 py-2">
           <p className="min-w-0 text-2xs text-ink-faint">
             Forwarding is on, via <span className="font-mono text-ink-muted">{view.active}</span>.
@@ -237,14 +222,12 @@ function syslogFormFrom(config: SyslogSettings | null): SyslogForm {
 function SyslogCard({
   view,
   active,
-  licensed,
   onError,
   onMakeActive,
   switching,
 }: {
   view: SettingsView<SyslogSettings>;
   active: boolean;
-  licensed: boolean;
   onError: (message: string | null) => void;
   onMakeActive: () => void;
   switching: boolean;
@@ -295,29 +278,8 @@ function SyslogCard({
   const fail = (caught: unknown) =>
     onError(caught instanceof ApiError ? caught.message : String(caught));
 
-  /*
-   * Without the capability, the header and nothing else. Every field below is
-   * unreachable — the API answers 501 whatever is typed into them — so drawing
-   * a dozen greyed-out inputs only pushes the settings this deployment CAN use
-   * off the screen.
-   *
-   * Returned before the hooks' work is used, never before the hooks themselves:
-   * they all run above this line, so the order is identical in both editions.
-   */
-  if (!licensed) {
-    return (
-      <CapabilityCard
-        title="Syslog"
-        description="Forward audit records to a syslog collector (RFC 5424)."
-        capability="audit.export"
-        note="Audit records are still written and retained locally."
-      />
-    );
-  }
-
   return (
     <div className="space-y-3">
-      {/* Licensed past this point — the unlicensed case returned above. */}
       <fieldset disabled={!editing} className="min-w-0">
         <Card>
           <CardHeader>
@@ -496,57 +458,55 @@ function SyslogCard({
 
       {editing && changes.length > 0 && <PendingChanges lines={changes} />}
 
-      {licensed && (
-        <TransportActions
-          editing={editing}
-          active={active}
-          configured={view.source === 'database'}
-          busy={save.isPending || clear.isPending || test.isPending || switching}
-          blocked={blocked}
-          testing={test.isPending}
-          saving={save.isPending}
-          updatedAt={view.updatedAt}
-          updatedByEmail={view.updatedByEmail}
-          onEdit={() => setEditing(true)}
-          onCancel={() => {
-            // Back to what is stored, not to what was typed.
-            setForm(syslogFormFrom(view.config));
-            setSecret('');
-            setResult(null);
-            onError(null);
-            setEditing(false);
-          }}
-          onTest={() => {
-            onError(null);
-            test.mutate(
-              { kind: 'syslog', config: submission() },
-              { onSuccess: setResult, onError: fail },
-            );
-          }}
-          onSave={() => {
-            onError(null);
-            save.mutate(
-              { kind: 'syslog', config: submission() },
-              {
-                onSuccess: () => {
-                  setSecret('');
-                  setEditing(false);
-                },
-                onError: fail,
+      <TransportActions
+        editing={editing}
+        active={active}
+        configured={view.source === 'database'}
+        busy={save.isPending || clear.isPending || test.isPending || switching}
+        blocked={blocked}
+        testing={test.isPending}
+        saving={save.isPending}
+        updatedAt={view.updatedAt}
+        updatedByEmail={view.updatedByEmail}
+        onEdit={() => setEditing(true)}
+        onCancel={() => {
+          // Back to what is stored, not to what was typed.
+          setForm(syslogFormFrom(view.config));
+          setSecret('');
+          setResult(null);
+          onError(null);
+          setEditing(false);
+        }}
+        onTest={() => {
+          onError(null);
+          test.mutate(
+            { kind: 'syslog', config: submission() },
+            { onSuccess: setResult, onError: fail },
+          );
+        }}
+        onSave={() => {
+          onError(null);
+          save.mutate(
+            { kind: 'syslog', config: submission() },
+            {
+              onSuccess: () => {
+                setSecret('');
+                setEditing(false);
               },
-            );
-          }}
-          onMakeActive={onMakeActive}
-          onDiscard={
-            view.source === 'database' && !active
-              ? () => {
-                  onError(null);
-                  clear.mutate('syslog', { onError: fail });
-                }
-              : undefined
-          }
-        />
-      )}
+              onError: fail,
+            },
+          );
+        }}
+        onMakeActive={onMakeActive}
+        onDiscard={
+          view.source === 'database' && !active
+            ? () => {
+                onError(null);
+                clear.mutate('syslog', { onError: fail });
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }
@@ -556,14 +516,12 @@ function SyslogCard({
 function WebhookCard({
   view,
   active,
-  licensed,
   onError,
   onMakeActive,
   switching,
 }: {
   view: SettingsView<WebhookSettings>;
   active: boolean;
-  licensed: boolean;
   onError: (message: string | null) => void;
   onMakeActive: () => void;
   switching: boolean;
@@ -596,18 +554,6 @@ function WebhookCard({
   const changes = describeWebhookChanges(view.config, url, secret !== '');
   const fail = (caught: unknown) =>
     onError(caught instanceof ApiError ? caught.message : String(caught));
-
-  // See SyslogCard: header only, no unreachable form.
-  if (!licensed) {
-    return (
-      <CapabilityCard
-        title="Webhook"
-        description="POST audit records to an HTTP endpoint."
-        capability="audit.export"
-        note="Audit records are still written and retained locally."
-      />
-    );
-  }
 
   return (
     <div className="space-y-3">
@@ -693,56 +639,54 @@ function WebhookCard({
 
       {editing && changes.length > 0 && <PendingChanges lines={changes} />}
 
-      {licensed && (
-        <TransportActions
-          editing={editing}
-          active={active}
-          configured={view.source === 'database'}
-          busy={save.isPending || clear.isPending || test.isPending || switching}
-          blocked={blocked}
-          testing={test.isPending}
-          saving={save.isPending}
-          updatedAt={view.updatedAt}
-          updatedByEmail={view.updatedByEmail}
-          onEdit={() => setEditing(true)}
-          onCancel={() => {
-            setUrl(view.config?.url ?? '');
-            setSecret('');
-            setResult(null);
-            onError(null);
-            setEditing(false);
-          }}
-          onTest={() => {
-            onError(null);
-            test.mutate(
-              { kind: 'webhook', config: submission() },
-              { onSuccess: setResult, onError: fail },
-            );
-          }}
-          onSave={() => {
-            onError(null);
-            save.mutate(
-              { kind: 'webhook', config: submission() },
-              {
-                onSuccess: () => {
-                  setSecret('');
-                  setEditing(false);
-                },
-                onError: fail,
+      <TransportActions
+        editing={editing}
+        active={active}
+        configured={view.source === 'database'}
+        busy={save.isPending || clear.isPending || test.isPending || switching}
+        blocked={blocked}
+        testing={test.isPending}
+        saving={save.isPending}
+        updatedAt={view.updatedAt}
+        updatedByEmail={view.updatedByEmail}
+        onEdit={() => setEditing(true)}
+        onCancel={() => {
+          setUrl(view.config?.url ?? '');
+          setSecret('');
+          setResult(null);
+          onError(null);
+          setEditing(false);
+        }}
+        onTest={() => {
+          onError(null);
+          test.mutate(
+            { kind: 'webhook', config: submission() },
+            { onSuccess: setResult, onError: fail },
+          );
+        }}
+        onSave={() => {
+          onError(null);
+          save.mutate(
+            { kind: 'webhook', config: submission() },
+            {
+              onSuccess: () => {
+                setSecret('');
+                setEditing(false);
               },
-            );
-          }}
-          onMakeActive={onMakeActive}
-          onDiscard={
-            view.source === 'database' && !active
-              ? () => {
-                  onError(null);
-                  clear.mutate('webhook', { onError: fail });
-                }
-              : undefined
-          }
-        />
-      )}
+              onError: fail,
+            },
+          );
+        }}
+        onMakeActive={onMakeActive}
+        onDiscard={
+          view.source === 'database' && !active
+            ? () => {
+                onError(null);
+                clear.mutate('webhook', { onError: fail });
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

@@ -87,10 +87,10 @@ export class SettingsController {
    * against the login screen is how people lock themselves out. Testing first
    * costs one bind.
    *
-   * Core cannot do the work — the LDAP client lives in the enterprise layer,
-   * which core may not import (ADR-0002) — so it asks the registered provider
-   * through `verifyConfiguration`. When no provider can answer, that is
-   * reported plainly rather than pretended to succeed.
+   * The work belongs to the provider, which owns the LDAP client, so this asks
+   * the registered provider through `verifyConfiguration`. When no provider can
+   * answer — LDAP_URL was not set at boot — that is reported plainly rather
+   * than pretended to succeed.
    */
   /**
    * The OIDC configuration in force, without secrets.

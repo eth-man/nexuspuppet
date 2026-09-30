@@ -4,6 +4,22 @@
 - **Deciders:** Architect
 - **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0014](./0014-enterprise-licensing.md), [ADR-0015](./0015-hybrid-authentication.md)
 
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** Audit forwarding
+> is no longer licensed, and it no longer sits under an `audit.export`
+> capability. The syslog and webhook transports are registered in every
+> deployment, the console's cards are always real forms, and the API never
+> answers `501` for them. The "Enterprise, under the capability that already
+> exists" subsection and its 501-not-404 convention are retired.
+>
+> The provider-baseline mechanism in §2 still works as described, but its
+> reason has changed. The LDAP/OIDC parsers now live in `apps/api` itself, so
+> nothing prevents core from reading the variables. The settings surface keeps
+> asking the provider so there are not two parsers that could disagree.
+> "Which providers exist at all" is still fixed at boot, now by configuration
+> (`LDAP_URL`, `OIDC_ISSUER`) rather than by capability registration.
+> Everything else stands: the settings store, retention, and one active
+> transport at a time.
+
 ## Context
 
 Every enterprise capability is configured by environment variable, which means every change is an SSH session, a file edit and a restart. That is defensible for a secret at first boot and rigid for everything after it — an operator correcting an LDAP search base should not need shell access to the host.

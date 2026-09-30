@@ -22,8 +22,8 @@ const HAS_EDITABLE_CARD = new Set(['ldap', 'oidc']);
  * card (#106) — whose mappings still come from the environment and are worth
  * seeing without reading a container's environment over someone's shoulder.
  *
- * Rendered without interpretation: core does not know what LDAP is, and the
- * provider decides what is safe to show (ADR-0002).
+ * Rendered without interpretation: the panel does not know what LDAP is, and
+ * the provider decides what is safe to show.
  */
 export function AuthProviderPanel() {
   const { can } = useAuth();

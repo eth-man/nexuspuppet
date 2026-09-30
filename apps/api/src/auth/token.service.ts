@@ -76,11 +76,11 @@ export class TokenService {
      * The RESOLVER, not a single provider (ADR-0015).
      *
      * This used to be `@Inject(AUTH_PROVIDER)`, one provider for the whole
-     * deployment — so an enterprise directory did not sit beside local
-     * authentication, it replaced it, and every local account lost its way in.
-     * The resolver dispatches by the account's authSource and fails closed when
-     * a source has no provider, which is what makes a refresh survive a licence
-     * expiry as a clean logout rather than a crash.
+     * deployment — so a directory did not sit beside local authentication, it
+     * replaced it, and every local account lost its way in. The resolver
+     * dispatches by the account's authSource and fails closed when a source has
+     * no provider, which is what makes a refresh survive a directory being
+     * switched off as a clean logout rather than a crash.
      */
     private readonly authProvider: AuthProviderResolver,
     private readonly options: TokenServiceOptions,
@@ -242,8 +242,8 @@ export class TokenService {
       displayName: typeof displayName === 'string' ? displayName : email,
       role: role as AuthenticatedPrincipal['role'],
       authSource: typeof authSource === 'string' ? authSource : 'unknown',
-      // Enterprise scoped RBAC travels in the token so authorization stays a
-      // pure function of the principal (ADR-0006).
+      // Scoped RBAC (not yet built) travels in the token so authorization
+      // stays a pure function of the principal (ADR-0006).
       ...(Array.isArray(scopedGroupIds) ? { scopedGroupIds: scopedGroupIds as string[] } : {}),
       ...(Array.isArray(scopedEnvironments)
         ? { scopedEnvironments: scopedEnvironments as string[] }

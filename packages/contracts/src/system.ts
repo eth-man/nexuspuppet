@@ -78,14 +78,15 @@ export const auditDeliveryHealthSchema = z.object({
 /**
  * The audit forwarding pipeline, as an operator should see it (ADR-0016 §5).
  *
- * Present in EVERY edition, unlike `auditDelivery` above — the unlicensed
- * case is a state to report ("forwarding unavailable, here is the capability"),
- * not a section to omit. A pending queue growing while nothing can send is an
- * operational alarm, and an alarm that renders as an absent field is silent.
+ * Always present, unlike `auditDelivery` above — "forwarding is off" is a
+ * state to report, not a section to omit. A pending queue growing while
+ * nothing can send is an operational alarm, and an alarm that renders as an
+ * absent field is silent.
+ *
+ * There is no `available` flag: since ADR-0027 every deployment can forward,
+ * so the only questions are which transport is active and whether it can send.
  */
 export const auditForwardingHealthSchema = z.object({
-  /** Whether this deployment can forward at all — the `audit.export` capability. */
-  available: z.boolean(),
   active: z.enum(['syslog', 'webhook', 'none']),
   /** Whether the registered transport can send right now. */
   configured: z.boolean(),
@@ -283,7 +284,7 @@ export const systemStatusSchema = z.object({
   projection: projectionHealthSchema,
   /**
    * Absent on a deployment built before replication existed, so an older
-   * console and a newer API still agree (ADR-0002).
+   * console and a newer API still agree.
    */
   replication: encReplicationHealthSchema.optional(),
   /** Whether this response includes error detail, so the UI need not guess. */
@@ -302,8 +303,8 @@ export type SystemStatus = z.infer<typeof systemStatusSchema>;
 /**
  * Where operational notifications are POSTed (ADR-0021 §4).
  *
- * Deliberately not the audit webhook. That one lives under `audit.export` and
- * carries audit records; this is core and carries conditions only. Two
+ * Deliberately not the audit webhook. That one carries audit records; this
+ * carries conditions only. Two
  * destinations, so the boundary is enforced by which transport is used rather
  * than by remembering.
  */
@@ -354,8 +355,8 @@ export type NotificationEmailSettings = z.infer<typeof notificationEmailSettings
  * The body POSTed on an edge.
  *
  * CONDITIONS ONLY (ADR-0021 binding constraint 1). No person, no action,
- * nothing from `AuditLog` — that is what keeps this feature in core rather
- * than behind `audit.export`.
+ * nothing from `AuditLog` — that is what keeps this feature a separate
+ * channel from audit forwarding.
  */
 export const notificationPayloadSchema = z.object({
   transition: z.enum(['opened', 'resolved']),
@@ -390,8 +391,8 @@ export type SetLogLevel = z.infer<typeof setLogLevelSchema>;
  * An operational condition that is currently open (ADR-0021).
  *
  * Describes the DEPLOYMENT'S HEALTH and never a person or an action they took.
- * That boundary is what lets notifications live in core while audit forwarding
- * requires `audit.export` — the test being: does the message name somebody?
+ * That boundary is what keeps notifications separate from audit forwarding —
+ * the test being: does the message name somebody?
  */
 export const operationalConditionSchema = z.object({
   /** Stable, including the instance for per-peer conditions. */

@@ -52,4 +52,4 @@ The reason is [ADR-0003](./0003-enc-generate-dont-serve.md): if materialization 
 - **Proxy raw PQL from the frontend.** Fast to build, and hands every authenticated user full estate read access plus a query-of-death denial-of-service vector. Rejected.
 - **Mirror all of PuppetDB into Postgres.** Removes the runtime dependency for reads, at the cost of reimplementing PuppetDB's storage and accepting permanent replication lag. Rejected as vastly disproportionate.
 - **Query PuppetDB live during materialization.** Simpler, fresher facts, and directly contradicts ADR-0003. Rejected.
-- **Use the PE Orchestrator/RBAC API for scoping.** Not available on open-source Puppet, which the intake fixes as the core target. Available to the enterprise layer as a future capability.
+- **Use the PE Orchestrator/RBAC API for scoping.** Not available on open-source Puppet, which the intake fixes as the core target. Could be added later as an optional integration for Puppet Enterprise estates.

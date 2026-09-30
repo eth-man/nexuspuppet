@@ -709,13 +709,14 @@ describe('classification writes (integration)', () => {
   /**
    * The AUDIT_SINK seam, end to end.
    *
-   * The structural test in capability-wiring.spec.ts proves nothing INJECTS
+   * The structural test in app.wiring.spec.ts proves nothing INJECTS
    * PrismaAuditSink any more. This proves the consequence that actually
-   * matters: a sink registered by the enterprise layer genuinely receives
-   * classification events. Before the fix it would have been constructed,
-   * held by the container, and never called — a SIEM reporting silence for an
-   * estate that was being reclassified, which is worse than no SIEM at all
-   * because silence reads as "no changes".
+   * matters: whatever sink is bound to AUDIT_SINK — the forwarding sink, in
+   * the running API — genuinely receives classification events. Before the
+   * fix it would have been constructed, held by the container, and never
+   * called — a SIEM reporting silence for an estate that was being
+   * reclassified, which is worse than no SIEM at all because silence reads as
+   * "no changes".
    */
   describe('the audit seam', () => {
     /** Records what it is given, and writes nothing. */

@@ -2,7 +2,18 @@
 
 - **Status:** Accepted
 - **Deciders:** Project owner, architect
-- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md)
+- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** There is no
+> enterprise layer and no "core" edition: LDAP/AD and OIDC providers live in
+> `apps/api/src/directory/` and are registered at boot when `LDAP_URL` or
+> `OIDC_ISSUER` is set. They were already contributed *alongside* the local
+> provider rather than overriding `AUTH_PROVIDER` ([ADR-0015](./0015-hybrid-authentication.md)).
+> The "Enterprise-only endpoints in core" convention below — `501` with a
+> `capability` field — is **retired**; no route answers `501` because a
+> deployment lacks a feature. What stands: authentication and authorization
+> are separate contracts, local accounts on `node:crypto` scrypt, and guards
+> that fail closed.
 
 ## Context
 

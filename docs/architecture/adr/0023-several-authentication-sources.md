@@ -5,7 +5,17 @@
 - **Related:** [ADR-0015](./0015-hybrid-authentication.md) (supersedes its "not
   multi-directory" consequence), [ADR-0006](./0006-auth-local-jwt-modular-sso.md),
   [ADR-0002](./0002-open-core-runtime-discovery.md),
-  [ADR-0014](./0014-enterprise-licensing.md)
+  [ADR-0014](./0014-enterprise-licensing.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** §1's
+> `directory.ldap` / `sso.oidc` capabilities no longer exist, and neither does
+> the enterprise layer that emitted them. The decision survives in plain
+> configuration terms. The LDAP provider is registered when `LDAP_URL` is set,
+> the OIDC provider when `OIDC_ISSUER` is, and both may be. The console's
+> directory cards key on whether their provider is running. There is no
+> "locked" card any more, only one that says which variable enables it. The
+> binding constraints are unchanged, and constraint 3's "in every edition"
+> now just means "always".
 
 ## Context
 

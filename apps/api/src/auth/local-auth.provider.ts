@@ -14,9 +14,10 @@ import { hashPassword, needsRehash, verifyPassword } from './password';
 /**
  * Local account authentication (ADR-0006).
  *
- * Registered by core under the AUTH_PROVIDER token. The enterprise layer may
- * replace it with LDAP, SAML, or OIDC; nothing downstream changes, because
- * everything downstream consumes only AuthenticatedPrincipal.
+ * Registered under the AUTH_PROVIDER token and always first in AUTH_PROVIDERS.
+ * LDAP and OIDC providers are added ALONGSIDE it, never instead of it
+ * (ADR-0015); nothing downstream changes, because everything downstream
+ * consumes only AuthenticatedPrincipal.
  *
  * This class deliberately knows nothing about JWTs, cookies, refresh tokens, or
  * permissions. Session issuance lives in TokenService and authorization in

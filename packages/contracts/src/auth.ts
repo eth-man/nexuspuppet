@@ -3,10 +3,10 @@ import { z } from 'zod';
 /**
  * Authentication and authorization contracts (ADR-0006).
  *
- * Authentication and authorization are deliberately SEPARATE contracts. The
- * enterprise layer replaces authorization (scoped RBAC) without touching
- * authentication, and vice versa. Coupling them would force enterprise to
- * reimplement both in order to change one.
+ * Authentication and authorization are deliberately SEPARATE contracts. A
+ * scoped authorization policy (not yet built) could replace RBAC without
+ * touching authentication, and directory providers were added without touching
+ * authorization. Coupling them would force a change to one to reimplement both.
  */
 
 /**
@@ -71,7 +71,7 @@ export interface AuthenticatedPrincipal {
   /** Identifier of the provider that authenticated this principal, for audit. */
   authSource: string;
   /**
-   * Enterprise scoped-RBAC may narrow a principal to specific groups or
+   * Scoped RBAC (not yet built) may narrow a principal to specific groups or
    * environments. Empty/undefined means estate-wide, subject to `role`.
    */
   scopedGroupIds?: string[];
@@ -89,9 +89,9 @@ export interface AuthenticatedPrincipal {
  * and normalise it, LDAP matches it against whatever `LDAP_SEARCH_FILTER`
  * names.
  *
- * It keeps the name `email` because that is what it is for every provider core
- * ships, and renaming the wire field would break every existing client for a
- * case that only arises with the enterprise layer installed.
+ * It keeps the name `email` because that is what it is for local accounts and
+ * most directories, and renaming the wire field would break every existing
+ * client for a case that only arises with an AD directory configured.
  *
  * Length is still bounded: an unbounded identifier is a free memcpy into
  * whatever the directory does with it.
@@ -116,9 +116,9 @@ export type AuthResult =
  *
  * This exists so ROUTING stays fixed while the provider varies. `POST /auth/login`
  * is the login route under every provider; a redirect-mode provider answers it
- * with a 303 and a location instead of a session. Without this the enterprise
- * layer would have to add its own routes, and core would need to know they
- * exist — which is precisely the coupling ADR-0002 forbids.
+ * with a 303 and a location instead of a session. Without this each
+ * redirect-mode provider would have to add its own routes, and the auth
+ * controller would need to know they exist.
  */
 export const authModeSchema = z.enum(['credentials', 'redirect']);
 export type AuthMode = z.infer<typeof authModeSchema>;
@@ -156,9 +156,9 @@ export interface RedirectChallenge {
 }
 
 /**
- * Authenticates a principal. Core registers LocalAuthProvider; the enterprise
- * layer may override the AUTH_PROVIDER token with an LDAP, SAML, or OIDC
- * provider.
+ * Authenticates a principal. LocalAuthProvider is always registered (and bound
+ * to AUTH_PROVIDER); LDAP and OIDC providers are added ALONGSIDE it in
+ * AUTH_PROVIDERS when configured, and dispatched by `authSource` (ADR-0015).
  *
  * CONTRACT FOR IMPLEMENTORS
  * -------------------------
@@ -212,16 +212,15 @@ export interface IAuthProvider {
   /**
    * Try a CANDIDATE configuration without adopting it (ADR-0016 §4).
    *
-   * The settings screen offers a Test button, and core cannot implement it:
-   * reaching a directory needs the client, and that lives in the enterprise
-   * layer which core may not import (ADR-0002). So the provider does the work
-   * and core owns the endpoint.
+   * The settings screen offers a Test button. Reaching a directory needs the
+   * provider's own client, so the provider does the work and the settings
+   * surface owns the endpoint.
    *
    * MUST NOT mutate anything. Not the live configuration, not a connection
    * pool, not a cached bind. An operator testing a typo must not disturb the
    * directory the deployment is currently using.
    *
-   * Optional, because a provider with nothing to reach — core's local one — has
+   * Optional, because a provider with nothing to reach — the local one — has
    * nothing to test.
    */
   verifyConfiguration?(config: unknown): Promise<ProviderVerification>;
@@ -230,9 +229,10 @@ export interface IAuthProvider {
    * Report the configuration this provider is CURRENTLY running with.
    *
    * The settings screen has to open on something. When a deployment configures
-   * its directory through the environment — every enterprise install before this
-   * feature existed — core has no way to show it: the variables are parsed by
-   * the enterprise layer, and core may not import it (ADR-0002). Without this,
+   * its directory through the environment — every install before this feature
+   * existed — the settings surface shows what the provider reports rather than
+   * parsing the variables a second time, where two parsers could disagree.
+   * (The parser once lived in a package it could not import.) Without this,
    * the form opens blank in front of an operator whose directory is plainly
    * working, and the obvious next move is to retype settings that are already
    * correct.
@@ -337,7 +337,7 @@ export const permissionSchema = z.enum([
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 
-/** Optional target of a permission check, for enterprise scoped RBAC. */
+/** Optional target of a permission check, for scoped RBAC (not yet built). */
 export interface AuthorizationTarget {
   groupId?: string;
   environment?: string;
@@ -345,8 +345,8 @@ export interface AuthorizationTarget {
 }
 
 /**
- * Decides whether a principal may perform an action. Core's implementation is
- * flat role-based (ADR-0006); enterprise may replace it with a scoped policy.
+ * Decides whether a principal may perform an action. The implementation is
+ * flat role-based (ADR-0006); a scoped policy (not yet built) could replace it.
  */
 export interface IAuthorizationPolicy {
   can(
@@ -369,7 +369,7 @@ export interface DirectoryUser extends AuthenticatedPrincipal {
   isActive: boolean;
 }
 
-/** User lifecycle. Core backs this with Postgres; enterprise may back it with a directory. */
+/** User lifecycle, backed by Postgres; directory providers resolve identities through it. */
 export interface IUserDirectory {
   readonly readOnly: boolean;
   findByEmail(email: string): Promise<DirectoryUser | null>;
@@ -437,9 +437,9 @@ export interface AuditRecord {
 }
 
 /**
- * Receives audit records. Core writes to Postgres inside the same transaction
- * as the change being audited (ADR-0005); enterprise may additionally forward
- * to a SIEM.
+ * Receives audit records. The Postgres sink writes inside the same transaction
+ * as the change being audited (ADR-0005); the forwarding sink bound to
+ * AUDIT_SINK composes over it and additionally queues records for a SIEM.
  */
 export interface IAuditSink {
   /**
@@ -463,7 +463,7 @@ export interface IAuditSink {
  * This parameter is why the seam was inert. The interface used to take only the
  * record, while a classification change and its audit row must commit together
  * — so both callers reached past the token for the concrete class that did
- * accept a transaction, and an enterprise sink registered under AUDIT_SINK
+ * accept a transaction, and a forwarding sink registered under AUDIT_SINK
  * would never have been called. An interface that understates its contract does
  * not get used.
  */
@@ -472,9 +472,9 @@ export type AuditTransaction = object;
 /**
  * One audit record, flattened for delivery to an external system.
  *
- * Deliberately NOT the Prisma row. A transport lives in the enterprise layer,
- * which has no database access and must not depend on core's schema — so this
- * carries everything a payload needs and nothing that ties it to storage.
+ * Deliberately NOT the Prisma row. A transport has no database access and must
+ * not depend on the schema — so this carries everything a payload needs and
+ * nothing that ties it to storage.
  * `createdAt` is ISO-8601 rather than a Date for the same reason: it is about
  * to be serialised.
  */
@@ -515,8 +515,8 @@ export interface AuditDeliveryEntry {
 /**
  * Queues an audit record for delivery to an external system.
  *
- * The only part of the delivery machinery a capability touches. Core owns the
- * table, the leases, the retries and the worker; a forwarding sink decides
+ * The only part of the delivery machinery the forwarding sink touches. The
+ * outbox owns the table, the leases, the retries and the worker; the sink decides
  * WHICH records are worth sending and enqueues those.
  *
  * `enqueue` MUST be called inside the same transaction as the record it refers
@@ -557,12 +557,11 @@ export interface IAuditTransport {
   /**
    * Try a candidate forwarding configuration without saving it (ADR-0016 §4).
    *
-   * Core cannot do the work — the syslog and webhook senders live in the
-   * enterprise layer, which core may not import (ADR-0002) — so the settings
+   * The syslog and webhook senders belong to the transport, so the settings
    * surface asks the registered transport, exactly as LDAP settings ask the
-   * registered provider through `verifyConfiguration`. Optional because every
-   * transport written before it existed does not have it; core answers 501
-   * before this is ever consulted.
+   * registered provider through `verifyConfiguration`. Optional because a
+   * transport need not support it; the settings surface then reports that the
+   * transport cannot test a configuration.
    */
   verifyConfiguration?(kind: AuditTransportKind, candidate: unknown): Promise<ProviderVerification>;
 
@@ -571,8 +570,8 @@ export interface IAuditTransport {
    * null when the environment configures none.
    *
    * The environment baseline for `audit.*` settings (ADR-0016 §2): the
-   * variables are parsed by the enterprise layer, so core asks the transport
-   * built from them rather than growing a second parser.
+   * settings surface asks the transport built from the variables rather than
+   * growing a second parser.
    *
    * MUST NOT include secrets. The result is rendered in a browser. Core strips
    * the fields it knows to be sensitive before returning them, but that is a
@@ -584,7 +583,7 @@ export interface IAuditTransport {
 /**
  * User administration (ADR-0006).
  *
- * Core's directory is writable; an enterprise LDAP/SAML directory is read-only,
+ * The local directory is writable; an LDAP or OIDC directory is read-only,
  * which is why `IUserDirectory.readOnly` exists. The UI must respect it rather
  * than offering edits that the provider will reject.
  */
@@ -733,11 +732,11 @@ export interface ManagedUser {
 /**
  * LDAP configuration as the console sends and receives it (ADR-0016).
  *
- * Declared in CONTRACTS, not in the enterprise layer, even though only the
- * enterprise layer can act on it. Core owns the endpoint, validates the body
- * and stores it; the provider that consumes it is licensed. A shape that lived
- * in the private package could not be validated by core at all, and the API
- * would be accepting whatever it was handed.
+ * Declared in CONTRACTS, beside the other settings shapes, even though only
+ * the LDAP provider acts on it. The settings surface owns the endpoint,
+ * validates the body and stores it; the provider consumes it. (When the
+ * provider lived in a separate private package, a shape declared there could
+ * not have been validated by the API at all.)
  *
  * `bindPassword` is WRITE-ONLY. It is accepted here and never returned — a read
  * reports whether one is held, not what it is.
@@ -970,10 +969,10 @@ export type AuditForwardingState =
   | { state: 'webhook'; config: WebhookSettings };
 
 /**
- * Core's resolver for the stored forwarding configuration. The enterprise
+ * The resolver for the stored forwarding configuration. The settings-driven
  * transport injects this (via `AUDIT_FORWARDING_SETTINGS`) and consults it
  * per delivery, which is what makes reconfiguration live (ADR-0016 §4)
- * without the transport ever touching the database (ADR-0002).
+ * without the transport ever touching the database.
  */
 export interface IAuditForwardingSettings {
   resolveActive(): Promise<AuditForwardingState>;

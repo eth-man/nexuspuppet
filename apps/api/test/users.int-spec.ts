@@ -1086,7 +1086,7 @@ describe('user administration (integration)', () => {
 
       // A stored hash would keep the account usable through local auth after
       // the directory revoked access, and would silently become a password
-      // login again if the deployment dropped back to the core edition.
+      // login again if the directory were switched off.
       const row = await prisma.user.findUniqueOrThrow({ where: { email: 'dir@example.com' } });
       expect(row.passwordHash).toBeNull();
     });

@@ -38,7 +38,7 @@ type ActiveChoice = AuditForwardingSelection['active'];
  *    operator preparing a syslog config must not silently stop the webhook.
  *
  * NOT what AUDIT_FORWARDING_SETTINGS binds to — that is AuditForwardingResolver.
- * This service injects the transport (Test, env baseline), and the enterprise
+ * This service injects the transport (Test, env baseline), and the
  * transport injects the seam token; binding the token here closes a circular
  * dependency the injector deadlocks on (see the resolver's comment).
  */
@@ -57,8 +57,6 @@ export class AuditForwardingService {
     private readonly resolver: AuditForwardingResolver,
     @Inject(AUDIT_SINK) private readonly audit: IAuditSink,
     @Inject(AUDIT_TRANSPORT) private readonly transport: IAuditTransport,
-    /** Whether a real forwarding transport is registered, i.e. edits can act. */
-    private readonly transportRegistered: () => boolean,
   ) {}
 
   async describe(): Promise<AuditForwardingView> {
@@ -241,7 +239,9 @@ export class AuditForwardingService {
       secretsHeld: resolved.secretsHeld,
       updatedAt: resolved.updatedAt?.toISOString() ?? null,
       updatedByEmail: resolved.updatedByEmail,
-      liveReload: this.transportRegistered(),
+      // Always: the settings-driven transport is registered in every
+      // deployment and resolves stored state on each delivery (ADR-0027).
+      liveReload: true,
     };
   }
 
@@ -253,9 +253,9 @@ export class AuditForwardingService {
   /**
    * What the environment made active, for the view when nothing is stored.
    *
-   * Falls back to the transport's name when an older enterprise build cannot
-   * report its configuration — a deployment that is visibly forwarding must
-   * not render as "none".
+   * Falls back to the transport's name when the transport cannot report its
+   * configuration — a deployment that is visibly forwarding must not render as
+   * "none".
    */
   private envActive(): ActiveChoice {
     if (!this.transport.configured) return 'none';

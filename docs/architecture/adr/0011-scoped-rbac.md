@@ -2,7 +2,13 @@
 
 - **Status:** Deferred — design accepted, implementation postponed
 - **Deciders:** Architect
-- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0009](./0009-classification-merge-semantics.md)
+- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0009](./0009-classification-merge-semantics.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** There is no
+> enterprise layer. §5's rule still holds: enforcement lives in `RbacPolicy`,
+> and whatever supplies a principal's scope only decides *what* that scope is.
+> The supplier would be a directory provider in `apps/api`, not a separately
+> loaded package. If this is ever built, it ships to every deployment.
 
 ## Outcome
 

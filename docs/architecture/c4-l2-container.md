@@ -8,7 +8,7 @@ graph TB
 
     subgraph np["NexusPuppet — Docker Compose / single VM"]
         web["web<br/><i>Next.js App Router</i><br/>SSR + client components<br/>Port 3000"]
-        api["api<br/><i>NestJS · Node 22.12+</i><br/>Business logic, authz,<br/>PuppetDB proxy, materializer<br/>Port 3001"]
+        api["api<br/><i>NestJS · Node 22.12+</i><br/>Business logic, authz,<br/>PuppetDB proxy, materializer,<br/>directory auth, audit forwarding<br/>Port 3001"]
         db[("db<br/><i>PostgreSQL 16</i><br/>Users, node groups, rules,<br/>outbox, audit, node cache")]
         vol[/"enc-volume<br/><i>Shared filesystem</i><br/>nodes/*.yaml + default.yaml"/]
     end
@@ -19,8 +19,6 @@ graph TB
         pdb[("PuppetDB<br/><i>External</i>")]
     end
 
-    ent["packages/enterprise<br/><i>Optional, private</i><br/>Loaded via dynamic import<br/>at API boot"]
-
     ui -->|"HTTPS"| web
     web -->|"JSON/HTTP<br/>server-side fetch"| api
     api -->|"SQL via Prisma"| db
@@ -29,16 +27,13 @@ graph TB
     vol -.->|"read-only mount"| enc_sh
     psrv -->|"exec"| enc_sh
     psrv -->|"facts, reports"| pdb
-    ent -.->|"dynamic import()<br/>if present"| api
 
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
     classDef store fill:#438dd5,stroke:#2e6295,color:#fff
     classDef external fill:#666,stroke:#444,color:#fff
-    classDef optional fill:#8a6d3b,stroke:#66512c,color:#fff
     class web,api container
     class db,vol store
     class psrv,pdb,enc_sh external
-    class ent optional
 ```
 
 ## Containers
@@ -46,7 +41,7 @@ graph TB
 | Container | Technology | Responsibility | Scaling |
 |---|---|---|---|
 | **web** | Next.js (App Router), React, TanStack Query, Tailwind + shadcn/ui | Rendering only. All data via `api`. Holds no credentials for PuppetDB or Postgres. | Stateless, horizontally scalable |
-| **api** | NestJS, TypeScript | All business logic, authorization, PuppetDB client, ENC materializer, audit | Stateless **except** the materializer — see below |
+| **api** | NestJS, TypeScript | All business logic, authorization, PuppetDB client, ENC materializer, audit, directory authentication (LDAP/AD, OIDC) and audit forwarding ([ADR-0027](./adr/0027-one-product.md)) | Stateless **except** the materializer — see below |
 | **db** | PostgreSQL 16 | Local state only ([ADR-0005](./adr/0005-postgres-prisma-local-state.md)) | Single instance in v1 |
 | **enc-volume** | Docker volume / bind mount | The handoff surface to Puppet | Must be shared between `api` and `puppetserver` |
 

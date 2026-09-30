@@ -2,7 +2,11 @@
 
 - **Status:** Deferred — design recorded, not scheduled
 - **Deciders:** Architect
-- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0003](./0003-enc-generate-dont-serve.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0009](./0009-classification-merge-semantics.md)
+- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0003](./0003-enc-generate-dont-serve.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0009](./0009-classification-merge-semantics.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** Open question 1,
+> "core or enterprise?", is moot. There is one product, and a mirror would ship
+> to every deployment, as audit forwarding now does.
 
 ## Outcome
 

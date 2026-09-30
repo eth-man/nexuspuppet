@@ -28,15 +28,6 @@ function watchRoleMutations(page: Page): { calls: string[] } {
   return { calls };
 }
 
-/** True when the deployment advertises `rbac.custom`, i.e. roles are editable. */
-async function rolesAreEditable(request: APIRequestContext): Promise<boolean> {
-  await apiLogin(request);
-  const response = await request.get('/api/capabilities');
-  if (!response.ok()) return false;
-  const body = (await response.json()) as { capabilities?: string[] };
-  return body.capabilities?.includes('rbac.custom') === true;
-}
-
 const SCRATCH_PREFIX = 'e2e.roles.';
 
 async function createScratchRole(request: APIRequestContext, permissions: string[]) {
@@ -247,23 +238,11 @@ test.describe('roles', () => {
   });
 
   /**
-   * Editing needs the `rbac.custom` capability, which core-only deployments —
-   * including CI — do not have. These tests skip there rather than fail, but the
-   * read-only assertions above still run everywhere, so the anti-pattern guard
-   * is never the part that gets skipped.
-   *
-   * The probe runs once in beforeAll: `test.skip()` in describe scope cannot
-   * take an async condition, so the flag has to be resolved before the bodies.
+   * Editing custom roles. Every deployment can (ADR-0027); until then these
+   * skipped without the `rbac.custom` capability — which included CI.
    */
-  test.describe('when roles are editable', () => {
-    let editable = false;
-
-    test.beforeAll(async ({ request }) => {
-      editable = await rolesAreEditable(request);
-    });
-
+  test.describe('editing custom roles', () => {
     test('a permission change is not committed until Save', async ({ page, request }) => {
-      test.skip(!editable, 'requires the rbac.custom capability');
       const scratch = await createScratchRole(request, ['inventory:read']);
 
       const watcher = watchRoleMutations(page);
@@ -293,7 +272,6 @@ test.describe('roles', () => {
     });
 
     test('Save commits exactly one update', async ({ page, request }) => {
-      test.skip(!editable, 'requires the rbac.custom capability');
       const scratch = await createScratchRole(request, ['inventory:read']);
 
       const watcher = watchRoleMutations(page);
@@ -318,7 +296,6 @@ test.describe('roles', () => {
     });
 
     test('Save stays disabled until something actually changes', async ({ page, request }) => {
-      test.skip(!editable, 'requires the rbac.custom capability');
       const scratch = await createScratchRole(request, ['inventory:read']);
 
       await login(page);
@@ -338,7 +315,6 @@ test.describe('roles', () => {
     });
 
     test('deleting asks first', async ({ page, request }) => {
-      test.skip(!editable, 'requires the rbac.custom capability');
       const scratch = await createScratchRole(request, ['inventory:read']);
 
       const watcher = watchRoleMutations(page);

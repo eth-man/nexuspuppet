@@ -8,11 +8,11 @@ import { normalizeEmail } from './local-auth.provider';
 import { builtInRoleId } from './users.service';
 
 /**
- * Core implementations of the remaining capability tokens.
+ * Implementations of the remaining seams: the Postgres audit sink, first-boot
+ * admin bootstrap, and login rate limiting.
  *
- * ADR-0002 requires a core default for EVERY token. A token with no core
- * implementation would mean the product is incomplete without the enterprise
- * layer, which is exactly what open core must not be.
+ * The file name is historical — these were once the "core defaults" an
+ * optional enterprise layer could override (ADR-0002, superseded by ADR-0027).
  */
 
 /**

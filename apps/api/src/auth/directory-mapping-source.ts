@@ -6,8 +6,8 @@ import type { MappingSource } from './roles.service';
 /**
  * The OIDC role mappings, read through the settings seam (#110).
  *
- * Same arrangement and same fail-open rule as the LDAP source: core cannot
- * parse `OIDC_*` (ADR-0002), so it asks `describeOidc()`, which answers from a
+ * Same arrangement and same fail-open rule as the LDAP source: rather than
+ * parse `OIDC_*` again, it asks `describeOidc()`, which answers from a
  * stored row if one exists and otherwise from the running provider's own report
  * — which is how an environment-configured deployment, meaning every one of
  * them today, still gets its mappings seen.

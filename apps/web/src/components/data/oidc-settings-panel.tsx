@@ -12,13 +12,13 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { OidcSettings, ProviderVerification } from '@nexuspuppet/contracts';
-import { useCapabilities, useOidcSettings, useRoles } from '@/lib/queries';
+import { useOidcSettings, useRoles } from '@/lib/queries';
 import { useClearOidcSettings, useSaveOidcSettings, useTestOidcSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { CapabilityCard } from '@/components/ui/capability-card';
+import { NotEnabledCard } from '@/components/ui/not-enabled-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -73,11 +73,6 @@ export function OidcSettingsPanel() {
   const { can } = useAuth();
   const manages = can('settings:manage');
 
-  const capabilities = useCapabilities();
-  const licensed = capabilities.data?.capabilities.includes('sso.oidc') === true;
-
-  // Fetched in every edition: core owns this endpoint, and a disabled query
-  // reports isPending forever — which rendered a skeleton that never resolved.
   const stored = useOidcSettings(manages);
   const roles = useRoles(manages);
   const knownRoles = (roles.data ?? []).map((role) => role.name);
@@ -119,52 +114,29 @@ export function OidcSettingsPanel() {
   const changes = describeChanges(view?.config ?? null, form, secret !== '');
 
   /*
-   * Header only without the capability. Every field below is unreachable — the
-   * API answers 501 whatever is typed — so a full form of disabled inputs is
-   * screen space spent on something this deployment cannot do.
+   * Whether an OIDC provider is RUNNING — registered at boot because
+   * OIDC_ISSUER was set, reported by the API as `liveReload`. It gates the
+   * form exactly as the `sso.oidc` capability used to, and for the same
+   * reason: until a provider is registered, nothing saved here can take
+   * effect (ADR-0027).
    *
-   * After the hooks, never before them: the hook order is identical in both
-   * editions.
+   * After the hooks, never before them.
    */
-  if (!licensed) {
-    /*
-     * WHY it is absent, which the generic card cannot know.
-     *
-     * This said the deployment "authenticates against LDAP, and one directory
-     * provider is supported at a time — unset LDAP_URL to switch". True when
-     * written; false as of ADR-0023, which lets both run at once. The
-     * capability is now advertised exactly when OIDC is configured, so its
-     * absence means one thing only: nobody has configured it.
-     *
-     * Worth saying, because "requires the sso.oidc capability" alone reads as
-     * a licence problem and sends an operator to ask for a quote for something
-     * they already have.
-     */
-    /*
-     * "Set OIDC_ISSUER" is only true on ENTERPRISE, where the capability is a
-     * configuration matter. In core there is no OIDC provider to configure at
-     * all, and telling an operator to set an environment variable sends them
-     * to edit a file that will change nothing.
-     */
-    const onEnterprise = capabilities.data?.edition === 'enterprise';
+  const running = view?.liveReload === true;
 
+  if (!running) {
     return (
-      <CapabilityCard
+      <NotEnabledCard
         title="Single sign-on (OIDC)"
         description="Authenticate against an OpenID Connect provider."
-        capability="sso.oidc"
-        note={
-          onEnterprise
-            ? 'Set OIDC_ISSUER to add it. A directory already configured keeps working alongside it, and so do local accounts.'
-            : 'Local accounts keep working either way.'
-        }
+        note="Set OIDC_ISSUER and restart the API to enable it. A directory already configured keeps working alongside it, and so do local accounts."
       />
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Licensed past this point — the unlicensed case returned above. */}
+      {/* A provider is running past this point — the other case returned above. */}
       <fieldset disabled={!editing} className="min-w-0 space-y-4">
         <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
 
@@ -413,103 +385,101 @@ export function OidcSettingsPanel() {
             </div>
           )}
 
-          {licensed && (
-            <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
-              {view?.updatedAt !== null && view?.updatedAt !== undefined && (
-                <span className="text-2xs text-ink-faint">
-                  Last changed {absolute(view.updatedAt)}
-                  {view.updatedByEmail !== null && ` by ${view.updatedByEmail}`}
-                </span>
-              )}
+          <div className="flex flex-wrap items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2">
+            {view?.updatedAt !== null && view?.updatedAt !== undefined && (
+              <span className="text-2xs text-ink-faint">
+                Last changed {absolute(view.updatedAt)}
+                {view.updatedByEmail !== null && ` by ${view.updatedByEmail}`}
+              </span>
+            )}
 
-              <div className="ml-auto flex items-center gap-2">
-                {!editing ? (
-                  <>
-                    {/* Available while locked: checking that the issuer answers
-                    writes nothing, and needing to unlock first inverts the
-                    point of the check. */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={test.isPending || blocked}
-                      onClick={() => {
-                        setError(null);
-                        test.mutate(submission(), { onSuccess: setResult, onError: fail });
-                      }}
-                    >
-                      {test.isPending ? 'Checking…' : 'Check provider'}
-                    </Button>
-                    <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
-                      <Pencil className="mr-1 size-3.5" aria-hidden />
-                      Edit settings
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    {view?.source === 'database' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={clear.isPending}
-                        onClick={() => {
-                          setError(null);
-                          clear.mutate(undefined, { onError: fail });
-                        }}
-                      >
-                        Discard stored settings
-                      </Button>
-                    )}
+            <div className="ml-auto flex items-center gap-2">
+              {!editing ? (
+                <>
+                  {/* Available while locked: checking that the issuer answers
+                  writes nothing, and needing to unlock first inverts the
+                  point of the check. */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={test.isPending || blocked}
+                    onClick={() => {
+                      setError(null);
+                      test.mutate(submission(), { onSuccess: setResult, onError: fail });
+                    }}
+                  >
+                    {test.isPending ? 'Checking…' : 'Check provider'}
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                    <Pencil className="mr-1 size-3.5" aria-hidden />
+                    Edit settings
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {view?.source === 'database' && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => {
-                        // Back to what is stored, never to what was typed.
-                        setForm(
-                          view?.config === null || view?.config === undefined
-                            ? BLANK
-                            : { ...BLANK, ...view.config },
-                        );
-                        setSecret('');
-                        setResult(null);
-                        setError(null);
-                        setEditing(false);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={test.isPending || blocked}
+                      disabled={clear.isPending}
                       onClick={() => {
                         setError(null);
-                        test.mutate(submission(), { onSuccess: setResult, onError: fail });
+                        clear.mutate(undefined, { onError: fail });
                       }}
                     >
-                      {test.isPending ? 'Checking…' : 'Check provider'}
+                      Discard stored settings
                     </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={save.isPending || blocked}
-                      onClick={() => {
-                        setError(null);
-                        save.mutate(submission(), {
-                          onSuccess: () => {
-                            setSecret('');
-                            setEditing(false);
-                          },
-                          onError: fail,
-                        });
-                      }}
-                    >
-                      {save.isPending ? 'Saving…' : 'Save'}
-                    </Button>
-                  </>
-                )}
-              </div>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      // Back to what is stored, never to what was typed.
+                      setForm(
+                        view?.config === null || view?.config === undefined
+                          ? BLANK
+                          : { ...BLANK, ...view.config },
+                      );
+                      setSecret('');
+                      setResult(null);
+                      setError(null);
+                      setEditing(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={test.isPending || blocked}
+                    onClick={() => {
+                      setError(null);
+                      test.mutate(submission(), { onSuccess: setResult, onError: fail });
+                    }}
+                  >
+                    {test.isPending ? 'Checking…' : 'Check provider'}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={save.isPending || blocked}
+                    onClick={() => {
+                      setError(null);
+                      save.mutate(submission(), {
+                        onSuccess: () => {
+                          setSecret('');
+                          setEditing(false);
+                        },
+                        onError: fail,
+                      });
+                    }}
+                  >
+                    {save.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
     </div>

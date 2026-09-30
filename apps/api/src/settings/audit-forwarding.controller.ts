@@ -5,14 +5,12 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  NotImplementedException,
   Post,
   Put,
   Req,
   UseFilters,
 } from '@nestjs/common';
 import {
-  CAPABILITIES,
   auditForwardingSelectionSchema,
   syslogSettingsSchema,
   webhookSettingsSchema,
@@ -24,30 +22,20 @@ import {
 } from '@nexuspuppet/contracts';
 import { RequirePermission, type AuthenticatedRequest } from '../auth/auth.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { CapabilityRegistry } from '../enterprise/capability.registry';
 import { AuditForwardingService } from './audit-forwarding.service';
 import { SettingsErrorFilter } from './settings-error.filter';
 
 /**
  * Audit forwarding configuration (ADR-0016 §5).
  *
- * READING is core: the Integrations screen renders for every deployment, and
- * what it shows a `settings:manage` principal — where records would go — is
- * their own deployment's configuration.
- *
- * WRITING is licensed under `audit.export`. The routes exist regardless and
- * answer 501 naming the capability, rather than 404 — the feature exists,
- * this deployment does not have it. A capability check, not a separate code
- * path (ADR-0002): one implementation, one set of tests.
+ * Every deployment can forward (ADR-0027). Until then, writes answered 501
+ * without the `audit.export` capability; that gate is gone.
  */
 @RequirePermission('settings:manage')
 @UseFilters(SettingsErrorFilter)
 @Controller('settings/audit')
 export class AuditForwardingController {
-  constructor(
-    private readonly forwarding: AuditForwardingService,
-    private readonly capabilities: CapabilityRegistry,
-  ) {}
+  constructor(private readonly forwarding: AuditForwardingService) {}
 
   /**
    * Both transport configurations and which one is active, without secrets.
@@ -68,7 +56,6 @@ export class AuditForwardingController {
     @Body(new ZodValidationPipe(auditForwardingSelectionSchema)) body: AuditForwardingSelection,
     @Req() request: AuthenticatedRequest,
   ): Promise<AuditForwardingView> {
-    this.requireForwardable();
     return this.forwarding.setActive(body.active, request);
   }
 
@@ -81,7 +68,6 @@ export class AuditForwardingController {
     @Body(new ZodValidationPipe(syslogSettingsSchema)) body: SyslogSettings,
     @Req() request: AuthenticatedRequest,
   ): Promise<AuditForwardingView> {
-    this.requireForwardable();
     return this.forwarding.save('syslog', body, request);
   }
 
@@ -89,7 +75,6 @@ export class AuditForwardingController {
   @Delete('syslog')
   @HttpCode(HttpStatus.NO_CONTENT)
   async clearSyslog(@Req() request: AuthenticatedRequest): Promise<void> {
-    this.requireForwardable();
     await this.forwarding.clear('syslog', request);
   }
 
@@ -103,7 +88,6 @@ export class AuditForwardingController {
   async testSyslog(
     @Body(new ZodValidationPipe(syslogSettingsSchema)) body: SyslogSettings,
   ): Promise<ProviderVerification> {
-    this.requireForwardable();
     return this.forwarding.verify('syslog', body);
   }
 
@@ -116,7 +100,6 @@ export class AuditForwardingController {
     @Body(new ZodValidationPipe(webhookSettingsSchema)) body: WebhookSettings,
     @Req() request: AuthenticatedRequest,
   ): Promise<AuditForwardingView> {
-    this.requireForwardable();
     return this.forwarding.save('webhook', body, request);
   }
 
@@ -124,7 +107,6 @@ export class AuditForwardingController {
   @Delete('webhook')
   @HttpCode(HttpStatus.NO_CONTENT)
   async clearWebhook(@Req() request: AuthenticatedRequest): Promise<void> {
-    this.requireForwardable();
     await this.forwarding.clear('webhook', request);
   }
 
@@ -134,20 +116,6 @@ export class AuditForwardingController {
   async testWebhook(
     @Body(new ZodValidationPipe(webhookSettingsSchema)) body: WebhookSettings,
   ): Promise<ProviderVerification> {
-    this.requireForwardable();
     return this.forwarding.verify('webhook', body);
-  }
-
-  private requireForwardable(): void {
-    if (this.capabilities.has(CAPABILITIES.AUDIT_EXPORT)) return;
-
-    throw new NotImplementedException({
-      error: 'CAPABILITY_UNAVAILABLE',
-      capability: CAPABILITIES.AUDIT_EXPORT,
-      message:
-        'This deployment cannot forward audit records. Records are written and retained ' +
-        'locally exactly as always; forwarding them to a collector requires the ' +
-        `"${CAPABILITIES.AUDIT_EXPORT}" capability.`,
-    });
   }
 }

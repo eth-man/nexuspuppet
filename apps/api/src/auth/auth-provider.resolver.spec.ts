@@ -307,7 +307,7 @@ describe('AuthProviderResolver', () => {
     });
 
     it('returns null when the provider is gone, rather than throwing', async () => {
-      // A licence expired, or the directory was disabled. The session must end
+      // The directory was switched off. The session must end
       // cleanly — a throw here is a 500 on every refresh (ADR-0015 §3).
       const withoutLdap = new AuthProviderResolver([local], fakePrisma(accounts), 0);
 

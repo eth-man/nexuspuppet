@@ -117,13 +117,11 @@ export interface ClassIndex {
 /**
  * Injection token for the puppetserver client.
  *
- * DELIBERATELY NOT IN `TOKENS`/`CAPABILITY_TOKENS`. Those enumerate enterprise
- * SEAMS — each must have a core default and each is a place the enterprise layer
- * may legitimately substitute an implementation (ADR-0002, ADR-0006). This is
- * neither: it is an optional integration whose value is `null` when the operator
- * has not configured it, and which the enterprise layer has no business
- * replacing. Listing it there would have made "every seam has a core default"
- * mean less than it says.
+ * DELIBERATELY NOT IN `TOKENS`/`CAPABILITY_TOKENS`. Those enumerate the
+ * seams that always have exactly one implementation bound. This is an optional
+ * integration whose value is `null` when the operator has not configured it.
+ * Listing it there would have made "every seam has one binding" mean less than
+ * it says.
  */
 export const PUPPETSERVER_CLIENT = Symbol.for('nexuspuppet.PuppetServerClient');
 

@@ -2,7 +2,15 @@
 
 - **Status:** Accepted
 - **Deciders:** Project owner
-- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md)
+- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** There is no
+> separately licensed enterprise layer. Since 1.9.0 everything, including
+> LDAP/AD, OIDC and audit forwarding, is in this repository under Apache-2.0,
+> and ADR-0027 removed the remaining split. Apache-2.0 for the whole product
+> stands, as do the licence check and DCO sign-off. The consequences below
+> about an enterprise layer linking against core, and relicensing enterprise
+> code commercially, no longer apply.
 
 ## Context
 

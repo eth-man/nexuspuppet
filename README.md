@@ -102,8 +102,8 @@ PuppetDB is never written to. Queries are built as a parameterised AST, never st
 **🔌 Puppet *and* OpenVox, no configuration change.**
 [OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet. `openvoxdb` serves the same API and identifies as `PuppetDB`, so everything just works — and that was verified, not assumed: a live `openvoxdb 8.15.0` checked against a live `PuppetDB 7.10.0` across every AST operator, every mapped field, and the paging the reconciler depends on.
 
-**📖 Genuinely open core.**
-Everything in this repository is Apache-2.0 and is a complete, usable product. The optional enterprise layer (SSO, audit export, licensing) is discovered at runtime — there is no submodule, no URL, and no compile-time reference to it anywhere in this repo. CI proves on every commit that core builds and passes with no enterprise layer present.
+**📖 Fully open source, one product.**
+Everything is in this repository under Apache-2.0: LDAP/AD, OIDC single sign-on, custom roles and audit forwarding included. There are no editions and no build flags. Every image has every feature, and each integration stays inert until it is configured. CI proves on every commit that a fresh clone builds and passes its tests with no secrets. ([ADR-0027](docs/architecture/adr/0027-one-product.md))
 
 ---
 
@@ -188,10 +188,10 @@ sudo ./scripts/dev/openvox-stack.sh && ./scripts/dev/openvox-compat.sh
 The preview is computed the same way. A plan re-runs the real rule evaluator and class merger against an in-memory copy of your classification with the change applied, so the forecast and the write cannot disagree about what an operation means.
 
 ```
-apps/api             NestJS      business logic, authz, PuppetDB proxy, ENC materializer
+apps/api             NestJS      business logic, authz, PuppetDB proxy, ENC materializer,
+                                 LDAP/AD + OIDC (src/directory), audit forwarding
 apps/web             Next.js     rendering only — no database or PuppetDB credentials
 packages/contracts   types       interfaces, DI tokens, Zod schemas
-packages/enterprise  (absent)    optional private layer, loaded at runtime
 docs/architecture    C4 + ADRs   binding decisions
 ```
 
@@ -247,10 +247,11 @@ removed and the code published. See
 [ADR-0014](docs/architecture/adr/0014-enterprise-licensing.md) for the
 reasoning that was abandoned, and why.
 
-The runtime-discovery seam it left behind is still in place — `packages/enterprise`
-registers implementations through interfaces in `packages/contracts` rather than
-being imported directly. That is now an internal boundary rather than a
-commercial one.
+The runtime-discovery seam that licence left behind was removed too
+([ADR-0027](docs/architecture/adr/0027-one-product.md)). The directory and audit
+code now lives in `apps/api`, and it still depends on interfaces in
+`packages/contracts`, which keep it testable. What differs between deployments
+is configuration, never an edition.
 
 ---
 

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import type { UpdateCheck } from '@nexuspuppet/contracts';
-import { useCapabilities, useDeployment } from '@/lib/queries';
+import { useDeployment } from '@/lib/queries';
 import { useCheckForUpdates } from '@/lib/mutations';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,6 @@ function uptime(seconds: number): string {
  * unprompted is disqualifying there regardless of what it phones out about.
  */
 export function DeploymentCard() {
-  const capabilities = useCapabilities();
   const deployment = useDeployment();
   const check = useCheckForUpdates();
   const [result, setResult] = useState<UpdateCheck | null>(null);
@@ -44,15 +43,12 @@ export function DeploymentCard() {
       <CardContent className="space-y-3">
         {deployment.isError ? (
           <QueryError error={deployment.error} />
-        ) : deployment.isPending || capabilities.isPending ? (
+        ) : deployment.isPending ? (
           <Spinner />
         ) : (
           <dl className="grid grid-cols-[7rem_1fr] gap-y-1 text-xs">
             <dt className="text-ink-faint">Version</dt>
             <dd className="font-mono text-ink">{deployment.data.version}</dd>
-
-            <dt className="text-ink-faint">Edition</dt>
-            <dd className="text-ink">{capabilities.data?.edition ?? '—'}</dd>
 
             <dt className="text-ink-faint">Uptime</dt>
             <dd className="text-ink">{uptime(deployment.data.uptimeSeconds)}</dd>

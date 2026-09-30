@@ -45,7 +45,7 @@ NexusPuppet has a small number of rules that are not stylistic preferences. Brea
 |---|---|---|
 | **`puppetserver` never calls NexusPuppet.** The ENC generates files; it does not serve requests. No HTTP ENC endpoint, not even "just for testing". | It is what makes a NexusPuppet outage harmless to Puppet. | [0003](docs/architecture/adr/0003-enc-generate-dont-serve.md) |
 | **PuppetDB is read-only.** No writes to `/pdb/cmd/v1`, ever. All queries go through `PqlBuilder` as a parameterised AST — never an interpolated PQL string, and never raw PQL from a non-admin caller. | The mTLS certificate is estate-wide and read-everything, so the API is a confused deputy by construction. | [0004](docs/architecture/adr/0004-puppetdb-read-only-mtls.md) |
-| **Never `import` the enterprise package.** Core must compile and pass with it absent. Capabilities are resolved through DI tokens at runtime. | Open core only works if core is genuinely complete. | [0002](docs/architecture/adr/0002-open-core-runtime-discovery.md) |
+| **One product, no editions.** Every feature is always in the build; deployments differ only in configuration. No feature flag that ships a smaller product, no capability check, no `501` for "this deployment lacks it". A fresh clone builds and tests with no secrets. | A default that silently shipped the smaller product is how installs following the documentation lost LDAP, OIDC and audit forwarding. | [0027](docs/architecture/adr/0027-one-product.md) |
 | **`apps/web` gets no database and no credentials.** It must never import `@prisma/client` or hold a PuppetDB certificate. | The browser tier is the least trusted process in the system. | [0008](docs/architecture/adr/0008-nextjs-app-router-latest-stable.md) |
 | **Classification writes are transactional.** Any change to node classification writes its `EncMaterializationJob` outbox row and its `AuditLog` row in the *same* transaction. | An audit trail that can miss changes that did happen is worse than none, because it looks authoritative. | [0005](docs/architecture/adr/0005-postgres-prisma-local-state.md) |
 | **Import `PrismaClient` from `apps/api/src/generated/prisma`**, not `@prisma/client`. | The generated client is the one the schema matches. | — |
@@ -64,13 +64,14 @@ were shipped by people who had read the ADRs.
 ## Layout
 
 ```
-apps/api             NestJS      business logic, authz, PuppetDB proxy, ENC materializer
+apps/api             NestJS      business logic, authz, PuppetDB proxy, ENC materializer,
+                                 LDAP/AD + OIDC (src/directory), audit forwarding
 apps/web             Next.js     rendering only — no database or PuppetDB credentials
 packages/contracts   types       interfaces, DI tokens, Zod schemas shared by both
-packages/enterprise  (absent)    optional private layer, loaded at runtime
 docs/architecture    C4 + ADRs   binding decisions
 fixtures/            data        PuppetDB responses captured from a real estate
-scripts/dev/         harnesses   local stacks: stand-in, real Puppet, real OpenVox, LDAP
+scripts/dev/         harnesses   local stacks: stand-in, real Puppet, real OpenVox
+apps/api/test/ldap   harness     a real OpenLDAP for the directory provider (Keycloak in test/oidc)
 ```
 
 `packages/contracts` is the only thing both apps may depend on. If you find yourself wanting `apps/web` to import from `apps/api`, the type belongs in contracts.
@@ -101,7 +102,19 @@ npm run test:e2e                                  # browser — needs a running 
 
 ### Unit
 
-The usual thing, plus one suite worth knowing about: `apps/api/src/enterprise/capability-wiring.spec.ts` inspects the DI graph and fails if a capability token has no core default, is registered twice, or is bypassed by a consumer injecting the concrete class directly. It iterates `CAPABILITY_TOKENS`, so a new token is covered automatically. If it fails, read the message — it names the exact provider and the seam it broke.
+The usual thing, plus one suite worth knowing about: `apps/api/src/app.wiring.spec.ts` inspects the DI graph and fails if a seam token is unbound or bound twice, is bypassed by a consumer injecting the concrete class directly, or if `AUTH_PROVIDERS` ever loses the local provider. It iterates `CAPABILITY_TOKENS`, so a new token is covered automatically, and it pins which directory providers are registered for which configuration. If it fails, read the message — it names the exact provider and the seam it broke.
+
+The directory and audit-forwarding code (`src/directory/`, `src/audit-forwarding/`) carries a higher coverage floor under `npm run test:cov` — 90% lines, 85% branches — because a bug there is an authentication bypass or a silently missing audit trail. It is not met yet (see ADR-0027 §6), and `test:cov` is not part of CI.
+
+### LDAP against a real directory
+
+Not part of `npm test`, and not run in CI — it needs Docker. See [`apps/api/test/ldap/README.md`](apps/api/test/ldap/README.md):
+
+```bash
+npm run ldap:up --workspace @nexuspuppet/api
+npm run test:ldap --workspace @nexuspuppet/api
+npm run ldap:down --workspace @nexuspuppet/api
+```
 
 ### Integration
 
@@ -129,18 +142,14 @@ Tests create node groups prefixed `e2e-` and sweep them before and after, so run
 
 In CI, [`scripts/ci/e2e-stack.sh`](scripts/ci/e2e-stack.sh) boots the stack from **built** artifacts — `next start`, not `next dev` — waits for the first projection to land, then runs the suite. On failure it dumps service logs and uploads traces and screenshots.
 
-#### There is one edition
+#### There is one product
 
-Every build contains `packages/enterprise`, and so does every run of the suite:
-the E2E job runs `npm run build`, which builds all workspaces, so the API loads
-the layer and the role-editing and audit-forwarding tests run in CI. The LDAP
-and OIDC form tests still key on `directory.ldap` / `sso.oidc`, which appear
-only when `LDAP_URL` / `OIDC_ISSUER` are set — CI sets neither. The
-`test:e2e:core` and `test:e2e:enterprise` scripts were removed with the
-`EDITION` build argument; there is no smaller product left to test.
-
-If a capability-gated test *skips* locally, `packages/enterprise/dist` is
-missing and the API booted without it. Run `npm run build`.
+Every test runs against the whole product (ADR-0027); nothing skips for want of
+an edition. The LDAP and OIDC *form* tests key on configuration — they need a
+provider registered, i.e. `LDAP_URL` / `OIDC_ISSUER` set when the API booted,
+and read that from the settings view's `liveReload`. CI sets neither, so there
+it asserts the other half: each card says which variable enables it and draws
+no form.
 
 ### Installs from the documentation
 
@@ -195,6 +204,7 @@ Beyond the default stand-in, `scripts/dev/` has full estates for the things that
 | `sudo ./scripts/dev/puppet-stack.sh` | A real `puppetserver` + PuppetDB + agent, with certificates issued and the ENC wired |
 | `sudo ./scripts/dev/openvox-stack.sh` | The same estate on OpenVox, alongside the Puppet one |
 | `./scripts/dev/openvox-compat.sh` | Runs the standard connection test plus a fork-specific probe against openvoxdb |
+| `npm run ldap:up --workspace @nexuspuppet/api` | A real OpenLDAP with a test tree, for `npm run test:ldap` — see [`apps/api/test/ldap/README.md`](apps/api/test/ldap/README.md) |
 | `npm run test:puppetdb` | Six-stage diagnostic against a real PuppetDB — files, TLS, authorisation, the real client. Needs Node; on a Docker-only host run `docker compose run --rm api node scripts/test-puppetdb.mjs` instead, which also tests from the container's uid and network position |
 
 These need `sudo` only because Docker does.
@@ -207,7 +217,7 @@ These need `sudo` only because Docker does.
 2. **Sign off your commits** — `git commit -s` (DCO).
 3. **Run `npm run typecheck && npm run lint && npm test`.** A lint failure on an architectural rule is a design problem, not a style one; do not silence it with a disable comment without saying why in the PR.
 4. **Explain the *why* in the commit message.** What the diff does is visible; why it does it is not. If you fixed a bug, say what it would have done to a real estate.
-5. **CI must be green.** Five checks run: core-isolation build (typecheck, lint, unit tests, with the enterprise layer absent), Prisma migrations and integration tests, browser E2E, formatting, and a copyleft dependency check.
+5. **CI must be green.** Five checks are required: build (typecheck, lint, unit tests, with no secrets), Prisma migrations and integration tests, browser E2E, formatting, and a copyleft dependency check.
 
 ### Commit messages
 

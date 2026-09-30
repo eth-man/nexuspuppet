@@ -9,8 +9,8 @@ import type { SystemStatus } from '@nexuspuppet/contracts';
  * BINDING CONSTRAINT (ADR-0021 §1): a summary here describes the DEPLOYMENT'S
  * HEALTH and never a person or an action they took. The test any reader can
  * apply: does the message name somebody? If it could, it belongs in the audit
- * trail and goes out through the audit transports, which are gated on
- * `audit.export`. This is the whole reason notifications can live in core.
+ * trail and goes out through the audit transports. This is the whole reason
+ * notifications are a separate channel from audit forwarding.
  *
  * WHAT IS DELIBERATELY ABSENT is as load-bearing as what is here:
  *
@@ -221,9 +221,9 @@ export function readConditions(input: CatalogueInput): ConditionReading[] {
     selfResolving: false,
   });
 
-  // 5. Audit delivery failing. Present only where `audit.export` is — an
-  //    absent capability is not an unhealthy deployment.
-  if (status.auditForwarding.available && status.auditForwarding.active !== 'none') {
+  // 5. Audit delivery failing. Present only while a transport is active —
+  //    forwarding that is switched off is not an unhealthy deployment.
+  if (status.auditForwarding.active !== 'none') {
     const failed = status.auditForwarding.lastDelivery?.ok === false;
     readings.push({
       key: 'audit.delivery-failing',

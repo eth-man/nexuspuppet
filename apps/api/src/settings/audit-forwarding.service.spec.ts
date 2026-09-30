@@ -137,7 +137,6 @@ const REQUEST = {
 
 function build(options?: {
   transport?: IAuditTransport;
-  registered?: boolean;
   forcedSource?: 'db' | 'env';
   /** Reuse another build's rows — "same database, different boot flags". */
   prisma?: FakePrisma;
@@ -161,7 +160,6 @@ function build(options?: {
     resolver,
     sink,
     options?.transport ?? NOOP_TRANSPORT,
-    () => options?.registered ?? false,
   );
   return { service, resolver, sink, prisma };
 }
@@ -181,8 +179,8 @@ describe('AuditForwardingService', () => {
       const view = await service.describe();
 
       expect(view.active).toBe('none');
-      expect(view.syslog).toMatchObject({ source: 'unset', config: null, liveReload: false });
-      expect(view.webhook).toMatchObject({ source: 'unset', config: null, liveReload: false });
+      expect(view.syslog).toMatchObject({ source: 'unset', config: null, liveReload: true });
+      expect(view.webhook).toMatchObject({ source: 'unset', config: null, liveReload: true });
     });
 
     it('shows the environment baseline the transport reports, without its secret', async () => {
@@ -192,7 +190,7 @@ describe('AuditForwardingService', () => {
         deliver: async () => undefined,
         currentConfiguration: () => ({ kind: 'webhook' as const, config: WEBHOOK }),
       };
-      const { service } = build({ transport, registered: true });
+      const { service } = build({ transport });
 
       const view = await service.describe();
 
@@ -208,7 +206,7 @@ describe('AuditForwardingService', () => {
         configured: true,
         deliver: async () => undefined,
       };
-      const { service } = build({ transport, registered: true });
+      const { service } = build({ transport });
 
       expect((await service.describe()).active).toBe('webhook');
     });
@@ -388,7 +386,7 @@ describe('AuditForwardingService', () => {
           return { ok: true, message: 'connected' };
         },
       };
-      const { service } = build({ transport, registered: true });
+      const { service } = build({ transport });
       await service.save('syslog', SYSLOG, REQUEST);
 
       const candidate = syslogSettingsSchema.parse({
@@ -411,7 +409,7 @@ describe('AuditForwardingService', () => {
           throw new Error('ECONNREFUSED');
         },
       };
-      const { service } = build({ transport, registered: true });
+      const { service } = build({ transport });
 
       const result = await service.verify('syslog', SYSLOG);
 

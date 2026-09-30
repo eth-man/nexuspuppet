@@ -34,15 +34,18 @@ graph TB
         i_auth["LocalAuthProvider<br/><i>implements IAuthProvider</i>"]
     end
 
-    subgraph ent["Enterprise boundary"]
-        e_load["EnterpriseLoader<br/><b>the only file permitted<br/>to import enterprise code</b>"]
-        e_reg["CapabilityRegistry<br/>token → implementation"]
+    subgraph integ["Directory and audit forwarding — registered from config (ADR-0027)"]
+        a_res["AuthProviderResolver<br/>authSource → provider"]
+        a_ldap["LdapAuthProvider<br/><i>when LDAP_URL is set</i>"]
+        a_oidc["OidcAuthProvider<br/><i>when OIDC_ISSUER is set</i>"]
+        f_sink["ForwardingAuditSink<br/>composes over the Postgres sink"]
+        f_tx["SettingsAuditTransport<br/>syslog / webhook, from settings"]
     end
 
     c_nodes --> s_inv
     c_reports --> s_rep
     c_groups --> s_cls
-    c_auth --> i_auth
+    c_auth --> a_res
     c_admin --> s_audit
 
     s_inv --> i_pdb
@@ -61,20 +64,22 @@ graph TB
     i_proj --> i_pdb
     i_proj --> i_prisma
 
-    e_load --> e_reg
-    e_reg -.->|"may override"| i_auth
-    e_reg -.->|"may override"| s_audit
+    a_res --> i_auth
+    a_res -.->|"if configured"| a_ldap
+    a_res -.->|"if configured"| a_oidc
+    f_sink -->|"delegates the write"| s_audit
+    f_sink -->|"enqueues when<br/>a transport is set"| f_tx
 
     classDef ctl fill:#85bbf0,stroke:#5d82a8,color:#000
     classDef svc fill:#438dd5,stroke:#2e6295,color:#fff
     classDef matc fill:#2e7d32,stroke:#1b5e20,color:#fff
     classDef inf fill:#666,stroke:#444,color:#fff
-    classDef entc fill:#8a6d3b,stroke:#66512c,color:#fff
+    classDef intc fill:#8a6d3b,stroke:#66512c,color:#fff
     class c_nodes,c_reports,c_groups,c_auth,c_admin,c_health ctl
     class s_inv,s_rep,s_cls,s_eval,s_merge,s_audit svc
     class m_worker,m_render,m_writer,m_recon matc
     class i_pdb,i_proj,i_prisma,i_auth inf
-    class e_load,e_reg entc
+    class a_res,a_ldap,a_oidc,f_sink,f_tx intc
 ```
 
 ## Component contracts
@@ -86,7 +91,8 @@ graph TB
 | `EncYamlRenderer` | **Pure function** | `(EncDocument) → string`. Deterministic key ordering so identical input always yields byte-identical output — this is what makes content-hash change detection work. |
 | `EncFileWriter` | I/O, isolated | The only component that touches the ENC volume. Writes `<name>.yaml.tmp` then `rename()`. |
 | `MaterializerWorker` | Orchestration | Holds a Postgres advisory lock. Drains `EncMaterializationJob`. Idempotent: re-running a job is always safe. |
-| `EnterpriseLoader` | I/O, isolated | The **single** file exempted from the ESLint enterprise-import ban. |
+| `AuthProviderResolver` | Orchestration | Dispatches a login by the account's `authSource`. `LocalAuthProvider` is always registered; LDAP and OIDC only when configured, and malformed configuration stops boot ([ADR-0015](./adr/0015-hybrid-authentication.md), [ADR-0027](./adr/0027-one-product.md)). |
+| `ForwardingAuditSink` | I/O | Bound to `AUDIT_SINK` in every deployment. Delegates the transactional write to the Postgres sink, then enqueues for forwarding only when a transport is configured ([ADR-0016](./adr/0016-settings-store-and-audit-forwarding.md)). |
 
 ## The write path, precisely
 

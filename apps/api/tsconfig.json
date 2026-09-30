@@ -8,8 +8,8 @@
     "types": ["node", "jest"],
 
     // NestJS dependency injection reads decorator metadata at runtime. This is
-    // the mechanism the whole open-core extensibility model rests on
-    // (ADR-0002), and the reason TypeScript is pinned below 6.x (ADR-0010).
+    // the mechanism every seam in the API is wired by, and the reason
+    // TypeScript is pinned below 6.x (ADR-0010).
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "strictPropertyInitialization": false

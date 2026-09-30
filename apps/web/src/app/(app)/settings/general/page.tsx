@@ -48,7 +48,7 @@ export default function GeneralSettingsPage() {
             {/*
               NOT <Badge>, which uppercases — it is for things the system
               produced, like a state or an environment. A permission is an
-              IDENTIFIER: the same string the API's 501 carries and the same one
+              IDENTIFIER: the same string the API's refusal carries and the same one
               an operator greps a log for. `CLASSIFICATION:READ` matches nothing
               they will ever search, and Users & Roles renders it verbatim two
               tabs away, so uppercasing it here made one token look like two.

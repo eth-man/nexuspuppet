@@ -106,8 +106,8 @@ export function UsersPanel() {
    * be able to provision directory accounts — reading it off the principal
    * would hide the option from exactly the person who needs it.
    *
-   * In core the only source is local, so no selector is offered at all and this
-   * dialog looks as it always has.
+   * With no directory configured the only source is local, so no selector is
+   * offered at all and this dialog looks as it always has.
    */
   const authSources = useAuthSources();
   const directories = (authSources.data?.sources ?? [])
@@ -449,8 +449,9 @@ export function UsersPanel() {
               </Select>
             </div>
             {/*
-              Absent in core, where local is the only source and a select with
-              one option is a control that cannot be operated.
+              Absent with no directory configured, where local is the only
+              source and a select with one option is a control that cannot be
+              operated.
             */}
             {directories.length > 0 && (
               <div className="space-y-1">

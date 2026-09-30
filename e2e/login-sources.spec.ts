@@ -6,14 +6,14 @@ import { assertStackReachable } from './support';
  * (ADR-0023 §3).
  *
  * STUBBED, and it has to be. The rendering under test depends on which
- * providers a deployment registered, and CI is core — it has exactly one, so a
- * real stack can only ever exercise the single-source case. That is precisely
+ * providers a deployment registered, and CI configures no directory — it has
+ * exactly one, so a real stack can only ever exercise the single-source case. That is precisely
  * how the previous version shipped: it drew an SSO button only for a
  * `redirect` answer, the endpoint could never give one, and nothing noticed
  * because nothing could produce the input.
  *
  * These intercept the endpoint rather than reconfigure the stack, so the page
- * is tested against every answer it will ever see, in any edition.
+ * is tested against every answer it will ever see, however it is configured.
  */
 
 interface Source {

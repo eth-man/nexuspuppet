@@ -78,7 +78,7 @@ export function SystemStatusCard() {
         />
         <Metric
           label="Audit export"
-          value={data.auditForwarding.available ? data.auditForwarding.pending : '—'}
+          value={data.auditForwarding.pending}
           {...(forwardingTone(data.auditForwarding) === null ? {} : { tone: 'failed' as const })}
           hint={forwardingHint(data.auditForwarding)}
         />
@@ -197,11 +197,10 @@ export function SystemStatusCard() {
 }
 
 /**
- * One line under the number, saying what the pipeline is doing — including the
- * unlicensed case, in the same terms the Integrations screen uses.
+ * One line under the number, saying what the pipeline is doing, in the same
+ * terms the Integrations screen uses.
  */
 function forwardingHint(forwarding: SystemStatus['auditForwarding']): string {
-  if (!forwarding.available) return 'needs audit.export';
   if (forwarding.active === 'none') return 'forwarding off';
   if (!forwarding.configured) return `via ${forwarding.active} (cannot send)`;
   if (forwarding.lastDelivery?.ok === true) {

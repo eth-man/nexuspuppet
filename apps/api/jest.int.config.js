@@ -6,7 +6,7 @@
  *   docker compose -f docker-compose.dev.yml up -d
  *   npm run test:int --workspace @nexuspuppet/api
  *
- * Run separately from unit tests so the core-isolation CI job, which has no
+ * Run separately from unit tests so the build CI job, which has no
  * database, stays fast and dependency-free.
  */
 /** @type {import('jest').Config} */

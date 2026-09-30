@@ -2,7 +2,19 @@
 
 - **Status:** Accepted (2026-08-06)
 - **Deciders:** Architect
-- **Related:** [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0015](./0015-hybrid-authentication.md), [ADR-0018](./0018-custom-roles.md)
+- **Related:** [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0015](./0015-hybrid-authentication.md), [ADR-0018](./0018-custom-roles.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** "An edition
+> without `rbac.custom`" no longer exists. Custom roles are available in every
+> release that includes ADR-0027, so §4's own `AUTOMATION` role — and with it
+> §3's only lever that reaches a running session — is always *possible*.
+>
+> It is not automatic. An automation account set up on a former core
+> deployment still holds built-in `OPERATOR` until somebody creates `AUTOMATION`
+> and reassigns the account. Until then everything §4 says about core still
+> describes that deployment. `GET /capabilities`, which *Consequences → Paid*
+> says to check, has been removed. Check which role the account actually holds
+> instead.
 
 ## Context
 

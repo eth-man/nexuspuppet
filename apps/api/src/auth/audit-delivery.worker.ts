@@ -10,31 +10,6 @@ import type { AuditDeliveryEntry, IAuditTransport } from '@nexuspuppet/contracts
 import { PrismaService, ADVISORY_LOCKS } from '../prisma/prisma.service';
 import { AuditDeliveryOutbox, type PendingDelivery } from './audit-delivery.outbox';
 
-/**
- * Core's default transport: there isn't one.
- *
- * Core writes audit records to Postgres and forwards them nowhere, which is a
- * complete product rather than a missing feature (ADR-0002). It reports
- * `configured: false`, so the worker leaves the queue untouched instead of
- * draining records into a void.
- *
- * `deliver` throws rather than returning quietly. Nothing should call it, and
- * if something does, a loud failure that leaves the record queued is much
- * better than a silent success that deletes it.
- */
-@Injectable()
-export class NoopAuditTransport implements IAuditTransport {
-  readonly name = 'none';
-  readonly configured = false;
-
-  async deliver(): Promise<void> {
-    throw new Error(
-      'No audit transport is configured. Core forwards audit records nowhere; ' +
-        'install a capability that registers AUDIT_TRANSPORT.',
-    );
-  }
-}
-
 export interface AuditDeliveryPacing {
   /** How often to look for work. 0 disables the worker in this process. */
   intervalMs: number;
@@ -81,8 +56,8 @@ export type LastDeliveryOutcome = {
 /**
  * Drains the audit delivery outbox (ADR-0005).
  *
- * Lives in core because only core has database access — the enterprise layer
- * supplies the transport, not the plumbing. The split is deliberate: retries,
+ * Owns the plumbing; the transport (src/audit-forwarding) only sends. The
+ * split is deliberate: retries,
  * leases, backoff and single-flight are properties of the queue and should not
  * be reimplemented by every transport.
  *

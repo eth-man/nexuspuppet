@@ -1,28 +1,25 @@
 # NexusPuppet API. Built from the monorepo root:
 #   docker build -f apps/api/Dockerfile .
 # The image is the whole product. LDAP/AD, OIDC, custom roles and audit
-# forwarding are always in it; each stays inert until it is configured.
+# forwarding are part of apps/api (ADR-0027); each stays inert until it is
+# configured.
 #
 # There used to be an EDITION build argument selecting between a "core" image
-# and one that included packages/enterprise. It defaulted to core, and nothing
-# in scripts/deploy.sh set it — so an install that followed DEPLOYMENT.md
-# silently built an image without the directory and audit integrations. With
-# every package in this repository and one lockfile covering all of them, there
-# is nothing left to select, so the argument is gone.
+# and one that included a separate packages/enterprise. It defaulted to core,
+# and nothing in scripts/deploy.sh set it — so an install that followed
+# DEPLOYMENT.md silently built an image without the directory and audit
+# integrations. There is nothing left to select.
 
 FROM node:22-alpine AS deps
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/tls-grant/package.json packages/tls-grant/
-COPY packages/enterprise/package.json packages/enterprise/
 COPY apps/api/package.json apps/api/
 # `npm ci` against the committed lockfile, for every workspace the API needs.
-# The lockfile has described packages/enterprise since it moved into this
-# repository, so the `npm install` this stage once needed — and the manual
-# `ldapts` install that had to be repeated on every rebuild — are gone: ldapts
-# is an ordinary dependency now and `ci` installs it like any other.
-RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/enterprise --workspace @nexuspuppet/api --include-workspace-root
+# `ldapts` is an ordinary dependency of the api, so `ci` installs it like any
+# other — no separate install step that a rebuild could forget.
+RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/api --include-workspace-root
 
 FROM deps AS build
 # Prisma 7 resolves DATABASE_URL through prisma.config.ts even for `generate`,
@@ -32,15 +29,10 @@ ENV DATABASE_URL=postgresql://build:build@localhost:5432/unused
 COPY tsconfig.base.json ./
 COPY packages/contracts packages/contracts
 COPY packages/tls-grant packages/tls-grant
-COPY packages/enterprise packages/enterprise
 COPY apps/api apps/api
 
-# packages/enterprise builds AFTER contracts and tls-grant and before the api:
-# it compiles against the contracts' emitted types, so building it first fails
-# with a tsc error about a package that is present and fine.
 RUN npm run build --workspace @nexuspuppet/contracts \
  && npm run build --workspace @nexuspuppet/tls-grant \
- && npm run build --workspace @nexuspuppet/enterprise \
  && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
@@ -116,12 +108,6 @@ COPY --from=build /repo/apps/api/prisma.config.ts ./
 COPY --from=build /repo/apps/api/package.json ./
 # Read at boot by app.module.ts. An absolute, Dockerfile-controlled path.
 COPY --from=build /repo/VERSION ./VERSION
-
-# Both, or neither works: node_modules holds a symlink into this path, and a
-# dist without its package.json is a link pointing at nothing. The API loads
-# this package at boot (apps/api/src/enterprise/enterprise.loader.ts).
-COPY --from=build /repo/packages/enterprise/dist ./packages/enterprise/dist
-COPY --from=build /repo/packages/enterprise/package.json ./packages/enterprise/
 
 # The commissioning check, so it can run FROM the container:
 #   docker compose run --rm api node scripts/test-puppetdb.mjs

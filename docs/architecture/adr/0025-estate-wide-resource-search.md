@@ -2,7 +2,15 @@
 
 - **Status:** Accepted
 - **Deciders:** Project owner, architect
-- **Related:** [ADR-0004](./0004-puppetdb-read-only-mtls.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0006](./0006-pluggable-auth-and-authz.md)
+- **Related:** [ADR-0004](./0004-puppetdb-read-only-mtls.md), [ADR-0005](./0005-postgres-prisma-local-state.md), [ADR-0006](./0006-pluggable-auth-and-authz.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** Custom roles no
+> longer need an enterprise layer, and creating one no longer answers `501`.
+> "An admin who manages users but must not read managed file contents" can
+> now be expressed on every deployment. Grant `resources:read` to a custom
+> role, and give that admin a custom role without it in place of `ADMIN`. The
+> decision to grant `resources:read` to `ADMIN` stands. Its original
+> justification, that nobody could otherwise hold the permission, is history.
 
 ## Context
 

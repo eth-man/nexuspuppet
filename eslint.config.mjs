@@ -5,14 +5,15 @@ import prettier from 'eslint-config-prettier';
 /**
  * ESLint flat config.
  *
- * The two blocks that matter architecturally are ENTERPRISE BOUNDARY and
- * WEB TIER BOUNDARY. They are not style rules — they are the mechanical
- * enforcement of ADR-0002 and the C4 L2 trust boundaries. Weakening either
- * requires a superseding ADR, not a PR comment.
+ * The blocks that matter architecturally are the CONTRACTS and WEB TIER
+ * boundaries. They are not style rules — they are the mechanical enforcement
+ * of ADR-0001 and the C4 L2 trust boundaries. Weakening either requires a
+ * superseding ADR, not a PR comment.
+ *
+ * There was an ENTERPRISE BOUNDARY block here, forbidding any static import
+ * of packages/enterprise (ADR-0002). ADR-0027 moved that code into apps/api
+ * and superseded ADR-0002, so there is no boundary left for it to enforce.
  */
-
-/** The ONLY file permitted to reference enterprise code (ADR-0002 §6). */
-const ENTERPRISE_LOADER = 'apps/api/src/enterprise/enterprise.loader.ts';
 
 export default tseslint.config(
   {
@@ -45,41 +46,6 @@ export default tseslint.config(
     },
   },
 
-  // -------------------------------------------------------------------------
-  // ENTERPRISE BOUNDARY (ADR-0002)
-  //
-  // Core must compile, typecheck, lint, and test with no knowledge that an
-  // enterprise layer exists. A single static import anywhere would break the
-  // public build for every external contributor. Discovery is runtime-only,
-  // via dynamic import() in the loader.
-  // -------------------------------------------------------------------------
-  {
-    files: ['apps/**/*.{ts,tsx}', 'packages/contracts/**/*.ts'],
-    ignores: [ENTERPRISE_LOADER],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['@nexuspuppet/enterprise', '@nexuspuppet/enterprise/*'],
-              message:
-                'ADR-0002: core may not import the enterprise package. Depend on an interface in @nexuspuppet/contracts; the enterprise layer registers an implementation at runtime.',
-            },
-            {
-              // The private package only. `apps/api/src/enterprise/` is CORE
-              // code that manages the boundary (the loader and the capability
-              // registry) and must remain freely importable.
-              group: ['**/packages/enterprise/**', '../../../packages/enterprise/*'],
-              message:
-                'ADR-0002: the enterprise package is reachable only via dynamic import() in enterprise.loader.ts.',
-            },
-          ],
-        },
-      ],
-    },
-  },
-
   // contracts must stay dependency-free apart from zod (ADR-0001).
   {
     files: ['packages/contracts/**/*.ts'],
@@ -94,7 +60,7 @@ export default tseslint.config(
                 'ADR-0001: @nexuspuppet/contracts has zero runtime dependencies beyond zod. It declares interfaces, not implementations.',
             },
             {
-              group: ['@nexuspuppet/api', '@nexuspuppet/web', '@nexuspuppet/enterprise'],
+              group: ['@nexuspuppet/api', '@nexuspuppet/web'],
               message: 'ADR-0001: contracts may not depend on its consumers.',
             },
           ],

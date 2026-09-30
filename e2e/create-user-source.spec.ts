@@ -4,8 +4,8 @@ import { assertStackReachable, login } from './support';
 /**
  * Which authority a new account belongs to (ADR-0023 §4).
  *
- * STUBBED for the same reason the login-screen suite is: CI is core, a real
- * stack there has exactly one source, and the behaviour under test only exists
+ * STUBBED for the same reason the login-screen suite is: CI configures no
+ * directory, so a real stack there has exactly one source, and the behaviour under test only exists
  * when there are two or three. Nothing but a stub can produce that input.
  *
  * The rule is about the SHAPE of the mistakes, not convenience. Defaulting to a
@@ -58,8 +58,9 @@ test.describe('choosing a new user’s authentication source', () => {
   });
 
   /*
-   * A select with one option is a control that cannot be operated. Core has
-   * only local, so the dialog must look exactly as it always has.
+   * A select with one option is a control that cannot be operated. With no
+   * directory configured there is only local, so the dialog must look exactly
+   * as it always has.
    */
   test('offers no selector at all when local is the only source', async ({ page }) => {
     const hits = await usersPageWith(page, [LOCAL]);

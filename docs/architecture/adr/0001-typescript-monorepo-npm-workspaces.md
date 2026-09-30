@@ -3,6 +3,15 @@
 - **Status:** Accepted
 - **Deciders:** Project owner, architect
 
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** There is no
+> `packages/enterprise` any more, optional or otherwise. Its code — LDAP/AD,
+> OIDC and audit forwarding — lives in `apps/api/src/directory/` and
+> `apps/api/src/audit-forwarding/`. The workspaces are `apps/api`, `apps/web`,
+> `apps/cert-helper`, `packages/contracts` and `packages/tls-grant`, all in one
+> lockfile. The
+> "optional-enterprise-package trick" below no longer exists; the case for npm
+> workspaces stands without it.
+
 ## Context
 
 NexusPuppet is a frontend (Next.js), a backend (NestJS), and a shared contract surface that both consume — plus an optional private package that must slot in without ceremony. These share types constantly: an `EncDocument` rendered in the UI is the same shape the materializer writes.

@@ -1,8 +1,14 @@
 # ADR-0002 — Open-core boundary via runtime discovery, not compile-time imports
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0027](./0027-one-product.md)
 - **Deciders:** Project owner, architect
-- **Related:** [ADR-0001](./0001-typescript-monorepo-npm-workspaces.md), [ADR-0007](./0007-apache-2-0-for-public-core.md)
+- **Related:** [ADR-0001](./0001-typescript-monorepo-npm-workspaces.md), [ADR-0007](./0007-apache-2-0-for-public-core.md), [ADR-0027](./0027-one-product.md)
+
+> **Superseded 2026-09-30 by [ADR-0027](./0027-one-product.md).** The open
+> question below was answered: the seam does not earn its keep. The code in
+> `packages/enterprise` moved into `apps/api`, and the loader, the capability
+> registry, the ESLint boundary and the `501`-with-`capability` convention are
+> gone. The body is kept as the record of why the split existed.
 
 
 > **Amended 2026-08-31.** NexusPuppet became fully open source. The enterprise

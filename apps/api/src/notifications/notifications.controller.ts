@@ -29,10 +29,9 @@ import { NotificationEmailTransport } from './notification-email.transport';
  * subscriptions produce the bystander effect: everybody assumes somebody else
  * is subscribed, and nobody finds out until the outage.
  *
- * NOT gated on a capability. Notifications are core — an open-core product
- * whose open half cannot say it is broken is a demo. What keeps that honest is
- * the content constraint, not a licence check: these messages describe the
- * deployment's health and never name a person or an action.
+ * Needs nothing but `settings:manage`. What keeps these apart from audit
+ * forwarding is the content constraint (ADR-0021 §1): these messages describe
+ * the deployment's health and never name a person or an action.
  */
 @RequirePermission('settings:manage')
 @Controller('settings/notifications')
