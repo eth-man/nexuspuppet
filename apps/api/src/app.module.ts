@@ -768,7 +768,8 @@ export class AppModule {
 function puppetDbProvider(env: Env): Provider {
   return {
     provide: PUPPETDB_CLIENT,
-    useFactory: (): PuppetDbClient =>
+    inject: [PrismaService],
+    useFactory: (prisma: PrismaService): PuppetDbClient =>
       // Certificates load lazily on first use. A missing or expired
       // certificate degrades the inventory screens; it must not stop the
       // process, because classification does not depend on PuppetDB at all.
@@ -778,6 +779,11 @@ function puppetDbProvider(env: Env): Provider {
         keyPath: env.PUPPETDB_KEY_PATH,
         caPath: env.PUPPETDB_CA_PATH,
         timeoutMs: env.PUPPETDB_TIMEOUT_MS,
+        // Every projection write follows a successful PuppetDB response, so the
+        // newest projectedAt is a contact that really happened — a lower bound,
+        // never an invention.
+        lastKnownContact: async () =>
+          (await prisma.managedNode.aggregate({ _max: { projectedAt: true } }))._max.projectedAt,
       }),
   };
 }

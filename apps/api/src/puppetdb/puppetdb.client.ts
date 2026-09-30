@@ -59,6 +59,16 @@ export interface PuppetDbClientOptions {
   keyPath: string;
   caPath: string;
   timeoutMs: number;
+  /**
+   * The last contact this process did not witness itself, from durable state.
+   *
+   * `lastSuccessAt` lives in memory, so a restart during an outage erased it:
+   * the console then said PuppetDB "never has" answered while ManagedNode held
+   * weeks-old projections that proved otherwise. Production reported exactly
+   * that for three weeks. Consulted once, and only until this process succeeds
+   * on its own — a live success is always newer than anything recalled.
+   */
+  lastKnownContact?: () => Promise<Date | null>;
 }
 
 const QUERY_PATH = '/pdb/query/v4';
@@ -71,6 +81,7 @@ export class PuppetDbClient implements IPuppetDbClient {
   private agent: Agent | null = null;
   private agentError: string | null = null;
   private lastSuccessAt: string | null = null;
+  private recalled: Promise<string | null> | null = null;
 
   constructor(private readonly options: PuppetDbClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
@@ -88,7 +99,12 @@ export class PuppetDbClient implements IPuppetDbClient {
     } catch (error) {
       return {
         reachable: false,
-        lastSuccessAt: this.lastSuccessAt,
+        // The error already carries the answer; asking again would recall twice
+        // for one failure.
+        lastSuccessAt:
+          error instanceof PuppetDbUnavailableError
+            ? error.lastSuccessAt
+            : await this.lastSuccess(),
         version: null,
         error: error instanceof Error ? error.message : String(error),
       };
@@ -312,7 +328,7 @@ export class PuppetDbClient implements IPuppetDbClient {
     } catch (error) {
       throw new PuppetDbUnavailableError(
         `Could not reach PuppetDB at ${this.baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
-        { lastSuccessAt: this.lastSuccessAt, cause: error },
+        { lastSuccessAt: await this.lastSuccess(), cause: error },
       );
     }
 
@@ -320,13 +336,35 @@ export class PuppetDbClient implements IPuppetDbClient {
       const body = await response.body.text().catch(() => '');
       throw new PuppetDbUnavailableError(
         `PuppetDB returned ${response.statusCode} for ${path}: ${body.slice(0, 500)}`,
-        { lastSuccessAt: this.lastSuccessAt, statusCode: response.statusCode },
+        { lastSuccessAt: await this.lastSuccess(), statusCode: response.statusCode },
       );
     }
 
     const parsed = (await response.body.json()) as T;
     this.lastSuccessAt = new Date().toISOString();
     return parsed;
+  }
+
+  /**
+   * The newest contact we can vouch for: this process's own, else the recalled
+   * one. A failed recall is not an error worth surfacing on a path that is
+   * already reporting PuppetDB as down — it degrades to "never", which is what
+   * the console said before recall existed — and it is not remembered, so the
+   * next report asks again rather than repeating "never" until PuppetDB returns.
+   */
+  private async lastSuccess(): Promise<string | null> {
+    if (this.lastSuccessAt !== null) return this.lastSuccessAt;
+    const recall = this.options.lastKnownContact;
+    if (recall === undefined) return null;
+    this.recalled ??= recall().then(
+      (at) => at?.toISOString() ?? null,
+      () => {
+        this.recalled = null;
+        return null;
+      },
+    );
+    const recalled = await this.recalled;
+    return this.lastSuccessAt ?? recalled;
   }
 
   /**
@@ -340,7 +378,7 @@ export class PuppetDbClient implements IPuppetDbClient {
 
     if (this.agentError !== null) {
       throw new PuppetDbUnavailableError(this.agentError, {
-        lastSuccessAt: this.lastSuccessAt,
+        lastSuccessAt: await this.lastSuccess(),
       });
     }
 
@@ -376,7 +414,9 @@ export class PuppetDbClient implements IPuppetDbClient {
         'Inventory and report views are unavailable; classification is unaffected.';
 
       this.logger.warn(this.agentError);
-      throw new PuppetDbUnavailableError(this.agentError, { lastSuccessAt: this.lastSuccessAt });
+      throw new PuppetDbUnavailableError(this.agentError, {
+        lastSuccessAt: await this.lastSuccess(),
+      });
     }
   }
 
