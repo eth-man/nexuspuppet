@@ -19,33 +19,31 @@ const auditExportSchema = z.object({
    * rather than warned about. A collector on localhost is the one exception,
    * because that is a sidecar pattern rather than a network hop.
    */
-  url: z
-    .string()
-    .refine(
-      (raw) => {
-        // Parsed defensively rather than after a separate .url() check: Zod
-        // runs refinements even when an earlier check has already failed, so a
-        // malformed value would reach this and throw a bare "Invalid URL"
-        // instead of the message below.
-        let parsed: URL;
-        try {
-          parsed = new URL(raw);
-        } catch {
-          return false;
-        }
-        if (parsed.protocol === 'https:') return true;
-        return (
-          parsed.protocol === 'http:' &&
-          (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
-        );
-      },
-      {
-        message:
-          'AUDIT_EXPORT_URL must be a valid https:// URL — audit records carry actor ' +
-          'identities and the before/after of every change. Plain http:// is permitted ' +
-          'only for a collector on localhost.',
-      },
-    ),
+  url: z.string().refine(
+    (raw) => {
+      // Parsed defensively rather than after a separate .url() check: Zod
+      // runs refinements even when an earlier check has already failed, so a
+      // malformed value would reach this and throw a bare "Invalid URL"
+      // instead of the message below.
+      let parsed: URL;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        return false;
+      }
+      if (parsed.protocol === 'https:') return true;
+      return (
+        parsed.protocol === 'http:' &&
+        (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+      );
+    },
+    {
+      message:
+        'AUDIT_EXPORT_URL must be a valid https:// URL — audit records carry actor ' +
+        'identities and the before/after of every change. Plain http:// is permitted ' +
+        'only for a collector on localhost.',
+    },
+  ),
 
   /** Sent as `Authorization: Bearer`. Never logged. */
   token: z.string().min(1).optional(),

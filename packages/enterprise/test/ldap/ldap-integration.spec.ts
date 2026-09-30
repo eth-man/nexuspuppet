@@ -196,9 +196,7 @@ describe('LdapAuthProvider against a real OpenLDAP', () => {
     // Prove the premise: binding as alice with an empty password really does
     // succeed at the protocol level, so the guard is load-bearing.
     const raw = new LdaptsDirectory(config());
-    await expect(
-      raw.verifyCredentials(`uid=alice,ou=people,${BASE_DN}`, ''),
-    ).resolves.toBe(true);
+    await expect(raw.verifyCredentials(`uid=alice,ou=people,${BASE_DN}`, '')).resolves.toBe(true);
   });
 
   it('refuses a user who is in no mapped group', async () => {
@@ -291,7 +289,9 @@ describe('LdapAuthProvider against a real OpenLDAP', () => {
     });
 
     it('surfaces transport failure as LdapUnavailableError from the adapter', async () => {
-      const offline = new LdaptsDirectory(config({ url: 'ldap://127.0.0.1:3891', timeoutMs: 2000 }));
+      const offline = new LdaptsDirectory(
+        config({ url: 'ldap://127.0.0.1:3891', timeoutMs: 2000 }),
+      );
       await expect(offline.findEntry('(mail=alice@nexuspuppet.test)')).rejects.toBeInstanceOf(
         LdapUnavailableError,
       );

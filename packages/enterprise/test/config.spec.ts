@@ -31,9 +31,9 @@ describe('ldapConfigFromEnv', () => {
    * every login fails with "no such user".
    */
   it('rejects a bind DN with no password', () => {
-    expect(() =>
-      ldapConfigFromEnv({ ...BASE, LDAP_BIND_DN: 'cn=svc,dc=example,dc=com' }),
-    ).toThrow(/unauthenticated bind/i);
+    expect(() => ldapConfigFromEnv({ ...BASE, LDAP_BIND_DN: 'cn=svc,dc=example,dc=com' })).toThrow(
+      /unauthenticated bind/i,
+    );
   });
 
   it('parses role mappings whose DNs contain equals signs', () => {
@@ -99,7 +99,9 @@ describe('resolveRoles', () => {
 
 describe('normalizeDn', () => {
   it('ignores case and spacing around separators', () => {
-    expect(normalizeDn('CN=Ops, OU=Groups, DC=Example')).toBe(normalizeDn('cn=ops,ou=groups,dc=example'));
+    expect(normalizeDn('CN=Ops, OU=Groups, DC=Example')).toBe(
+      normalizeDn('cn=ops,ou=groups,dc=example'),
+    );
   });
 });
 
@@ -127,9 +129,9 @@ describe('LDAP_CA_PATH', () => {
    * where it would surface as an opaque TLS error long after the deploy.
    */
   it('refuses a path that does not exist', () => {
-    expect(() =>
-      ldapConfigFromEnv({ ...LDAPS, LDAP_CA_PATH: '/nonexistent/ca.pem' }),
-    ).toThrow(/does not exist/);
+    expect(() => ldapConfigFromEnv({ ...LDAPS, LDAP_CA_PATH: '/nonexistent/ca.pem' })).toThrow(
+      /does not exist/,
+    );
   });
 
   /**
@@ -175,9 +177,9 @@ describe('LDAP_DIALECT and nested groups', () => {
    * quietly grant the wrong roles.
    */
   it('refuses nested groups on a dialect that cannot do them', () => {
-    expect(() =>
-      ldapConfigFromEnv({ ...BASE, LDAP_NESTED_GROUPS: 'true' }),
-    ).toThrow(/does not support LDAP_MATCHING_RULE_IN_CHAIN/);
+    expect(() => ldapConfigFromEnv({ ...BASE, LDAP_NESTED_GROUPS: 'true' })).toThrow(
+      /does not support LDAP_MATCHING_RULE_IN_CHAIN/,
+    );
   });
 
   it('takes a separate group search base, since groups rarely live under the people OU', () => {

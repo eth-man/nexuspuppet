@@ -2,6 +2,40 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**An install that followed DEPLOYMENT.md built an image without LDAP, OIDC, custom roles or audit forwarding.** The API image had an `EDITION` build argument defaulting to `core`, which left `packages/enterprise` out, and `scripts/deploy.sh` never set it. Since 1.9.0 made every feature part of the open-source product, that default meant the documented install path produced the smaller image, and nothing said so — role editing and audit forwarding answered `501` and the directory panels showed as unavailable.
+
+**`NOTICE` said the directory and audit integrations were under a commercial licence and not in this repository.** Both stopped being true in 1.9.0.
+
+### Removed
+
+**The `EDITION` build argument.** Every image now contains the whole product and is installed with `npm ci` against the committed lockfile — the separate `npm install` stage and the `ldapts` reinstall it needed on every rebuild are gone. `ldapts` loses a stale optional-peer entry and is an ordinary dependency only.
+
+**`npm run test:e2e:core`, `npm run test:e2e:enterprise` and `scripts/dev/e2e-edition.sh`**, which ran the browser suite with the layer hidden. There is no smaller product left to test.
+
+**The `NEXUSPUPPET_ENTERPRISE_REPO` / `_REF` block in `.env.example`**, which described a fetch script deleted in 1.9.0.
+
+### Upgrading
+
+**`EDITION` is gone; remove it from `.env` at your leisure.** A leftover line is ignored.
+
+**If your `.env` set `EDITION=enterprise`, nothing changes.** You were already building this image.
+
+**If it did not — the default — your next build gains LDAP/AD, OIDC, custom roles and audit forwarding. None of them does anything until it is configured:**
+
+- the LDAP provider is registered only when `LDAP_URL` is set, and OIDC only when `OIDC_ISSUER` is;
+- audit forwarding queues and sends nothing until a transport is configured, by `AUDIT_EXPORT_URL` or from Settings → Integrations;
+- custom roles become *creatable* by holders of `settings:manage`; the three built-in roles are unchanged and nobody's access moves until someone defines a role.
+
+**Check `.env` before rebuilding a former core image.** `LDAP_*`, `OIDC_*` and `AUDIT_EXPORT_*` were ignored by an image without the layer; they now take effect, and a malformed value stops the API from booting — deliberately, so a deployment that believes it has a directory never silently runs without one:
+
+```bash
+grep -E '^(LDAP_|OIDC_|AUDIT_EXPORT_)' .env
+```
+
 ## [1.9.0] — 2026-09-07
 
 **NexusPuppet is now fully open source.** Directory authentication (LDAP and Active Directory), single sign-on (OIDC), custom roles and audit forwarding move from a private repository into this one, under Apache-2.0. There is no paid tier, no licence key, and no feature held back. **No migration.**

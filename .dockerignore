@@ -21,6 +21,3 @@
 .github
 e2e/.results
 qa-report*
-
-# NOT excluded: packages/enterprise. A private build needs it in the context —
-# see the four edits documented at the top of apps/api/Dockerfile.

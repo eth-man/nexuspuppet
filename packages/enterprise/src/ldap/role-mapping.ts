@@ -70,7 +70,10 @@ export interface ResolvedRoles {
  * @returns null when the user belongs to no mapped group — which the caller
  *          must treat as a refusal, not as a default role.
  */
-export function resolveRoles(groupDns: readonly string[], config: LdapConfig): ResolvedRoles | null {
+export function resolveRoles(
+  groupDns: readonly string[],
+  config: LdapConfig,
+): ResolvedRoles | null {
   const held = new Set(groupDns.map(normalizeDn));
 
   const matched: string[] = [];

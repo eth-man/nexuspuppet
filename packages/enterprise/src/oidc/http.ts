@@ -24,18 +24,22 @@ function send(
   const transport = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
   return new Promise((resolve, reject) => {
-    const req = transport(target, { method: options.method, headers: options.headers, timeout: timeoutMs }, (res) => {
-      let body = '';
-      let bytes = 0;
-      res.setEncoding('utf8');
-      res.on('data', (chunk: string) => {
-        // Bounded: an identity provider is trusted to be honest, not to be
-        // healthy, and an unbounded read is a memory risk from a broken one.
-        bytes += Buffer.byteLength(chunk);
-        if (bytes <= MAX_BODY_BYTES) body += chunk;
-      });
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
-    });
+    const req = transport(
+      target,
+      { method: options.method, headers: options.headers, timeout: timeoutMs },
+      (res) => {
+        let body = '';
+        let bytes = 0;
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          // Bounded: an identity provider is trusted to be honest, not to be
+          // healthy, and an unbounded read is a memory risk from a broken one.
+          bytes += Buffer.byteLength(chunk);
+          if (bytes <= MAX_BODY_BYTES) body += chunk;
+        });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      },
+    );
 
     req.on('timeout', () => {
       // `timeout` does not abort by itself; without this the promise never
@@ -51,7 +55,11 @@ function send(
 
 export class NodeOidcHttp implements OidcHttp {
   async getJson(url: string, timeoutMs: number): Promise<unknown> {
-    const { status, body } = await send(url, { method: 'GET', headers: { accept: 'application/json' } }, timeoutMs);
+    const { status, body } = await send(
+      url,
+      { method: 'GET', headers: { accept: 'application/json' } },
+      timeoutMs,
+    );
     if (status !== 200) throw new Error(`OIDC request to ${url} answered ${status}`);
     try {
       return JSON.parse(body) as unknown;
@@ -125,7 +133,12 @@ export class HttpTokenExchange implements TokenExchange {
       headers['authorization'] = `Basic ${basic}`;
     }
 
-    const raw = await this.http.postForm(params.tokenEndpoint, form, headers, this.config.timeoutMs);
+    const raw = await this.http.postForm(
+      params.tokenEndpoint,
+      form,
+      headers,
+      this.config.timeoutMs,
+    );
     return (raw ?? {}) as { id_token?: string; access_token?: string };
   }
 }
