@@ -11,6 +11,10 @@ import { levelsFor } from './system/pure/log-levels';
 import { loadEnv } from './config/env';
 import { FileLogSink } from './logging/file-log-sink';
 import { TeeConsoleLogger } from './logging/tee-console-logger';
+import { captureProcessOutput, record } from './logging/process-capture';
+
+/** Module scope so the bootstrap-failure handler below can reach it. */
+let logSink: FileLogSink | undefined;
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -37,16 +41,19 @@ async function bootstrap(): Promise<void> {
    * line of boot is in the file too. It never throws: an unwritable LOG_DIR
    * disables the copy and says so once on stderr.
    */
-  const logSink = FileLogSink.open({
+  logSink = FileLogSink.open({
     directory: env.LOG_DIR,
     host: hostname(),
     maxBytes: env.LOG_FILE_MAX_BYTES,
     keep: env.LOG_FILE_KEEP,
   });
+  // Node's own stderr — runtime warnings and the stack of a crash — never
+  // passes through the logger below, so it is copied separately.
+  captureProcessOutput(logSink);
   const appLogger = new TeeConsoleLogger(logSink);
   appLogger.setLogLevels(levelsFor(env.LOG_LEVEL));
   // Installed NOW, not only by NestFactory.create below: AppModule.bootstrap()
-  // logs (the enterprise loader's verdict) before the app exists, and those
+  // logs (the integrations it registers) before the app exists, and those
   // lines would otherwise reach stdout but not the file. Found on a real
   // container, where the file started one line later than `docker logs`.
   Logger.overrideLogger(appLogger);
@@ -164,6 +171,17 @@ bootstrap().catch((error: unknown) => {
   // Anything thrown here — invalid env, a malformed LDAP/OIDC/audit export
   // configuration (config/integrations.ts) — must stop
   // the process. Starting in a degraded state would be worse than not starting.
-  console.error('[bootstrap] Fatal:', error instanceof Error ? error.message : error);
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('[bootstrap] Fatal:', message);
+  // Into the file too, when it is open by now: a container that restarts in a
+  // loop is the case where the reason must survive into a support bundle.
+  if (logSink !== undefined) {
+    record(
+      logSink,
+      'fatal',
+      `Bootstrap failed: ${message}`,
+      error instanceof Error ? error.stack : undefined,
+    );
+  }
   process.exit(1);
 });
