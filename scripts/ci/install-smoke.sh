@@ -175,7 +175,9 @@ echo "  ok"
 step "The environment reached the container"
 # The specific regression: Compose enumerated nine keys and silently dropped the
 # rest, so a documented setting had no effect in the deployment that ships.
-for key in BOOTSTRAP_ADMIN_EMAIL PUPPETDB_PROJECTED_FACTS LOGIN_MAX_FAILED_ATTEMPTS; do
+# CONFIG_ENCRYPTION_KEY is not in .env.example at all: deploy.sh APPENDS it
+# (ADR-0029 §6), so this is what proves the generated key reaches the API.
+for key in BOOTSTRAP_ADMIN_EMAIL PUPPETDB_PROJECTED_FACTS LOGIN_MAX_FAILED_ATTEMPTS CONFIG_ENCRYPTION_KEY; do
   docker compose exec -T api sh -c "test -n \"\$$key\"" \
     || fail "$key is set in .env but never reached the container"
   echo "  $key present"

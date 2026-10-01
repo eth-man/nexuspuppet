@@ -203,7 +203,9 @@ Pin a tag in production rather than tracking `main`.
 There is nothing to fetch, no licence to install, and no build flag to choose.
 LDAP/AD, OIDC, custom roles and audit forwarding are all in this repository and
 all in every image `docker compose build` produces. Each one stays inert until
-you configure it — `LDAP_URL`, `OIDC_ISSUER`, or the console's settings screens.
+you configure it — on its settings screen in the console, or with `LDAP_*`,
+`OIDC_*` and `AUDIT_EXPORT_*` in `.env`. A directory saved in the console takes
+effect at the next sign-in, with no restart ([ADR-0029](docs/architecture/adr/0029-directory-from-the-console.md)).
 
 ```bash
 # Everything ships in this repository, and one lockfile covers all of it.
@@ -221,12 +223,20 @@ elsewhere to "initialise the submodule" date from when part of the product
 lived in a separate private repository. It does not any more.
 
 **Verifying what you are running:** `GET /auth/mode` lists the sign-in sources
-the running API offers — `local` always, plus `ldap` once `LDAP_URL` is set and
-`oidc` once `OIDC_ISSUER` is. Settings → Directory / Auth shows a directory as
-*Not enabled* until its variable is set. (`GET /capabilities`, which reported an
-"edition", was removed with ADR-0027.)
+the login page offers — `local` always, plus `ldap` and `oidc` once each is
+configured, from the console or the environment. Settings → Directory / Auth
+badges each directory *Not configured*, *From the environment* or *Saved in the
+console*. (`GET /capabilities`, which reported an "edition", was removed with
+ADR-0027.)
 
-### Provision your directory accounts BEFORE you set `LDAP_URL` or `OIDC_ISSUER`
+**`CONFIG_ENCRYPTION_KEY`.** The console encrypts a bind password or client
+secret with it, and cannot store one without it. `scripts/deploy.sh` generates
+it when `.env` has none — on first install and on upgrade — by **appending** one
+line, and says so. It never edits or removes an existing line; that is the one
+exception to "an existing `.env` is never touched" (ADR-0029 §6). Back it up
+with the rest of `.env`, and never change it once secrets are stored.
+
+### Provision your directory accounts BEFORE you enable the directory
 
 **Your local accounts keep working.** A directory provider is contributed
 *alongside* the local provider, never instead of it, and `authSource` on the
@@ -242,10 +252,11 @@ pins it. So `admin@example.com` signs in after the switch exactly as before.
 
 What is still true, and still catches people:
 
-- **There is no auto-provisioning, and the refusal is silent.** A directory user
-  with no row in `users` is rejected, and *nothing is logged* — the resolver
-  looks the account up before choosing a provider, so a missing account and a
-  wrong password are indistinguishable from the outside. This is deliberate
+- **There is no auto-provisioning, and the refusal looks like a wrong password.**
+  A directory user with no row in `users` is rejected — the resolver looks the
+  account up before choosing a provider, so a missing account and a wrong
+  password are indistinguishable from the outside. The API log says which it
+  was. This is deliberate
   (ADR-0015 §2: dispatch must not become a user-enumeration oracle), and it is
   the single most common cause of "LDAP is configured correctly and nobody can
   log in".
@@ -264,7 +275,33 @@ curl -s -b jar -X POST http://localhost:3001/users \
   -H 'content-type: application/json' \
   -d '{"email":"you@yourorg.com","displayName":"You","role":"VIEWER","authSource":"ldap"}'
 
-# 2. Only now set LDAP_URL / OIDC_ISSUER in .env and restart.
+# 2. Only now configure the directory: Settings -> Directory / Auth, where it
+#    takes effect at the next sign-in. (Or LDAP_* / OIDC_* in .env and a restart.)
+```
+
+An account can be created for a directory that is not configured yet — the
+create-user dialog labels it *not configured yet*. It is refused, like a wrong
+password, until the directory is configured, and the log says *LDAP sign-in is
+not configured*.
+
+**From the API**, for automation or a host without a browser — the same calls
+the console makes, as an administrator with `settings:manage`:
+
+```bash
+# Test first: binds and searches, saves nothing. caPem is the CA that signs the
+# directory's certificate, as PEM text — public, and never a private key.
+jq -n --rawfile ca /path/to/corp-root-ca.pem '{
+  url: "ldaps://dc01.corp.example:636", dialect: "ad",
+  bindDn: "CN=svc-nexuspuppet,OU=Service,DC=corp,DC=example", bindPassword: "...",
+  searchBase: "OU=Staff,DC=corp,DC=example",
+  roleMappings: [{groupDn: "CN=Puppet Admins,OU=Groups,DC=corp,DC=example", role: "ADMIN"}],
+  tlsRejectUnauthorized: true, caPem: $ca }' > ldap.json
+curl -s -b jar -X POST http://localhost:3001/settings/auth/ldap/test \
+  -H 'content-type: application/json' --data @ldap.json
+
+# Save: in force at the next sign-in. DELETE undoes it.
+curl -s -b jar -X PUT http://localhost:3001/settings/auth/ldap \
+  -H 'content-type: application/json' --data @ldap.json
 ```
 
 The `role` you set here is a placeholder. Group mapping is authoritative and

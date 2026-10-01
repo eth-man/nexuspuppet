@@ -26,11 +26,9 @@ import { SecretBoxError, open, parseKey, seal } from './secret-box';
 export const SETTING_KINDS = [
   'auth.ldap',
   /**
-   * READ-ONLY today. Nothing writes this kind: an auth provider snapshots its
-   * configuration at construction, so a stored row would be displayed and never
-   * applied. It exists so `describe` resolves the same way for both directory
-   * providers — from a row if one ever exists, otherwise from the running
-   * provider's own report.
+   * Editable since #113, and enough on its own to enable SSO since ADR-0029:
+   * the provider reads this per login, and is registered whether or not
+   * anything is configured.
    */
   'auth.oidc',
   'audit.syslog',
@@ -223,7 +221,8 @@ export class SettingsStore {
     if (hasSecrets && this.key === null) {
       throw new SettingsStoreError(
         'This configuration holds a secret, and CONFIG_ENCRYPTION_KEY is not set. ' +
-          'Generate one with `openssl rand -base64 32` and restart before saving credentials.',
+          'Re-run scripts/deploy.sh, which generates it, or set it in .env ' +
+          '(openssl rand -base64 32) and restart before saving credentials.',
       );
     }
 

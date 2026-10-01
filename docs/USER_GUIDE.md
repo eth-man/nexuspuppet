@@ -321,7 +321,7 @@ Separately, a **projector** polls PuppetDB for changed facts and refreshes the c
 
 ![Settings](images/settings.png)
 
-**Settings** shows the running deployment: version, uptime and database connection, with an on-demand update check. There are no editions: every deployment has every feature. What differs is configuration. Under **Directory / Auth**, the LDAP and OIDC cards read *Not enabled* until `LDAP_URL` or `OIDC_ISSUER` is set and the API restarted. That is expected, not a fault.
+**Settings** shows the running deployment: version, uptime and database connection, with an on-demand update check. There are no editions: every deployment has every feature. What differs is configuration. Under **Directory / Auth**, the LDAP and OIDC cards say where their settings come from — *Not configured*, *From the environment* or *Saved in the console* — and either can be configured right there; a saved directory takes effect at the next sign-in, with no restart. *Not configured* is expected on a deployment that uses local accounts only, not a fault.
 
 ### Users
 

@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { KeyRound, Plus, RefreshCw, Trash2, UserX } from 'lucide-react';
 import type { ManagedUser, Permission, Role } from '@nexuspuppet/contracts';
-import { useAuthSources, useRoles, useUser, useUsers } from '@/lib/queries';
+import { useProvisionableAuthSources, useRoles, useUser, useUsers } from '@/lib/queries';
 import {
   useCreateUser,
   useDeactivateUser,
@@ -106,13 +106,19 @@ export function UsersPanel() {
    * be able to provision directory accounts — reading it off the principal
    * would hide the option from exactly the person who needs it.
    *
-   * With no directory configured the only source is local, so no selector is
-   * offered at all and this dialog looks as it always has.
+   * Every REGISTERED source, with whether it is configured (ADR-0029 §2). Both
+   * directories are registered on every deployment, so an account can be
+   * provisioned for one before it is enabled; the option says so rather than
+   * hiding, and the account simply cannot sign in until it is configured.
    */
-  const authSources = useAuthSources();
-  const directories = (authSources.data?.sources ?? [])
-    .map((entry) => entry.source)
-    .filter((source) => source !== 'local');
+  const authSources = useProvisionableAuthSources(manages);
+  const external = (authSources.data?.sources ?? []).filter((entry) => entry.source !== 'local');
+  const directories = external.map((entry) => entry.source);
+  /** Only CONFIGURED directories decide the default; a dormant one is never guessed. */
+  const configuredDirectories = external
+    .filter((entry) => entry.configured)
+    .map((entry) => entry.source);
+  const dormant = new Set(external.filter((e) => !e.configured).map((e) => e.source));
 
   /**
    * What the dialog opens on (ADR-0023 §4).
@@ -129,8 +135,13 @@ export function UsersPanel() {
    *
    * Between two directories there is no such asymmetry — either could be right
    * — so it does not guess.
+   *
+   * Counted over CONFIGURED directories only (ADR-0029). A dormant one cannot
+   * sign anybody in, so defaulting to it would be the wrong guess every time;
+   * it stays selectable, deliberately.
    */
-  const defaultSource = directories.length === 1 ? (directories[0] ?? 'local') : '';
+  const defaultSource =
+    configuredDirectories.length === 1 ? (configuredDirectories[0] ?? 'local') : '';
 
   /*
    * DERIVED, not synced through an effect. `sources` arrives asynchronously, so
@@ -140,7 +151,9 @@ export function UsersPanel() {
    * stands in until they choose.
    */
   const [chosenSource, setChosenSource] = useState<string | null>(null);
-  const authSource = chosenSource ?? (directories.length === 0 ? 'local' : defaultSource);
+  const authSource = chosenSource ?? (configuredDirectories.length === 0 ? 'local' : defaultSource);
+  /** The chosen source exists but has nothing configured yet. */
+  const chosenDormant = dormant.has(authSource);
   const isLocal = authSource === 'local';
   /** Two or more directories and nothing picked. */
   const mustChooseSource = authSource === '';
@@ -371,7 +384,9 @@ export function UsersPanel() {
             ? 'This deployment has more than one directory. Choose which one owns this account — it decides who authenticates them, and it cannot be guessed from the address.'
             : isLocal
               ? 'Local account. The user can change their own password after signing in.'
-              : `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.`
+              : chosenDormant
+                ? `Authenticated by ${authSource}, which is not configured yet. The account can be created now; it cannot sign in until ${authSource} is configured under Directory / Auth.`
+                : `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.`
         }
         footer={
           <>
@@ -473,7 +488,7 @@ export function UsersPanel() {
                   <option value="local">local (password)</option>
                   {directories.map((source) => (
                     <option key={source} value={source}>
-                      {source}
+                      {dormant.has(source) ? `${source} (not configured yet)` : source}
                     </option>
                   ))}
                 </Select>

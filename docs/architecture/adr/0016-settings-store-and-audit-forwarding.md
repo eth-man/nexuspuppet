@@ -62,6 +62,15 @@ The API refuses to start with stored secrets it cannot decrypt, rather than sile
 
 ### 4. Reconfiguration is live; **registration** still needs a restart
 
+> **Amended 2026-10-01 ([ADR-0029](./0029-directory-from-the-console.md)).**
+> Registration no longer needs a restart either. Both directory providers are
+> registered on every deployment, and one with neither a stored row nor an
+> environment baseline is dormant: off the login page, refusing its accounts
+> generically. So turning LDAP or OIDC on for the first time is a save in the
+> console, effective at the next sign-in, and the "restart required" path below
+> is gone from the product. The Test action, and the distinction between what a
+> provider points at and whether it exists, stand as written.
+
 The distinction that makes this feasible:
 
 - **What a provider points at** — URL, search base, credentials, role mappings — is read through the settings store and can change while the process runs.

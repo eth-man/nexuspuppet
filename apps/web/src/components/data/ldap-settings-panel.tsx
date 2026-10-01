@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,18 +8,19 @@ import {
   Network,
   Pencil,
   Plus,
+  ShieldCheck,
   Trash2,
   XCircle,
 } from 'lucide-react';
-import type { LdapSettings, ProviderVerification } from '@nexuspuppet/contracts';
+import type { LdapSettings, LdapSettingsView, ProviderVerification } from '@nexuspuppet/contracts';
 import { useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { NotEnabledCard } from '@/components/ui/not-enabled-card';
 import { Button } from '@/components/ui/button';
+import { DirectorySection, EncryptionKeyNotice } from '@/components/data/directory-section';
 import {
   Card,
   CardContent,
@@ -34,6 +35,7 @@ import { InfoHint } from '@/components/ui/info-hint';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { LoadingRows, QueryError } from '@/components/states';
 
 /** An empty form, for a deployment that has never configured a directory. */
@@ -48,7 +50,14 @@ const BLANK: LdapSettings = {
 };
 
 /**
- * Configure the directory from the console (ADR-0016).
+ * Configure the directory from the console (ADR-0016) — including turning it
+ * on in the first place (ADR-0029).
+ *
+ * The LDAP provider is registered on every deployment, so there is no "set
+ * LDAP_URL and restart" state any more: with nothing configured this is an
+ * empty state one click from the form, and a save takes effect at the next
+ * sign-in. Nothing here is a security control — the API checks
+ * `settings:manage` on every route — so hiding a control is presentation only.
  *
  * Two things about this screen are load-bearing rather than decorative:
  *
@@ -96,7 +105,7 @@ export function LdapSettingsPanel() {
    */
   const [editing, setEditing] = useState(false);
 
-  const view = stored.data;
+  const view: LdapSettingsView | undefined = stored.data;
 
   useEffect(() => {
     // Load the server's copy once it arrives. The password is deliberately not
@@ -106,8 +115,24 @@ export function LdapSettingsPanel() {
 
   if (!manages) return null;
 
-  if (stored.isError) return <QueryError error={stored.error} />;
-  if (stored.isPending) return <LoadingRows rows={5} columns={2} />;
+  /*
+   * One named region whatever state it is in, so the page always has the same
+   * two directories in the same places — and so their identically titled cards
+   * ("Role mappings", "Edit settings") can be told apart (ADR-0029).
+   */
+  const frame = (children: ReactNode) => (
+    <DirectorySection
+      id="ldap"
+      title="Directory (LDAP)"
+      description="Sign people in against LDAP or Active Directory, with roles from their groups."
+      source={view?.source}
+    >
+      {children}
+    </DirectorySection>
+  );
+
+  if (stored.isError) return frame(<QueryError error={stored.error} />);
+  if (stored.isPending) return frame(<LoadingRows rows={5} columns={2} />);
 
   const field = <K extends keyof LdapSettings>(key: K, value: LdapSettings[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -123,6 +148,13 @@ export function LdapSettingsPanel() {
     setError(caught instanceof ApiError ? caught.message : String(caught));
 
   const holdsPassword = view?.secretsHeld.includes('bindPassword') === true;
+
+  /**
+   * No CONFIG_ENCRYPTION_KEY: a bind password cannot be stored at all (ADR-0029
+   * §6). Said BEFORE somebody types one, with the fix, rather than as a refused
+   * save afterwards. An anonymous-search directory still saves fine.
+   */
+  const cannotStoreSecrets = view?.secretsStorable === false;
 
   /**
    * The form is populated from the environment, which supplies a bind DN but
@@ -148,29 +180,20 @@ export function LdapSettingsPanel() {
     password === '';
 
   /*
-   * Whether an LDAP provider is RUNNING — registered at boot because LDAP_URL
-   * was set. The API reports it as `liveReload`: with a provider running, a
-   * saved change takes effect on the next login.
-   *
-   * This is what gates the form now (ADR-0027). It used to be the
-   * `directory.ldap` capability, which was advertised in exactly the same
-   * circumstance; the difference is that nothing here is licensed any more,
-   * only configured or not.
+   * Nothing stored, nothing in the environment: the provider is dormant
+   * (ADR-0029). An empty state with one button, rather than a blank form that
+   * looks the same as a broken one. The button opens the form UNLOCKED — there
+   * is nothing yet to protect from a stray keystroke.
    */
-  const running = view?.liveReload === true;
-
-  /*
-   * Configured means SOMETHING is in force: stored settings, an environment
-   * baseline, or a provider that is demonstrably running.
-   */
-  const configured = view?.source === 'database' || view?.source === 'environment' || running;
-
-  /*
-   * The empty state is for a deployment that has a provider running and
-   * nothing configured for it.
-   */
-  if (running && !configured && !revealed) {
-    return <NotConfigured onConfigure={() => setRevealed(true)} />;
+  if (view?.source === 'unset' && !revealed) {
+    return frame(
+      <NotConfigured
+        onConfigure={() => {
+          setRevealed(true);
+          setEditing(true);
+        }}
+      />,
+    );
   }
 
   const blocked = form.url === '' || form.searchBase === '' || needsPasswordToAdopt;
@@ -187,26 +210,7 @@ export function LdapSettingsPanel() {
   const before = view?.config ?? null;
   const changes = describeChanges(before, form, password !== '');
 
-  /*
-   * Header only while no provider is running.
-   *
-   * Providers register at boot, from LDAP_URL. Until then nothing typed here
-   * could take effect, and a screen of inputs whose Save needs a restart to
-   * mean anything is how somebody fills six fields and finds out later that
-   * none of it ran. Registering the provider always, and enabling it from
-   * this screen, is ADR-0027's open follow-up.
-   */
-  if (!running) {
-    return (
-      <NotEnabledCard
-        title="Directory (LDAP)"
-        description="Authenticate against an LDAP or Active Directory server."
-        note="Set LDAP_URL and restart the API to enable it. OIDC, if configured, keeps working alongside it, and so do local accounts."
-      />
-    );
-  }
-
-  return (
+  return frame(
     /*
      * `<fieldset disabled>` rather than a `disabled` prop threaded through
      * thirty controls: the browser disables every form control inside it,
@@ -214,9 +218,8 @@ export function LdapSettingsPanel() {
      * form the way a hand-maintained list would.
      */
     <div className="space-y-4">
-      {/* A provider is running past this point — the other case returned above. */}
       <fieldset disabled={!editing} className="min-w-0 space-y-4">
-        <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
+        <StatusNotices source={view?.source} cannotStoreSecrets={cannotStoreSecrets} />
 
         {error !== null && (
           <div
@@ -235,10 +238,9 @@ export function LdapSettingsPanel() {
                 Where the directory is, and the account used to read it.
               </CardDescription>
             </CardHeading>
-            {view !== undefined && (
+            {view?.disabled === true && (
               <div className="flex shrink-0 items-center gap-2">
-                <Badge>{sourceLabel(view.source, view.liveReload)}</Badge>
-                {view.disabled && <Badge>disabled</Badge>}
+                <Badge>disabled</Badge>
               </div>
             )}
           </CardHeader>
@@ -263,6 +265,7 @@ export function LdapSettingsPanel() {
                     onChange={(e) => field('url', e.target.value)}
                     placeholder="ldaps://directory.example.com:636"
                     aria-invalid={form.url !== '' && !/^ldaps?:\/\//i.test(form.url)}
+                    className="font-mono text-2xs"
                   />
                 )}
               </Field>
@@ -306,11 +309,13 @@ export function LdapSettingsPanel() {
               <Field
                 className="min-w-64 flex-1"
                 hint={
-                  holdsPassword
-                    ? 'A password is stored. Leave blank to keep it.'
-                    : needsPasswordToAdopt
-                      ? 'The environment supplies this account but not its password, so adopting these settings into the database will require it.'
-                      : undefined
+                  cannotStoreSecrets
+                    ? 'Cannot be stored until CONFIG_ENCRYPTION_KEY is set — see above.'
+                    : holdsPassword
+                      ? 'A password is stored. Leave blank to keep it.'
+                      : needsPasswordToAdopt
+                        ? 'The environment supplies this account but not its password, so adopting these settings into the database will require it.'
+                        : undefined
                 }
                 error={
                   editing && needsPasswordToAdopt
@@ -336,6 +341,9 @@ export function LdapSettingsPanel() {
                     }}
                     placeholder={holdsPassword ? '•••••••• (unchanged)' : ''}
                     aria-invalid={editing && needsPasswordToAdopt}
+                    // Not a security control — the API refuses the save — but
+                    // a field that cannot be saved should not invite typing.
+                    disabled={cannotStoreSecrets}
                   />
                 )}
               </Field>
@@ -359,6 +367,51 @@ export function LdapSettingsPanel() {
                   }
                   {'authenticates administrators.'}
                 </Notice>
+              )}
+
+              {/*
+                The CA, pasted (ADR-0029 §5). On-premises directories are almost
+                always signed by an internal CA, and without a way to trust it
+                the only route to ldaps:// is switching verification off — the
+                warning just above. A CA certificate is public, so this is
+                ordinary configuration; a private key is refused by the API.
+              */}
+              {form.tlsRejectUnauthorized && (
+                <Field
+                  label="CA certificate (PEM)"
+                  hint="Leave empty to use the system trust store, or a CA file mounted with LDAP_CA_PATH."
+                  tooltip={
+                    <InfoHint
+                      label="About the CA certificate"
+                      text="The certificate of the CA that signs your directory's TLS certificate — one or more -----BEGIN CERTIFICATE----- blocks. Public by design, so it is stored and shown in clear. Never paste a private key here."
+                    />
+                  }
+                >
+                  {(id) => (
+                    <Textarea
+                      id={id}
+                      rows={4}
+                      value={form.caPem ?? ''}
+                      onChange={(e) => {
+                        const pem = e.target.value;
+                        setForm((current) => {
+                          const next = { ...current };
+                          if (pem.trim() === '') delete next.caPem;
+                          else next.caPem = pem;
+                          return next;
+                        });
+                        setResult(null);
+                      }}
+                      placeholder={'-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----'}
+                      spellCheck={false}
+                      className="text-2xs"
+                    />
+                  )}
+                </Field>
+              )}
+
+              {view !== undefined && view.caCertificates.length > 0 && (
+                <CaCertificates certificates={view.caCertificates} />
               )}
             </div>
           </CardContent>
@@ -539,7 +592,7 @@ export function LdapSettingsPanel() {
           />
         </CardContent>
       </Card>
-    </div>
+    </div>,
   );
 }
 
@@ -554,13 +607,13 @@ export function LdapSettingsPanel() {
 function NotConfigured({ onConfigure }: { onConfigure: () => void }) {
   return (
     <Card>
-      <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+      <CardContent className="flex flex-col items-center gap-3 px-6 py-8 text-center">
         <span className="rounded-full border border-line-soft bg-panel-raised p-3">
           <Network className="size-6 text-ink-faint" aria-hidden />
         </span>
 
         <div className="space-y-1">
-          <h2 className="text-sm font-semibold text-ink">No directory connected</h2>
+          <h3 className="text-sm font-semibold text-ink">No directory connected</h3>
           <p className="mx-auto max-w-sm text-xs text-ink-muted">
             {'Connect your organisation’s directory to sign people in with the accounts they '}
             {'already have, and to decide what they can do from the groups they are already in.'}
@@ -586,21 +639,22 @@ function NotConfigured({ onConfigure }: { onConfigure: () => void }) {
  * These were full-width boxes carrying three sentences each. Both are worth
  * saying and neither is worth the top third of the screen, so the sentence
  * stays on the strip and the paragraph moves into the hint beside it.
+ *
+ * There is no "restart required" strip any more: the provider is registered on
+ * every deployment, so a save takes effect at the next sign-in (ADR-0029).
  */
 function StatusNotices({
   source,
-  liveReload,
+  cannotStoreSecrets,
 }: {
   source: 'database' | 'environment' | 'unset' | undefined;
-  liveReload: boolean;
+  cannotStoreSecrets: boolean;
 }) {
   if (source === undefined) return null;
 
-  const fromEnvironment = source === 'environment' || (source === 'unset' && liveReload);
-
   return (
     <>
-      {fromEnvironment && (
+      {source === 'environment' && (
         <Notice tone="info">
           {'Configured from the environment. Saving here stores a configuration in the database, '}
           {'which then takes precedence. '}
@@ -611,17 +665,48 @@ function StatusNotices({
         </Notice>
       )}
 
-      {!liveReload && (
-        <Notice tone="warn">
-          {'No directory provider is running, so changes saved here will not take effect until '}
-          {'the API restarts. '}
-          <InfoHint
-            label="Why a restart is needed"
-            text="Providers register at boot. Set LDAP_URL in the environment and restart once; after that this screen is enough."
-          />
-        </Notice>
-      )}
+      {cannotStoreSecrets && <EncryptionKeyNotice secret="a bind password" />}
     </>
+  );
+}
+
+/**
+ * The CA certificates in force, parsed by the API, so an operator can see they
+ * pasted the CA they meant and when it runs out.
+ */
+function CaCertificates({ certificates }: { certificates: LdapSettingsView['caCertificates'] }) {
+  return (
+    <div className="rounded border border-line-soft bg-panel-raised px-2.5 py-2">
+      <p className="flex items-center gap-1.5 text-2xs font-semibold text-ink">
+        <ShieldCheck className="size-3.5 text-ink-faint" aria-hidden />
+        {certificates.length === 1
+          ? 'Trusting 1 CA certificate'
+          : `Trusting ${certificates.length} CA certificates`}
+      </p>
+      <ul className="mt-1 space-y-1">
+        {certificates.map((certificate) => (
+          <li key={`${certificate.subject}|${certificate.validTo}`} className="text-2xs">
+            <dl className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-2">
+              <dt className="text-ink-faint">Subject</dt>
+              <dd className="truncate font-mono text-ink" title={certificate.subject}>
+                {certificate.subject}
+              </dd>
+              <dt className="text-ink-faint">Issuer</dt>
+              <dd className="truncate font-mono text-ink-muted" title={certificate.issuer}>
+                {certificate.issuer}
+              </dd>
+              <dt className="text-ink-faint">Expires</dt>
+              <dd className={certificate.expired ? 'text-state-failed' : 'text-ink-muted'}>
+                {absolute(certificate.validTo)}
+                {certificate.expired
+                  ? ' — EXPIRED: ldaps:// will fail until it is replaced'
+                  : ` (${certificate.daysRemaining} days)`}
+              </dd>
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -946,25 +1031,6 @@ function RoleMappings({
 }
 
 /**
- * What this deployment is actually reading its directory settings from.
- *
- * "unset" needs the provider check. The settings surface reads the
- * environment baseline from the running provider rather than parsing LDAP_*
- * itself, and a provider that cannot describe it reports "unset" — which
- * rendered as "not configured" on a deployment where LDAP was demonstrably
- * running and people were signing in through it. A running provider is proof
- * the environment configured one.
- */
-function sourceLabel(
-  source: 'database' | 'environment' | 'unset',
-  providerRunning: boolean,
-): string {
-  if (source === 'database') return 'stored here';
-  if (source === 'environment') return 'from the environment';
-  return providerRunning ? 'from the environment' : 'not configured';
-}
-
-/**
  * The difference between what is stored and what is on screen, in words.
  *
  * Only the fields whose change an operator would want confirmed. A bind DN
@@ -994,6 +1060,16 @@ function describeChanges(
       after.tlsRejectUnauthorized
         ? 'TLS verification: off → on'
         : 'TLS verification: on → OFF — the bind password becomes interceptable',
+    );
+  }
+
+  if ((before.caPem ?? '').trim() !== (after.caPem ?? '').trim()) {
+    lines.push(
+      after.caPem === undefined
+        ? 'CA certificate: removed — the system trust store is used instead'
+        : before.caPem === undefined
+          ? 'CA certificate: added'
+          : 'CA certificate: replaced',
     );
   }
 

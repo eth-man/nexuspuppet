@@ -83,11 +83,15 @@ export class AuthController {
    * Public on purpose: the login form needs it before anyone has authenticated.
    * It reveals only what a user is expected to type, and which providers exist
    * — which the login screen is about to show them anyway.
+   *
+   * CONFIGURED sources only (ADR-0029). Every deployment registers both
+   * directory providers; one with nothing to point at is dormant, and offering
+   * it here would put a dead button on the login page.
    */
   @Public()
   @Get('mode')
-  mode(): AuthSources {
-    return { sources: this.resolver.descriptors() };
+  async mode(): Promise<AuthSources> {
+    return { sources: await this.resolver.descriptors() };
   }
 
   /**
@@ -105,8 +109,8 @@ export class AuthController {
    */
   @RequirePermission('settings:manage')
   @Get('provider')
-  describeProvider(): AuthProviderDescription {
-    const described = this.resolver.describableProvider() ?? this.provider;
+  async describeProvider(): Promise<AuthProviderDescription> {
+    const described = (await this.resolver.describableProvider()) ?? this.provider;
 
     return (
       described.describe?.() ?? {
@@ -190,7 +194,7 @@ export class AuthController {
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,
   ): Promise<void> {
-    const redirect = this.resolver.redirectProvider();
+    const redirect = await this.resolver.redirectProvider();
     const begin = redirect?.beginRedirect?.bind(redirect);
     if (redirect === null || begin === undefined) {
       throw new BadRequestException({
@@ -231,7 +235,7 @@ export class AuthController {
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,
   ): Promise<void> {
-    const redirect = this.resolver.redirectProvider();
+    const redirect = await this.resolver.redirectProvider();
     const complete = redirect?.completeRedirect?.bind(redirect);
     if (redirect === null || complete === undefined) {
       throw new BadRequestException({

@@ -33,8 +33,8 @@ test.describe('settings tabs', () => {
      *
      * This asserted a card title — "Directory (LDAP)" — which made a test about
      * tab routing fail whenever the directory screen was redesigned, and which
-     * cannot be configuration-independent: without LDAP_URL the card is a
-     * header saying how to enable it, with it a form, and the two share no
+     * cannot be configuration-independent: the card is an empty state or a
+     * form depending on what is configured, and the two share no
      * heading. `aria-current` is what the
      * tab bar actually promises, and it is what the sibling test below already
      * checks.

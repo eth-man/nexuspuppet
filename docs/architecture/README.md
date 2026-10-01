@@ -38,7 +38,7 @@ See [ADR-0003](./adr/0003-enc-generate-dont-serve.md).
 
 ### 3.2 One product, with no enterprise seam
 
-This was once "the enterprise layer is discovered at runtime, never imported at compile time" ([ADR-0002](./adr/0002-open-core-runtime-discovery.md)). [ADR-0027](./adr/0027-one-product.md) supersedes it. LDAP/AD, OIDC and audit forwarding are ordinary code in `apps/api` (`src/directory/`, `src/audit-forwarding/`) and are wired in `app.module.ts`. A directory provider is registered at boot when it is configured, and a malformed configuration stops the API from starting. There is no loader, no capability registry, no edition and no `501`-for-a-missing-feature.
+This was once "the enterprise layer is discovered at runtime, never imported at compile time" ([ADR-0002](./adr/0002-open-core-runtime-discovery.md)). [ADR-0027](./adr/0027-one-product.md) supersedes it. LDAP/AD, OIDC and audit forwarding are ordinary code in `apps/api` (`src/directory/`, `src/audit-forwarding/`) and are wired in `app.module.ts`. Both directory providers are registered on every deployment and configured from the console or the environment; one with no configuration is dormant ([ADR-0029](./adr/0029-directory-from-the-console.md)). A malformed environment configuration stops the API from starting. There is no loader, no capability registry, no edition and no `501`-for-a-missing-feature.
 
 What survives from the old boundary is what was useful about it. Seams are interfaces in `@nexuspuppet/contracts`, which keeps them testable against fakes. A fresh clone builds and tests with no secrets and nothing from outside the repository.
 
@@ -83,7 +83,8 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | ENC volume unmounted on `api` | Materialization fails loudly, jobs retry. `puppetserver` still reads its own mount. |
 | ENC volume lost entirely | Nodes fall back to `default.yaml`. Full reconcile rebuilds it from Postgres. |
 | Directory (LDAP/OIDC) unreachable | Directory users cannot sign in, and are told the directory failed rather than that their password is wrong. Local accounts keep working. **Puppet runs unaffected.** |
-| LDAP/OIDC/audit export misconfigured | The API refuses to boot with a message naming the integration, rather than running without it ([ADR-0027](./adr/0027-one-product.md)). |
+| LDAP/OIDC/audit export misconfigured in the environment | The API refuses to boot with a message naming the integration, rather than running without it ([ADR-0027](./adr/0027-one-product.md)). |
+| LDAP/OIDC saved in the console but unusable | Directory logins are refused with a reason in the log; local accounts keep working; discarding the stored settings recovers ([ADR-0029](./adr/0029-directory-from-the-console.md)). |
 
 ## 8. Security posture
 
@@ -123,6 +124,8 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0018](./adr/0018-custom-roles.md) | Custom roles with granular permissions — **Accepted** |
 | [0019](./adr/0019-enc-tree-replication.md) | Replicating the ENC tree to puppetserver — **Accepted** |
 | [0027](./adr/0027-one-product.md) | One product: the enterprise seam is removed — **Accepted**; supersedes 0002 |
+| [0028](./adr/0028-support-bundle.md) | The support bundle, and the API's own log history — **Accepted** |
+| [0029](./adr/0029-directory-from-the-console.md) | A directory is enabled from the console — **Accepted**; amends 0016 §4 and 0027 §5 |
 
 ## 11. Open questions
 

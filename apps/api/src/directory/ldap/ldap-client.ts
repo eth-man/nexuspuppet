@@ -84,6 +84,13 @@ export class LdaptsDirectory implements LdapDirectory {
     logger: { warn(message: string): void } = console,
   ) {
     this.logger = logger;
+    // PEM pasted in the console wins over a mounted file (ADR-0029 §5). It is
+    // already in memory and was parsed when the configuration was, so there is
+    // nothing here to fail.
+    if (config.caPem !== undefined) {
+      this.ca = Buffer.from(config.caPem, 'utf8');
+      return;
+    }
     if (config.caPath === undefined) {
       this.ca = undefined;
       return;

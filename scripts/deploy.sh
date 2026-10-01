@@ -91,7 +91,8 @@ docker compose version >/dev/null 2>&1 || die "The Docker Compose plugin is miss
 # An existing .env is never touched. It holds generated secrets and an operator's
 # site configuration, and regenerating JWT_SECRET on an upgrade would sign every
 # user out; regenerating POSTGRES_PASSWORD would lock the application out of its
-# own database.
+# own database. The one exception, and why it is safe, is CONFIG_ENCRYPTION_KEY
+# just below: a missing key is APPENDED, and nothing existing is ever edited.
 # ---------------------------------------------------------------------------
 if [ -f .env ]; then
     step "Using the existing .env (upgrade)"
@@ -159,6 +160,73 @@ else
     # exists. That happened on a real install.
     echo "    first-login password is BOOTSTRAP_ADMIN_PASSWORD in .env"
 fi
+
+# ---------------------------------------------------------------------------
+# CONFIG_ENCRYPTION_KEY: the ONE deliberate exception to "an existing .env is
+# never touched" (ADR-0029 §6).
+#
+# The key encrypts secrets saved through the console — an LDAP bind password,
+# an OIDC client secret, a webhook token (ADR-0016 §3). Without it the console
+# cannot store any of them, so a directory cannot be enabled from the console
+# at all, and installs from before the key existed have none.
+#
+# Why adding it is safe when touching anything else is not: with no key, no
+# stored secret can exist — the API refuses to save one — so a new key cannot
+# make anything unreadable. Regenerating an EXISTING key would; so would
+# editing a line. Hence the rules, which the test in scripts/test pins:
+#
+#   - a line with a value is never modified, moved or removed;
+#   - a line that is present but EMPTY is left alone and reported — editing it
+#     would break the rule, and appending a second would leave two;
+#   - otherwise one key line is APPENDED, with a comment, and said out loud.
+#
+# POSIX sh inside, not bash: scripts/test/deploy-config-key.sh lifts this
+# function out and runs it under dash, without Docker.
+#
+# >>> ensure_config_encryption_key
+ensure_config_encryption_key() {
+    env_file="${1:-.env}"
+
+    if grep -qE '^[[:space:]]*CONFIG_ENCRYPTION_KEY=' "$env_file"; then
+        if grep -qE "^[[:space:]]*CONFIG_ENCRYPTION_KEY=(\"\"|'')?[[:space:]]*$" "$env_file"; then
+            echo "    CONFIG_ENCRYPTION_KEY is in ${env_file} but EMPTY, and this script never edits an"
+            echo "    existing line. Until it has a value the console cannot store a bind password or"
+            echo "    client secret. Set it to the output of: openssl rand -base64 32"
+        else
+            echo "    already set in ${env_file}; left as it is"
+        fi
+        return 0
+    fi
+
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "    openssl is not installed, so CONFIG_ENCRYPTION_KEY was NOT generated. The console"
+        echo "    cannot store a bind password or client secret until it is set in ${env_file}."
+        return 0
+    fi
+
+    key="$(openssl rand -base64 32 | tr -d '\n')"
+
+    # A file whose last line has no newline would otherwise have the comment
+    # glued onto it, corrupting the operator's last setting.
+    if [ -s "$env_file" ] && [ -n "$(tail -c 1 "$env_file")" ]; then
+        printf '\n' >>"$env_file"
+    fi
+
+    {
+        printf '\n'
+        printf '%s\n' "# Added by scripts/deploy.sh $(date -u +%Y-%m-%d): encrypts secrets saved in the console"
+        printf '%s\n' '# (ADR-0016, ADR-0029). Back it up with this file. Never change or remove it once'
+        printf '%s\n' '# anything has been saved: stored secrets become unreadable without it.'
+        printf 'CONFIG_ENCRYPTION_KEY=%s\n' "$key"
+    } >>"$env_file"
+
+    echo "    generated CONFIG_ENCRYPTION_KEY and appended it to ${env_file} — the console can now"
+    echo "    store directory passwords. Back it up with the rest of ${env_file}."
+}
+# <<< ensure_config_encryption_key
+
+step "Checking CONFIG_ENCRYPTION_KEY"
+ensure_config_encryption_key .env
 
 # ---------------------------------------------------------------------------
 # The certificate check, before anything expensive.

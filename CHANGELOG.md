@@ -2,6 +2,38 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**A directory is enabled from the console** ([ADR-0029](docs/architecture/adr/0029-directory-from-the-console.md)). An install upgraded from core showed LDAP and SSO as *Not enabled — set LDAP_URL and restart the API*. Both directories are now configurable and enable-able entirely from **Settings → Directory / Auth**, effective at the next sign-in, with no `.env` edit and no restart. Local accounts are never affected. **No migration.**
+
+### Added
+
+**Both directory providers are always registered.** Each resolves its configuration per sign-in: a row saved in the console, else the `LDAP_*` / `OIDC_*` environment, else none — *dormant*. A dormant directory is not offered on the login page, and its accounts are refused exactly like a wrong password, inside the login timing floor, with one log line saying *LDAP sign-in is not configured*. Accounts can be created for a dormant directory in advance; the create-user dialog labels it *not configured yet* and never defaults to it.
+
+**The LDAP CA certificate can be pasted** as PEM (`caPem`) in the console, so `ldaps://` against an internal CA needs no mounted file. It is public, so it is stored in clear and shown back with each certificate's subject, issuer and expiry. A private key, anything that is not X.509, and a CA beside disabled verification are refused. `LDAP_CA_PATH` is unchanged, and the environment still never takes inline PEM.
+
+**`scripts/deploy.sh` generates `CONFIG_ENCRYPTION_KEY`** when `.env` has none, on first install and on upgrade, by appending one commented line — the one deliberate exception to "an existing `.env` is never touched". Without it the console could not store a bind password or client secret. An existing or empty line is never edited.
+
+**`GET /users/auth-sources`** (`users:manage`) lists every registered sign-in source with whether it is configured.
+
+### Changed
+
+**`GET /auth/mode` lists configured sources only.** On a deployment with no directory it answers exactly as before: `local`.
+
+**Test before save works on a fresh deployment.** The OIDC check now tests the candidate configuration, with its own clients; it used to check the boot configuration, which a fresh deployment does not have.
+
+**Saving directory settings writes the change and its audit record in one transaction**, as discarding already did.
+
+**Without `CONFIG_ENCRYPTION_KEY`, the directory settings say so before anybody types a password**: *Saving a bind password needs CONFIG_ENCRYPTION_KEY. Re-run scripts/deploy.sh, which generates it, or set it in .env and restart.* The API refuses the save with the same words.
+
+### Removed
+
+The *Not enabled* card, the "restart required" notices, and `verifyLdap`'s "Set LDAP_URL and restart once" answer.
+
+### Upgrading
+
+Re-run `scripts/deploy.sh`. On an install with no `CONFIG_ENCRYPTION_KEY` it appends one to `.env` and prints a line saying so; back `.env` up afterwards. A present but malformed `LDAP_*`, `OIDC_*` or `AUDIT_EXPORT_*` still stops the API at boot, as in 1.10.
+
 ## [1.10.1] — 2026-10-01
 
 **The support bundle now has everything the API printed.** A bundle downloaded from staging was compared line by line with `docker logs` of the same container: 122 of 124 lines matched. **No migration.**

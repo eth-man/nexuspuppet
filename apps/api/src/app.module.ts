@@ -153,9 +153,10 @@ export class AppModule {
   /**
    * Root module.
    *
-   * Built from validated configuration rather than declared statically, so
-   * the providers that exist can follow it: a directory provider is
-   * registered only when that directory is configured (ADR-0027).
+   * Built from validated configuration rather than declared statically.
+   * Both directory providers are registered on every deployment (ADR-0029);
+   * the environment only supplies their baseline, and a malformed one still
+   * stops the boot (ADR-0027 §5).
    *
    * Every seam in `CAPABILITY_TOKENS` is bound exactly once, below.
    * app.wiring.spec.ts enforces it.
@@ -201,8 +202,8 @@ export class AppModule {
       ...auditForwardingProviders(integrations),
     ];
 
-    // Directory providers for the directories that are configured, in the
-    // order they are dispatched to after local (ADR-0015, ADR-0023).
+    // Both directory providers, always, after local (ADR-0015, ADR-0023,
+    // ADR-0029). The environment is only their baseline.
     const directory = directoryProviders(integrations);
 
     const coreServices: Provider[] = [
@@ -238,13 +239,11 @@ export class AppModule {
             prisma,
             audit,
             // The environment baseline for LDAP is what the registered provider
-            // is running with, so the settings surface asks it rather than
+            // was built from, so the settings surface asks it rather than
             // parsing the variables a second time — two parsers could disagree.
             () => ldapEnvBaseline(resolver),
-            () => resolver.forSource('ldap') !== null,
             // Same route, same reason, for OIDC_*.
             () => oidcEnvBaseline(resolver),
-            () => resolver.forSource('oidc') !== null,
           ),
       },
       {
@@ -929,47 +928,45 @@ function auditForwardingProviders(integrations: IntegrationConfig): Provider[] {
 }
 
 /**
- * Directory authentication providers, one per CONFIGURED directory.
+ * Directory authentication providers: BOTH, on every deployment (ADR-0029).
  *
- * Registered at boot from the environment: LDAP when `LDAP_URL` is set, OIDC
- * when `OIDC_ISSUER` is. Both may be; each claims its own `authSource`, and
- * the resolver dispatches by the account's (ADR-0023). A saved configuration
- * then takes effect on the next login without a restart, through
- * AUTH_PROVIDER_SETTINGS (ADR-0016 §4) — but REGISTERING a provider still needs
- * the environment and a restart. Registering both always, and enabling from
- * the console, is ADR-0027's open follow-up.
+ * Registration no longer depends on configuration. What each provider
+ * authenticates against is resolved per login through AUTH_PROVIDER_SETTINGS:
+ * a configuration saved in the console, else the environment baseline
+ * (`LDAP_*`, `OIDC_*`), else nothing — and with nothing the provider is
+ * DORMANT: off the login page, refusing its accounts generically. That is what
+ * lets an operator enable a directory from the console with no restart.
+ *
+ * The environment is still read and validated at boot (config/integrations.ts),
+ * and a present-but-malformed value still stops the API (ADR-0027 §5).
  *
  * Each class is its own injection token, so AUTH_PROVIDERS can list it
- * alongside the local provider.
+ * alongside the local provider. Each claims its own `authSource`, and the
+ * resolver dispatches by the account's (ADR-0023).
  */
 function directoryProviders(integrations: IntegrationConfig): {
   providers: Provider[];
   tokens: Type<IAuthProvider>[];
 } {
-  const providers: Provider[] = [];
-  const tokens: Type<IAuthProvider>[] = [];
   const { ldap, oidc } = integrations;
 
-  if (ldap !== null) {
-    providers.push({
+  const providers: Provider[] = [
+    {
       provide: LdapAuthProvider,
       inject: [USER_DIRECTORY, AUTH_PROVIDER_SETTINGS],
       useFactory: (identities: IUserDirectory, settings: IAuthProviderSettings): LdapAuthProvider =>
         new LdapAuthProvider({
           config: ldap,
-          // Reads LDAP_CA_PATH here, so an unreadable CA bundle fails the boot
-          // rather than somebody's first login.
-          directory: new LdaptsDirectory(ldap),
+          // Built HERE for an environment baseline, because it reads
+          // LDAP_CA_PATH: an unreadable CA bundle fails the boot rather than
+          // somebody's first login. Without a baseline there is nothing to read.
+          directory: ldap === null ? null : new LdaptsDirectory(ldap),
           identities,
           logger: new Logger('LdapAuthProvider'),
           settings,
         }),
-    });
-    tokens.push(LdapAuthProvider);
-  }
-
-  if (oidc !== null) {
-    providers.push({
+    },
+    {
       provide: OidcAuthProvider,
       inject: [USER_DIRECTORY, AUTH_PROVIDER_SETTINGS],
       useFactory: (
@@ -979,20 +976,21 @@ function directoryProviders(integrations: IntegrationConfig): {
         const http = new NodeOidcHttp();
         return new OidcAuthProvider({
           config: oidc,
-          directory: new OidcDirectory(oidc.issuer, http, oidc.timeoutMs),
+          directory: oidc === null ? null : new OidcDirectory(oidc.issuer, http, oidc.timeoutMs),
           identities,
           logger: new Logger('OidcAuthProvider'),
-          exchange: new HttpTokenExchange(oidc, http),
+          exchange: oidc === null ? null : new HttpTokenExchange(oidc, http),
           settings,
           // A different issuer gets its own discovery cache, JWKS and token
           // credentials — none of the boot ones survive a change of provider.
+          // Also what serves a configuration saved on a deployment that had no
+          // OIDC at boot, which has no boot clients at all.
           directoryFor: (next) => new OidcDirectory(next.issuer, http, next.timeoutMs),
           exchangeFor: (next) => new HttpTokenExchange(next, http),
         });
       },
-    });
-    tokens.push(OidcAuthProvider);
-  }
+    },
+  ];
 
-  return { providers, tokens };
+  return { providers, tokens: [LdapAuthProvider, OidcAuthProvider] };
 }

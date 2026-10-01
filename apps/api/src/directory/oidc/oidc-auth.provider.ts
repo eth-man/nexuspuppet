@@ -40,11 +40,16 @@ const PENDING_TTL_MS = 10 * 60 * 1000;
 const PENDING_MAX = 1_000;
 
 export interface OidcAuthProviderOptions {
-  config: OidcConfig;
-  directory: OidcDirectory;
+  /**
+   * The ENVIRONMENT baseline, or null when `OIDC_ISSUER` is not set
+   * (ADR-0029). With nothing stored either, the provider is DORMANT.
+   */
+  config: OidcConfig | null;
+  /** Clients for `config`. Built on first use from the factories when absent. */
+  directory?: OidcDirectory | null;
   identities: IUserDirectory;
   logger: LoggerLike;
-  exchange: TokenExchange;
+  exchange?: TokenExchange | null;
   now?: () => number;
   /**
    * Core's reader for what an operator saved (ADR-0016 §4, #113).
@@ -61,6 +66,10 @@ export interface OidcAuthProviderOptions {
    * discovery cache, the JWKS, and the token endpoint credentials all belong to
    * the issuer, so a stored configuration naming a different one must not reuse
    * any of them. Injected so tests need no network.
+   *
+   * Required in practice once the provider can start dormant: a configuration
+   * saved from the console has no boot clients to fall back on. Without them
+   * such a configuration fails its logins loudly rather than reusing nothing.
    */
   directoryFor?: (config: OidcConfig) => OidcDirectory;
   exchangeFor?: (config: OidcConfig) => TokenExchange;
@@ -104,10 +113,36 @@ export class OidcAuthProvider implements IAuthProvider {
   /** Last stored configuration and the clients built for it, keyed by value. */
   private effectiveCache: { key: string; effective: EffectiveOidc } | null = null;
 
-  constructor(private readonly options: OidcAuthProviderOptions) {}
+  /** Clients for the environment baseline, built once. */
+  private bootClients: EffectiveOidc | null = null;
+
+  /**
+   * The configuration the last resolution found in force, or null when dormant.
+   * What the synchronous `describe()` reports.
+   */
+  private current: OidcConfig | null;
+
+  constructor(private readonly options: OidcAuthProviderOptions) {
+    this.current = options.config;
+  }
 
   private get now(): number {
     return this.options.now?.() ?? Date.now();
+  }
+
+  /**
+   * Whether there is an identity provider to redirect to (ADR-0029).
+   *
+   * Dormant only when nothing is stored and the environment configured
+   * nothing. A stored configuration that cannot be read counts as configured,
+   * so the login fails loudly instead of the button vanishing.
+   */
+  async isConfigured(): Promise<boolean> {
+    try {
+      return (await this.effective()) !== null;
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -123,7 +158,13 @@ export class OidcAuthProvider implements IAuthProvider {
     // legs means the challenge was minted against one issuer and the assertion
     // is validated against another, so that login fails and the next succeeds —
     // which is the correct outcome for "the operator repointed the directory".
-    const { config, directory } = await this.effective();
+    const effective = await this.effective();
+    if (effective === null) {
+      // The resolver does not hand out a dormant redirect provider, so this is
+      // a configuration discarded between the login page and this request.
+      throw new Error('OIDC sign-in is not configured.');
+    }
+    const { config, directory } = effective;
     const document = await directory.document();
 
     const state = randomBytes(32).toString('base64url');
@@ -154,7 +195,12 @@ export class OidcAuthProvider implements IAuthProvider {
 
   async completeRedirect(params: Record<string, string>): Promise<AuthResult> {
     const { identities, logger } = this.options;
-    const { config, directory, exchange } = await this.effective();
+    const effective = await this.effective();
+    if (effective === null) {
+      logger.warn('OIDC callback received, but OIDC sign-in is not configured; refusing it.');
+      return { ok: false, reason: 'INVALID_CREDENTIALS' };
+    }
+    const { config, directory, exchange } = effective;
 
     // The identity provider refused. Its reason is logged, not surfaced: it can
     // distinguish "no such user" from "access denied", and relaying that would
@@ -326,16 +372,25 @@ export class OidcAuthProvider implements IAuthProvider {
    * credentials — this is rendered in a browser.
    */
   describe(): AuthProviderDescription {
+    const config = this.current;
+    if (config === null) {
+      return {
+        source: this.source,
+        roleMappings: [],
+        refusesUnmappedUsers: true,
+        details: [{ label: 'Status', value: 'not configured' }],
+      };
+    }
     return {
       source: this.source,
-      roleMappings: this.options.config.roleMappings,
-      refusesUnmappedUsers: this.options.config.defaultRole === undefined,
+      roleMappings: config.roleMappings,
+      refusesUnmappedUsers: config.defaultRole === undefined,
       // Connection facts an administrator needs to recognise a
       // misconfiguration — never a secret. No client secret, no token.
       details: [
-        { label: 'Issuer', value: this.options.config.issuer },
-        { label: 'Client ID', value: this.options.config.clientId },
-        { label: 'Groups claim', value: this.options.config.groupsClaim },
+        { label: 'Issuer', value: config.issuer },
+        { label: 'Client ID', value: config.clientId },
+        { label: 'Groups claim', value: config.groupsClaim },
       ],
     };
   }
@@ -350,9 +405,12 @@ export class OidcAuthProvider implements IAuthProvider {
    * NO SECRETS. `clientSecret` is deliberately absent: this is rendered in a
    * browser. The settings surface strips known secret fields as a backstop,
    * and that backstop is not permission to return one here.
+   *
+   * Null when the environment configures no OIDC — there is no baseline.
    */
-  currentConfiguration(): Record<string, unknown> {
+  currentConfiguration(): Record<string, unknown> | null {
     const { config } = this.options;
+    if (config === null) return null;
     return {
       issuer: config.issuer,
       clientId: config.clientId,
@@ -380,12 +438,43 @@ export class OidcAuthProvider implements IAuthProvider {
    * loop or an opaque refusal, and they are worth catching from a screen rather
    * than from the login page.
    *
-   * The candidate parameter is accepted for interface compatibility and
-   * ignored: nothing can store an OIDC configuration yet, so testing one that
-   * cannot be saved would answer a question nobody asked.
+   * With a CANDIDATE, that configuration is checked with clients of its own —
+   * never the live ones — so "Check provider" before the first save works on a
+   * deployment that has no OIDC yet (ADR-0029). Without one, the configuration
+   * in force is checked, and a dormant provider says there is nothing to check.
    */
-  async verifyConfiguration(_candidate?: unknown): Promise<ProviderVerification> {
-    const { config, directory } = this.options;
+  async verifyConfiguration(candidate?: unknown): Promise<ProviderVerification> {
+    let config: OidcConfig;
+    let directory: OidcDirectory;
+
+    if (candidate !== undefined && candidate !== null) {
+      const parsed = oidcConfigSchema.safeParse(candidate);
+      if (!parsed.success) {
+        const where = parsed.error.issues
+          .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+          .join('; ');
+        return { ok: false, message: `That configuration is not usable — ${where}` };
+      }
+      if (this.options.directoryFor === undefined) {
+        return { ok: false, message: 'This build cannot check a candidate configuration.' };
+      }
+      config = parsed.data;
+      directory = this.options.directoryFor(config);
+    } else {
+      let effective: EffectiveOidc | null;
+      try {
+        effective = await this.effective();
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+      if (effective === null) {
+        return {
+          ok: false,
+          message: 'OIDC is not configured, so there is nothing to check. Fill in the form first.',
+        };
+      }
+      ({ config, directory } = effective);
+    }
 
     try {
       const document = await directory.document();
@@ -433,14 +522,14 @@ export class OidcAuthProvider implements IAuthProvider {
    * on every sign-in — turning the identity provider into a hard dependency of
    * every login, which is exactly what that cache exists to prevent.
    */
-  private async effective(): Promise<EffectiveOidc> {
-    const { config, directory, exchange, settings } = this.options;
-    const boot: EffectiveOidc = { config, directory, exchange };
+  private async effective(): Promise<EffectiveOidc | null> {
+    const { config, settings } = this.options;
 
-    if (settings === undefined) return boot;
-
-    const stored = await settings.resolve(this.source);
-    if (stored === null || stored === undefined) return boot;
+    const stored = settings === undefined ? null : await settings.resolve(this.source);
+    if (stored === null || stored === undefined) {
+      this.current = config;
+      return config === null ? null : this.boot(config);
+    }
 
     /*
      * A saved configuration carries no clientSecret when the operator did not
@@ -451,7 +540,7 @@ export class OidcAuthProvider implements IAuthProvider {
     const merged =
       typeof stored === 'object' &&
       (stored as { clientSecret?: unknown }).clientSecret === undefined &&
-      config.clientSecret !== undefined
+      config?.clientSecret !== undefined
         ? { ...(stored as object), clientSecret: config.clientSecret }
         : stored;
 
@@ -472,16 +561,31 @@ export class OidcAuthProvider implements IAuthProvider {
     if (this.effectiveCache?.key !== key) {
       this.options.logger.log('OIDC configuration changed; rebuilding the issuer clients.');
       const next = parsed.data;
-      this.effectiveCache = {
-        key,
-        effective: {
-          config: next,
-          directory: this.options.directoryFor?.(next) ?? directory,
-          exchange: this.options.exchangeFor?.(next) ?? exchange,
-        },
-      };
+      const directory = this.options.directoryFor?.(next) ?? this.options.directory ?? null;
+      const exchange = this.options.exchangeFor?.(next) ?? this.options.exchange ?? null;
+      if (directory === null || exchange === null) {
+        throw new Error(
+          'A stored OIDC configuration needs issuer clients, and this build was given no way ' +
+            'to make them.',
+        );
+      }
+      this.effectiveCache = { key, effective: { config: next, directory, exchange } };
     }
+    this.current = this.effectiveCache.effective.config;
     return this.effectiveCache.effective;
+  }
+
+  /** Clients for the environment baseline: the boot ones, or built once. */
+  private boot(config: OidcConfig): EffectiveOidc {
+    if (this.bootClients === null) {
+      const directory = this.options.directory ?? this.options.directoryFor?.(config) ?? null;
+      const exchange = this.options.exchange ?? this.options.exchangeFor?.(config) ?? null;
+      if (directory === null || exchange === null) {
+        throw new Error('The OIDC provider was given a configuration but no issuer clients.');
+      }
+      this.bootClients = { config, directory, exchange };
+    }
+    return this.bootClients;
   }
 
   private remember(state: string, login: PendingLogin): void {

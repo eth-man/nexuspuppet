@@ -14,6 +14,7 @@ import type {
   IAuditSink,
   ManagedUser,
   ManagedUserDetail,
+  ProvisionableAuthSource,
   UpdateUser,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
@@ -47,6 +48,11 @@ export class UsersService {
     return rows.map(toManagedUser);
   }
 
+  /** Every registered source, and whether it is configured (ADR-0029 §2). */
+  async provisionableSources(): Promise<ProvisionableAuthSource[]> {
+    return this.providers.provisionableSources();
+  }
+
   async create(
     input: CreateUser,
     actor: AuthenticatedPrincipal,
@@ -70,6 +76,9 @@ export class UsersService {
      * could be provisioned at all, and every directory login then failed with a
      * silent 401 because there was no row to dispatch on.
      */
+    // REGISTERED sources, configured or not (ADR-0029 §2): an account may be
+    // provisioned for a dormant directory before it is enabled. It cannot sign
+    // in until then, and the create-user dialog says so.
     const known = this.providers.sources();
     if (authSource !== 'local' && !known.includes(authSource)) {
       throw new BadRequestException(
