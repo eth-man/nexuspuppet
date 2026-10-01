@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
+import { CaPemError, parseCaPem } from './ca-pem';
 import { dialectDefaults } from './dialect';
 
 /**
@@ -107,6 +108,35 @@ const baseLdapConfigSchema = z.object({
    * ends up in `docker inspect`, process listings, and crash reports.
    */
   caPath: z.string().min(1).optional(),
+
+  /**
+   * The same trust material as PEM TEXT, from the console only (ADR-0029 §5).
+   *
+   * Not a contradiction of the rule above. That rule is about the
+   * ENVIRONMENT, where certificate material leaks into `docker inspect` and
+   * crash reports; `ldapConfigFromEnv` never reads this field, so inline PEM
+   * in the environment stays refused. A stored configuration is a database
+   * row, and a CA certificate is public anyway. When both are present this
+   * wins: it is what an operator pasted most recently, and the path is only
+   * inherited from the boot configuration.
+   *
+   * Parsed as X.509 here, so a stored value that no longer parses refuses
+   * directory logins loudly instead of failing every TLS handshake.
+   */
+  caPem: z
+    .string()
+    .min(1)
+    .superRefine((value, context) => {
+      try {
+        parseCaPem(value);
+      } catch (error) {
+        context.addIssue({
+          code: 'custom',
+          message: error instanceof CaPemError ? error.message : String(error),
+        });
+      }
+    })
+    .optional(),
 
   timeoutMs: z.number().int().positive().max(60_000).default(10_000),
 

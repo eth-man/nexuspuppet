@@ -2,6 +2,8 @@
 
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
+  DirectorySettingsView,
+  LdapSettingsView,
   LogLevelSetting,
   NotificationEmailSettings,
   NotificationWebhookSettings,
@@ -16,7 +18,6 @@ import type {
   SyslogSettings,
   WebhookSettings,
   ProviderVerification,
-  SettingsView,
   CreateUserInput,
   ManagedUser,
   UpdateUser,
@@ -282,25 +283,36 @@ export function useDeleteUser(): UseMutationResult<void, Error, string> {
  * it cannot send it back, and treating absence as "clear it" would wipe the
  * credential every time somebody corrected a search base.
  */
-export function useSaveLdapSettings(): UseMutationResult<
-  SettingsView<LdapSettings>,
-  Error,
-  LdapSettings
-> {
+export function useSaveLdapSettings(): UseMutationResult<LdapSettingsView, Error, LdapSettings> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input) => api.put<SettingsView<LdapSettings>>('/settings/auth/ldap', input),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.ldap'] }),
+    mutationFn: (input) => api.put<LdapSettingsView>('/settings/auth/ldap', input),
+    onSuccess: () => invalidateDirectory(client, 'auth.ldap'),
   });
 }
 
-/** Discard the stored configuration and fall back to the environment. */
+/** Discard the stored configuration: back to the environment, or dormant. */
 export function useClearLdapSettings(): UseMutationResult<void, Error, void> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => api.delete<void>('/settings/auth/ldap'),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.ldap'] }),
+    onSuccess: () => invalidateDirectory(client, 'auth.ldap'),
   });
+}
+
+/**
+ * Everything a directory change can alter (ADR-0029): its own settings, and
+ * whether its source can sign anybody in — which the create-user dialog shows.
+ */
+function invalidateDirectory(
+  client: ReturnType<typeof useQueryClient>,
+  kind: 'auth.ldap' | 'auth.oidc',
+): Promise<void> {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: ['settings', kind] }),
+    client.invalidateQueries({ queryKey: ['auth-sources'] }),
+    client.invalidateQueries({ queryKey: ['auth-provider'] }),
+  ]).then(() => undefined);
 }
 
 /**
@@ -320,23 +332,24 @@ export function useTestLdapSettings(): UseMutationResult<
 }
 
 export function useSaveOidcSettings(): UseMutationResult<
-  SettingsView<OidcSettings>,
+  DirectorySettingsView<OidcSettings>,
   Error,
   OidcSettings
 > {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input) => api.put<SettingsView<OidcSettings>>('/settings/auth/oidc', input),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.oidc'] }),
+    mutationFn: (input) =>
+      api.put<DirectorySettingsView<OidcSettings>>('/settings/auth/oidc', input),
+    onSuccess: () => invalidateDirectory(client, 'auth.oidc'),
   });
 }
 
-/** Discard the stored configuration and fall back to the environment. */
+/** Discard the stored configuration: back to the environment, or dormant. */
 export function useClearOidcSettings(): UseMutationResult<void, Error, void> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => api.delete<void>('/settings/auth/oidc'),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['settings', 'auth.oidc'] }),
+    onSuccess: () => invalidateDirectory(client, 'auth.oidc'),
   });
 }
 

@@ -11,10 +11,11 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  type DirectorySettingsView,
   type LdapSettings,
+  type LdapSettingsView,
   type OidcSettings,
   type ProviderVerification,
-  type SettingsView,
   ldapSettingsSchema,
   oidcSettingsSchema,
 } from '@nexuspuppet/contracts';
@@ -42,13 +43,14 @@ export class SettingsController {
   ) {}
 
   /**
-   * The stored LDAP configuration, without its secrets.
+   * The LDAP configuration in force, without its secrets, with any pasted CA
+   * certificates parsed for the operator to check.
    *
    * Answers even when nothing is configured — `source: 'unset'` — so the
    * console renders an empty form rather than handling an error.
    */
   @Get('auth/ldap')
-  async readLdap(): Promise<SettingsView<LdapSettings>> {
+  async readLdap(): Promise<LdapSettingsView> {
     return this.settings.describeLdap();
   }
 
@@ -59,12 +61,15 @@ export class SettingsController {
    * receives the password, so it cannot send it back, and treating its absence
    * as "clear it" would wipe the credential every time somebody corrected a
    * search base.
+   *
+   * Takes effect at the next sign-in, on any deployment — this is how a
+   * directory is ENABLED, not only edited (ADR-0029).
    */
   @Put('auth/ldap')
   async writeLdap(
     @Body(new ZodValidationPipe(ldapSettingsSchema)) body: LdapSettings,
     @Req() request: AuthenticatedRequest,
-  ): Promise<SettingsView<LdapSettings>> {
+  ): Promise<LdapSettingsView> {
     return this.settings.saveLdap(body, request);
   }
 
@@ -72,7 +77,8 @@ export class SettingsController {
    * Discard the stored configuration and fall back to the environment.
    *
    * Distinct from disabling: this removes the row, so whatever the environment
-   * says becomes authoritative again.
+   * says becomes authoritative again — and with nothing in the environment the
+   * directory goes dormant and its accounts are refused (ADR-0029).
    */
   @Delete('auth/ldap')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -81,28 +87,13 @@ export class SettingsController {
   }
 
   /**
-   * Try a candidate configuration without saving it.
-   *
-   * The reason this endpoint exists: configuring a directory by trial and error
-   * against the login screen is how people lock themselves out. Testing first
-   * costs one bind.
-   *
-   * The work belongs to the provider, which owns the LDAP client, so this asks
-   * the registered provider through `verifyConfiguration`. When no provider can
-   * answer — LDAP_URL was not set at boot — that is reported plainly rather
-   * than pretended to succeed.
-   */
-  /**
    * The OIDC configuration in force, without secrets.
    *
-   * READ-ONLY, and there is deliberately no PUT beside it: a provider snapshots
-   * its configuration at boot, so accepting a write here would store something
-   * that is displayed and never applied (#106). Answers even when OIDC is not
-   * configured — `source: 'unset'` — so the console renders an empty state
-   * rather than handling an error.
+   * Answers even when OIDC is not configured — `source: 'unset'` — so the
+   * console renders an empty form rather than handling an error.
    */
   @Get('auth/oidc')
-  async readOidc(): Promise<SettingsView<OidcSettings>> {
+  async readOidc(): Promise<DirectorySettingsView<OidcSettings>> {
     return this.settings.describeOidc();
   }
 
@@ -117,7 +108,7 @@ export class SettingsController {
   async writeOidc(
     @Body(new ZodValidationPipe(oidcSettingsSchema)) body: OidcSettings,
     @Req() request: AuthenticatedRequest,
-  ): Promise<SettingsView<OidcSettings>> {
+  ): Promise<DirectorySettingsView<OidcSettings>> {
     return this.settings.saveOidc(body, request);
   }
 
@@ -126,7 +117,8 @@ export class SettingsController {
    *
    * Distinct from turning SSO off: this removes the row, so whatever the
    * environment says becomes authoritative again — which is the recovery path
-   * when a saved configuration turns out to be wrong.
+   * when a saved configuration turns out to be wrong. With nothing in the
+   * environment, SSO goes dormant and leaves the login page (ADR-0029).
    */
   @Delete('auth/oidc')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -151,6 +143,14 @@ export class SettingsController {
     return this.settings.verifyOidc(this.resolver, body);
   }
 
+  /**
+   * Try a candidate configuration without saving it.
+   *
+   * The reason this endpoint exists: configuring a directory by trial and error
+   * against the login screen is how people lock themselves out. Testing first
+   * costs one bind. The provider is always registered (ADR-0029), so this works
+   * before anything has ever been saved.
+   */
   @Post('auth/ldap/test')
   @HttpCode(HttpStatus.OK)
   async testLdap(

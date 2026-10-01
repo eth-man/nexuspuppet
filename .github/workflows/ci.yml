@@ -260,6 +260,15 @@ jobs:
       - name: Support bundle, host half
         run: dash scripts/test/support-bundle.sh
 
+      # deploy.sh's one exception to "an existing .env is never touched": it
+      # appends CONFIG_ENCRYPTION_KEY when absent and never edits a line
+      # (ADR-0029 §6). The function is lifted out and run without Docker.
+      - name: Shellcheck the deploy script
+        run: shellcheck -s bash scripts/deploy.sh
+
+      - name: Deploy, CONFIG_ENCRYPTION_KEY generation (dash)
+        run: dash scripts/test/deploy-config-key.sh
+
       # dash, not bash: puppetserver invokes the ENC script through /bin/sh, and
       # on Debian and Ubuntu that is dash. A bashism here would pass every local
       # run and fail on the estate.

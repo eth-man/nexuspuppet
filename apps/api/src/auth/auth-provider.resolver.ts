@@ -6,6 +6,7 @@ import {
   type AuthenticatedPrincipal,
   type Credentials,
   type IAuthProvider,
+  type ProvisionableAuthSource,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -43,6 +44,15 @@ const NO_ACCOUNT_WARN_INTERVAL_MS = 60_000;
  * The local provider is always present. A directory provider is contributed
  * alongside it, never instead of it, so a misconfigured or disabled directory
  * cannot lock an administrator out of their own console.
+ *
+ * REGISTERED IS NOT CONFIGURED (ADR-0029). Both directory providers are
+ * registered on every deployment so a directory can be enabled from the
+ * console without a restart. One with nothing to point at is DORMANT: it is
+ * not offered on the login page, it is not the redirect provider, and its
+ * accounts are refused with the same answer as a wrong password — inside the
+ * timing floor, so dormancy is no more of an oracle than anything else.
+ * Whether a provider is configured is asked per request, because saving or
+ * discarding settings changes the answer while the process runs.
  */
 @Injectable()
 export class AuthProviderResolver {
@@ -54,6 +64,14 @@ export class AuthProviderResolver {
 
   /** source -> provider. Built once; the set cannot change after boot. */
   private readonly bySource = new Map<string, IAuthProvider>();
+
+  /**
+   * Dormant sources already warned about, so the warning is said once per
+   * state change rather than once per login attempt. Cleared for a source the
+   * moment it is seen configured, so a directory that is enabled and later
+   * discarded is reported again.
+   */
+  private readonly dormantWarned = new Set<string>();
 
   constructor(
     @Inject(AUTH_PROVIDERS) providers: readonly IAuthProvider[],
@@ -77,9 +95,49 @@ export class AuthProviderResolver {
     this.logger.log(`Authentication sources: ${[...this.bySource.keys()].sort().join(', ')}`);
   }
 
-  /** Sources this deployment can authenticate against. */
+  /**
+   * Every REGISTERED source, configured or dormant.
+   *
+   * What an account may be created for (ADR-0029 §2). An administrator can
+   * provision directory accounts before enabling the directory, so a dormant
+   * source is a valid `authSource` — its accounts simply cannot sign in until
+   * it is configured. A source nothing registers is still refused.
+   */
   sources(): string[] {
     return [...this.bySource.keys()].sort();
+  }
+
+  /**
+   * Whether a provider has anything to authenticate against right now.
+   *
+   * Absent means configured, so local and every test double need nothing. A
+   * provider whose check throws despite the contract is treated as configured:
+   * it then answers `authenticate` itself and fails loudly there, which is
+   * better than quietly vanishing from the login page.
+   */
+  async isConfigured(provider: IAuthProvider): Promise<boolean> {
+    if (provider.isConfigured === undefined) return true;
+
+    let configured: boolean;
+    try {
+      configured = await provider.isConfigured();
+    } catch (error) {
+      this.logger.warn(
+        `The "${provider.source}" provider could not say whether it is configured: ` +
+          `${error instanceof Error ? error.message : String(error)}. Treating it as configured.`,
+      );
+      configured = true;
+    }
+
+    if (configured) this.dormantWarned.delete(provider.source);
+    return configured;
+  }
+
+  /** The providers that are configured, in registration order. */
+  private async configuredProviders(): Promise<IAuthProvider[]> {
+    const providers = [...this.bySource.values()];
+    const flags = await Promise.all(providers.map((provider) => this.isConfigured(provider)));
+    return providers.filter((_, index) => flags[index] === true);
   }
 
   /**
@@ -94,14 +152,30 @@ export class AuthProviderResolver {
    * Sorted, so two deployments with the same providers answer identically and
    * a login page cannot reorder its own buttons between polls.
    */
-  descriptors(): AuthSourceDescriptor[] {
-    return [...this.bySource.values()]
-      .map((provider) => ({
-        source: provider.source,
-        mode: provider.mode ?? 'credentials',
-        identifierLabel: provider.identifierLabel ?? 'Email',
+  /*
+   * ONLY CONFIGURED SOURCES (ADR-0029). A dormant directory is registered but
+   * has nothing to point at; a button or a label for it on the login page is
+   * a dead end, and on a deployment that never configured a directory it
+   * would be a feature nobody switched on announcing itself to strangers.
+   */
+  async descriptors(): Promise<AuthSourceDescriptor[]> {
+    return (await this.configuredProviders()).map(describeSource).sort(bySourceName);
+  }
+
+  /**
+   * Every registered source, with whether it is configured — for the
+   * create-user dialog, which may provision an account for a dormant
+   * directory and should say so rather than hide it (ADR-0029 §2).
+   */
+  async provisionableSources(): Promise<ProvisionableAuthSource[]> {
+    const providers = [...this.bySource.values()];
+    const flags = await Promise.all(providers.map((provider) => this.isConfigured(provider)));
+    return providers
+      .map((provider, index) => ({
+        ...describeSource(provider),
+        configured: flags[index] === true,
       }))
-      .sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0));
+      .sort(bySourceName);
   }
 
   /**
@@ -126,10 +200,15 @@ export class AuthProviderResolver {
    * and directory credentials AND a button for the redirect provider, rather
    * than one or the other. That UX is deliberately not in this change — see the
    * follow-up noted in the ADR.
+   *
+   * A DORMANT redirect provider is not returned (ADR-0029): beginning a login
+   * against an identity provider nobody configured can only end in an error
+   * page, so the redirect endpoints answer as they would on a deployment
+   * without one.
    */
-  redirectProvider(): IAuthProvider | null {
+  async redirectProvider(): Promise<IAuthProvider | null> {
     for (const provider of this.bySource.values()) {
-      if (provider.mode === 'redirect') return provider;
+      if (provider.mode === 'redirect' && (await this.isConfigured(provider))) return provider;
     }
     return null;
   }
@@ -144,17 +223,22 @@ export class AuthProviderResolver {
    *
    * Falls back to the first provider so the endpoint always answers — the UI
    * decides to render nothing, rather than handling an error.
+   *
+   * Only a CONFIGURED provider is worth describing: a dormant one would report
+   * an empty mapping table that reads as "everybody is refused".
    */
-  describableProvider(): IAuthProvider | null {
-    for (const provider of this.bySource.values()) {
+  async describableProvider(): Promise<IAuthProvider | null> {
+    for (const provider of await this.configuredProviders()) {
       if (provider.describe !== undefined) return provider;
     }
     return [...this.bySource.values()][0] ?? null;
   }
 
-  /** Providers that authenticate from a submitted email and password. */
-  credentialProviders(): IAuthProvider[] {
-    return [...this.bySource.values()].filter((p) => (p.mode ?? 'credentials') === 'credentials');
+  /** Configured providers that authenticate from a submitted email and password. */
+  async credentialProviders(): Promise<IAuthProvider[]> {
+    return (await this.configuredProviders()).filter(
+      (p) => (p.mode ?? 'credentials') === 'credentials',
+    );
   }
 
   /**
@@ -208,14 +292,18 @@ export class AuthProviderResolver {
        * that fails exactly as a wrong password does. That cost hours during the
        * 2026-08-09 AD switch-over and would have cost minutes with this line.
        *
-       * Only when a DIRECTORY is configured. On a core deployment an unknown
-       * address is a typo, and warning about every one of them is noise that
-       * teaches operators to ignore the log.
+       * Only when a DIRECTORY is configured — not merely registered, which
+       * every deployment's are (ADR-0029). Without one an unknown address is a
+       * typo, and warning about every one of them is noise that teaches
+       * operators to ignore the log.
        *
        * A log is not an oracle: it reaches an operator reading the host, not
        * the caller guessing addresses.
        */
-      const directories = this.sources().filter((source) => source !== 'local');
+      const directories = (await this.configuredProviders())
+        .map((provider) => provider.source)
+        .filter((source) => source !== 'local')
+        .sort();
       if (directories.length > 0) this.warnNoAccount(email, directories);
 
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
@@ -231,6 +319,22 @@ export class AuthProviderResolver {
         `Login refused for an account whose authSource "${account.authSource}" has no provider. ` +
           `Configured sources: ${this.sources().join(', ') || 'none'}.`,
       );
+      return { ok: false, reason: 'INVALID_CREDENTIALS' };
+    }
+
+    /*
+     * A DORMANT provider (ADR-0029): registered, nothing to point at. Typically
+     * an account provisioned before its directory was enabled, or one whose
+     * directory settings were discarded.
+     *
+     * Refused HERE, with the generic answer and inside the floor that
+     * `authenticate` applies around this method — so a dormant directory looks
+     * exactly like a wrong password from outside. The log says why, once per
+     * change of state, because "configured LDAP, user still refused" is the
+     * question an operator will be asking.
+     */
+    if (!(await this.isConfigured(provider))) {
+      this.warnDormant(provider.source, 'Login');
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
@@ -258,6 +362,13 @@ export class AuthProviderResolver {
       this.logger.warn(
         `Refresh refused: authSource "${account.authSource}" has no provider in this deployment.`,
       );
+      return null;
+    }
+
+    // A directory whose settings were discarded ends its sessions at the next
+    // refresh, exactly as a deregistered one does (ADR-0015 §3, ADR-0029).
+    if (!(await this.isConfigured(provider))) {
+      this.warnDormant(provider.source, 'Refresh');
       return null;
     }
 
@@ -311,6 +422,25 @@ export class AuthProviderResolver {
     );
   }
 
+  /**
+   * Say that a dormant source refused somebody — once per change of state.
+   *
+   * Not throttled by time like the no-account warning, and it does not need to
+   * be: only an account that EXISTS with this source reaches here, so a
+   * stranger varying addresses cannot drive it, and the set is cleared only
+   * when the provider is seen configured again.
+   */
+  private warnDormant(source: string, what: 'Login' | 'Refresh'): void {
+    if (this.dormantWarned.has(source)) return;
+    this.dormantWarned.add(source);
+
+    this.logger.warn(
+      `${SOURCE_NAMES[source] ?? source} sign-in is not configured. ${what} refused for an ` +
+        `account with authSource "${source}". Configure it under Settings, Directory / Auth; ` +
+        'local accounts are unaffected. (Said once until the configuration changes.)',
+    );
+  }
+
   private async padTo(startedAt: number): Promise<void> {
     const remaining = this.floorMs - (Date.now() - startedAt);
     if (remaining <= 0) {
@@ -320,4 +450,23 @@ export class AuthProviderResolver {
     }
     await new Promise((resolve) => setTimeout(resolve, remaining));
   }
+}
+
+/** How the log names a source. Anything else is named by its source string. */
+const SOURCE_NAMES: Record<string, string> = { ldap: 'LDAP', oidc: 'OIDC' };
+
+function describeSource(provider: IAuthProvider): AuthSourceDescriptor {
+  return {
+    source: provider.source,
+    mode: provider.mode ?? 'credentials',
+    identifierLabel: provider.identifierLabel ?? 'Email',
+  };
+}
+
+/**
+ * Sorted, so two deployments with the same providers answer identically and a
+ * login page cannot reorder its own buttons between polls.
+ */
+function bySourceName(a: { source: string }, b: { source: string }): number {
+  return a.source < b.source ? -1 : a.source > b.source ? 1 : 0;
 }

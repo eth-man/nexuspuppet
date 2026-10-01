@@ -1,16 +1,18 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   AUDIT_SINK,
+  type DirectorySettingsView,
   type IAuditSink,
   type LdapSettings,
+  type LdapSettingsView,
   type OidcSettings,
   type ProviderVerification,
-  type SettingsView,
 } from '@nexuspuppet/contracts';
 import type { AuthProviderResolver } from '../auth/auth-provider.resolver';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
+import { CaPemError, parseCaPem, summariseCaPem } from '../directory/ldap/ca-pem';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsStore } from './settings.store';
+import { SettingsStore, SettingsStoreError, type SettingKind } from './settings.store';
 
 /** The source an LDAP configuration is dispatched to, matching IAuthProvider.source. */
 const LDAP_SOURCE = 'ldap';
@@ -20,13 +22,22 @@ const LDAP_SOURCE = 'ldap';
  *
  * Named here rather than inferred from the value, so adding a field is a
  * deliberate decision about whether it is sensitive rather than an accident of
- * what it happens to be called.
+ * what it happens to be called. `caPem` is deliberately NOT here: a CA
+ * certificate is public by construction (ADR-0029 §5).
  */
 const LDAP_SECRET_FIELDS = ['bindPassword'] as const;
 
 /** Same rule for OIDC: named here so adding a field is a deliberate decision. */
 const OIDC_SECRET_FIELDS = ['clientSecret'] as const;
 
+/**
+ * Directory authentication settings (ADR-0016, ADR-0029).
+ *
+ * Both directory providers are registered on every deployment, so everything
+ * saved here takes effect at the next sign-in — including the FIRST
+ * configuration on a deployment that never set `LDAP_*` or `OIDC_*`. There is
+ * no restart-required path any more, and `liveReload` is always true.
+ */
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
@@ -47,15 +58,11 @@ export class SettingsService {
      * tested against a different one.
      */
     private readonly ldapFromEnv: () => LdapSettings | null,
-    /** Whether an LDAP provider is registered, i.e. whether edits take effect live. */
-    private readonly ldapRegistered: () => boolean,
     /** The OIDC baseline, by the same route and for the same reason as LDAP's. */
     private readonly oidcFromEnv: () => OidcSettings | null,
-    /** Whether an OIDC provider is registered, i.e. whether edits take effect live. */
-    private readonly oidcRegistered: () => boolean,
   ) {}
 
-  async describeLdap(): Promise<SettingsView<LdapSettings>> {
+  async describeLdap(): Promise<LdapSettingsView> {
     const resolved = await this.store.describe<LdapSettings>('auth.ldap', this.ldapFromEnv);
 
     return {
@@ -65,21 +72,16 @@ export class SettingsService {
       secretsHeld: resolved.secretsHeld,
       updatedAt: resolved.updatedAt?.toISOString() ?? null,
       updatedByEmail: resolved.updatedByEmail,
-      liveReload: this.ldapRegistered(),
+      // Always: the provider is registered whether or not anything is
+      // configured, so a save reaches the next login (ADR-0029).
+      liveReload: true,
+      secretsStorable: this.store.canStoreSecrets,
+      caCertificates: summariseCaPem(resolved.config?.caPem),
     };
   }
 
-  /**
-   * The OIDC configuration in force, without secrets. READ-ONLY (#106).
-   *
-   * There is no save counterpart on purpose: a provider snapshots its
-   * configuration at construction, so a stored row would be shown here and
-   * never applied. Reporting what IS running is worth having on its own — an
-   * administrator can check the issuer and the role mappings without shell
-   * access — and it is what lets the role-deletion guard see which roles OIDC
-   * depends on (ADR-0018 §5).
-   */
-  async describeOidc(): Promise<SettingsView<OidcSettings>> {
+  /** The OIDC configuration in force, without secrets. */
+  async describeOidc(): Promise<DirectorySettingsView<OidcSettings>> {
     const resolved = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
 
     return {
@@ -89,16 +91,13 @@ export class SettingsService {
       secretsHeld: resolved.secretsHeld,
       updatedAt: resolved.updatedAt?.toISOString() ?? null,
       updatedByEmail: resolved.updatedByEmail,
-      // True once a provider is registered, exactly as for LDAP: a saved
-      // configuration reaches it on the next login through the settings seam
-      // (#113). False means no OIDC provider exists yet, so turning SSO on for
-      // the first time still needs one restart (ADR-0016 §4).
-      liveReload: this.oidcRegistered(),
+      liveReload: true,
+      secretsStorable: this.store.canStoreSecrets,
     };
   }
 
   /**
-   * Replace the stored OIDC configuration.
+   * Replace the stored OIDC configuration. Takes effect at the next sign-in.
    *
    * A body without `clientSecret` KEEPS the stored one, exactly as the LDAP
    * bind password does: the console never receives the secret, so it cannot
@@ -108,74 +107,19 @@ export class SettingsService {
   async saveOidc(
     config: OidcSettings,
     request: AuthenticatedRequest,
-  ): Promise<SettingsView<OidcSettings>> {
-    const actor = request.principal;
-    const before = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
-
-    await this.store.save(
-      'auth.oidc',
-      config as unknown as Record<string, unknown>,
-      OIDC_SECRET_FIELDS,
-      actor?.email ?? 'unknown',
-    );
-
-    const after = await this.describeOidc();
-
-    // Audited with the REDACTED views on both sides: the trail records that the
-    // identity provider changed and who changed it, never a client secret.
-    await this.audit.record({
-      actorUserId: actor?.userId ?? null,
-      actorEmail: actor?.email ?? null,
-      action: 'settings.auth.oidc.update',
-      entityType: 'ProviderSetting',
-      entityId: 'auth.oidc',
-      before: before.config,
-      after: after.config,
-      ipAddress: request.ip ?? null,
-      userAgent: headerOf(request, 'user-agent'),
-    });
-
-    if (!after.liveReload) {
-      this.logger.warn(
-        'OIDC settings saved, but no OIDC provider is registered — a restart is required ' +
-          'before they take effect. Registration happens at boot (ADR-0016 §4).',
-      );
-    }
-
-    return after;
+  ): Promise<DirectorySettingsView<OidcSettings>> {
+    this.requireKeyFor(config.clientSecret, 'a client secret');
+    await this.saveAudited('auth.oidc', config, OIDC_SECRET_FIELDS, this.oidcFromEnv, request);
+    return this.describeOidc();
   }
 
-  /** Discard the stored configuration and fall back to the environment. */
+  /**
+   * Discard the stored configuration. The provider falls back to the
+   * environment, or — with no environment baseline — becomes dormant, and its
+   * accounts are refused at the next sign-in (ADR-0029).
+   */
   async clearOidc(request: AuthenticatedRequest): Promise<void> {
-    const actor = request.principal;
-    const before = await this.store.describe<OidcSettings>('auth.oidc', this.oidcFromEnv);
-
-    // ONE TRANSACTION (#103, ADR-0005). The change, its audit record, and the
-    // delivery the sink enqueues from that record commit together. Written
-    // separately the sink receives no transaction, declines to enqueue, and the
-    // change reaches the trail but never the SIEM.
-    //
-    // Safe to wrap HERE because `before` was read above and `after` is fixed —
-    // nothing re-reads the row inside the transaction, which is what still
-    // blocks the four `save` sites (#103).
-    await this.prisma.$transaction(async (tx) => {
-      await this.store.clear('auth.oidc', tx);
-
-      await this.audit.record(
-        {
-          actorUserId: actor?.userId ?? null,
-          actorEmail: actor?.email ?? null,
-          action: 'settings.auth.oidc.clear',
-          entityType: 'ProviderSetting',
-          entityId: 'auth.oidc',
-          before: before.config,
-          after: null,
-          ipAddress: request.ip ?? null,
-          userAgent: headerOf(request, 'user-agent'),
-        },
-        tx,
-      );
-    });
+    await this.clearAudited('auth.oidc', this.oidcFromEnv, request);
   }
 
   /**
@@ -184,7 +128,8 @@ export class SettingsService {
    * With no candidate this checks what is in force. With one, it checks what
    * WOULD be saved — the point of testing before committing, and the reason
    * configuring an identity provider by trial and error against the login
-   * screen is how people lock themselves out.
+   * screen is how people lock themselves out. Works before anything is
+   * configured: the provider builds clients for the candidate (ADR-0029).
    *
    * What it can establish is bounded and the UI must say so: a login happens
    * in a browser at another origin, so this proves the issuer answers, its
@@ -197,10 +142,9 @@ export class SettingsService {
     const provider = resolver.forSource('oidc');
 
     if (provider === null) {
-      return {
-        ok: false,
-        message: 'No OIDC provider is running in this deployment, so there is nothing to check.',
-      };
+      // Unreachable since ADR-0029 registers the provider everywhere; kept so
+      // a wiring mistake reads as an answer rather than a 500.
+      return { ok: false, message: 'No OIDC provider is registered in this build.' };
     }
     if (provider.verifyConfiguration === undefined) {
       return { ok: false, message: 'The OIDC provider in this build cannot check itself.' };
@@ -220,77 +164,24 @@ export class SettingsService {
     }
   }
 
-  async saveLdap(
-    config: LdapSettings,
-    request: AuthenticatedRequest,
-  ): Promise<SettingsView<LdapSettings>> {
-    const actor = request.principal;
-    const before = await this.store.describe<LdapSettings>('auth.ldap', this.ldapFromEnv);
-
-    await this.store.save(
-      'auth.ldap',
-      config as unknown as Record<string, unknown>,
-      LDAP_SECRET_FIELDS,
-      actor?.email ?? 'unknown',
-    );
-
-    const after = await this.describeLdap();
-
-    // Audited with the REDACTED views on both sides. The audit trail records
-    // that the directory changed and who changed it; it must not become the one
-    // place a bind password is stored in clear.
-    await this.audit.record({
-      actorUserId: actor?.userId ?? null,
-      actorEmail: actor?.email ?? null,
-      action: 'settings.auth.ldap.update',
-      entityType: 'ProviderSetting',
-      entityId: 'auth.ldap',
-      before: before.config,
-      after: after.config,
-      ipAddress: request.ip ?? null,
-      userAgent: headerOf(request, 'user-agent'),
-    });
-
-    if (!after.liveReload) {
-      this.logger.warn(
-        'LDAP settings saved, but no LDAP provider is registered — a restart is required before ' +
-          'they take effect. Registration happens at boot (ADR-0016 §4).',
-      );
-    }
-
-    return after;
+  /**
+   * Replace the stored LDAP configuration. Takes effect at the next sign-in,
+   * including on a deployment that never set LDAP_URL (ADR-0029).
+   */
+  async saveLdap(config: LdapSettings, request: AuthenticatedRequest): Promise<LdapSettingsView> {
+    this.validateCa(config);
+    this.requireKeyFor(config.bindPassword, 'a bind password');
+    await this.saveAudited('auth.ldap', config, LDAP_SECRET_FIELDS, this.ldapFromEnv, request);
+    return this.describeLdap();
   }
 
+  /**
+   * Discard the stored configuration. The provider falls back to the
+   * environment, or becomes dormant (ADR-0029). Local accounts are never
+   * affected — they do not go through this provider at all (ADR-0015).
+   */
   async clearLdap(request: AuthenticatedRequest): Promise<void> {
-    const actor = request.principal;
-    const before = await this.store.describe<LdapSettings>('auth.ldap', this.ldapFromEnv);
-
-    // ONE TRANSACTION (#103, ADR-0005). The change, its audit record, and the
-    // delivery the sink enqueues from that record commit together. Written
-    // separately the sink receives no transaction, declines to enqueue, and the
-    // change reaches the trail but never the SIEM.
-    //
-    // Safe to wrap HERE because `before` was read above and `after` is fixed —
-    // nothing re-reads the row inside the transaction, which is what still
-    // blocks the four `save` sites (#103).
-    await this.prisma.$transaction(async (tx) => {
-      await this.store.clear('auth.ldap', tx);
-
-      await this.audit.record(
-        {
-          actorUserId: actor?.userId ?? null,
-          actorEmail: actor?.email ?? null,
-          action: 'settings.auth.ldap.clear',
-          entityType: 'ProviderSetting',
-          entityId: 'auth.ldap',
-          before: before.config,
-          after: null,
-          ipAddress: request.ip ?? null,
-          userAgent: headerOf(request, 'user-agent'),
-        },
-        tx,
-      );
-    });
+    await this.clearAudited('auth.ldap', this.ldapFromEnv, request);
   }
 
   /**
@@ -299,6 +190,9 @@ export class SettingsService {
    * Deliberately NOT audited. It changes nothing, and an operator correcting a
    * search base should not fill the audit trail with attempts — the save that
    * follows is the event worth recording.
+   *
+   * Works with no boot configuration: the provider builds its own client for
+   * the candidate, so a fresh deployment can test before its first save.
    */
   async verifyLdap(
     candidate: LdapSettings,
@@ -307,12 +201,7 @@ export class SettingsService {
     const provider = resolver.forSource(LDAP_SOURCE);
 
     if (provider === null) {
-      return {
-        ok: false,
-        message:
-          'No LDAP provider is running in this deployment, so a configuration cannot be tested. ' +
-          'Set LDAP_URL and restart once; after that, settings are editable here.',
-      };
+      return { ok: false, message: 'No LDAP provider is registered in this build.' };
     }
 
     if (provider.verifyConfiguration === undefined) {
@@ -321,6 +210,11 @@ export class SettingsService {
         message: `The "${LDAP_SOURCE}" provider in this build cannot test a configuration.`,
       };
     }
+
+    // A pasted CA that does not parse is answered here, in its own words,
+    // rather than as the TLS failure it would otherwise cause.
+    const problem = caProblem(candidate);
+    if (problem !== null) return { ok: false, message: problem };
 
     // A candidate arriving without a bind password should be tested with the
     // STORED one — otherwise "Test" fails for an operator who is only changing
@@ -336,6 +230,119 @@ export class SettingsService {
       this.logger.error(`LDAP verification threw: ${describe(error)}`);
       return { ok: false, message: 'The directory could not be reached. See the server log.' };
     }
+  }
+
+  /**
+   * Store a configuration and its audit record in ONE TRANSACTION (#103,
+   * ADR-0005).
+   *
+   * The change, its audit record, and the delivery the sink enqueues from that
+   * record commit together. Written separately the sink receives no
+   * transaction, declines to enqueue, and the change reaches the trail but
+   * never the SIEM.
+   *
+   * What blocked this before was the `after` payload: it was built by reading
+   * the row back, and a read outside the transaction sees the OLD row. It is
+   * built from the submitted configuration instead, minus its secrets — which
+   * is exactly what the store keeps in clear, so it matches the read-back
+   * without needing one. Audited with REDACTED views on both sides: the trail
+   * records that the directory changed and who changed it, never a credential.
+   */
+  private async saveAudited<T extends object>(
+    kind: Extract<SettingKind, 'auth.ldap' | 'auth.oidc'>,
+    config: T,
+    secretFields: readonly string[],
+    fromEnv: () => T | null,
+    request: AuthenticatedRequest,
+  ): Promise<void> {
+    const actor = request.principal;
+    const before = await this.store.describe<T>(kind, fromEnv);
+    const after = redacted(config, secretFields);
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.store.save(
+        kind,
+        config as unknown as Record<string, unknown>,
+        secretFields,
+        actor?.email ?? 'unknown',
+        tx,
+      );
+
+      await this.audit.record(
+        {
+          actorUserId: actor?.userId ?? null,
+          actorEmail: actor?.email ?? null,
+          action: `settings.${kind}.update`,
+          entityType: 'ProviderSetting',
+          entityId: kind,
+          before: before.config,
+          after,
+          ipAddress: request.ip ?? null,
+          userAgent: headerOf(request, 'user-agent'),
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
+   * Discard a stored configuration with its audit record, in one transaction.
+   *
+   * Safe to wrap because `before` was read above and `after` is fixed —
+   * nothing re-reads the row inside the transaction.
+   */
+  private async clearAudited<T>(
+    kind: Extract<SettingKind, 'auth.ldap' | 'auth.oidc'>,
+    fromEnv: () => T | null,
+    request: AuthenticatedRequest,
+  ): Promise<void> {
+    const actor = request.principal;
+    const before = await this.store.describe<T>(kind, fromEnv);
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.store.clear(kind, tx);
+
+      await this.audit.record(
+        {
+          actorUserId: actor?.userId ?? null,
+          actorEmail: actor?.email ?? null,
+          action: `settings.${kind}.clear`,
+          entityType: 'ProviderSetting',
+          entityId: kind,
+          before: before.config,
+          after: null,
+          ipAddress: request.ip ?? null,
+          userAgent: headerOf(request, 'user-agent'),
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
+   * Refuse to save a secret this deployment cannot encrypt — and say how to
+   * fix it, in terms of the thing the operator typed (ADR-0029 §6).
+   *
+   * The store refuses as well; this exists for the MESSAGE. "This
+   * configuration holds a secret" was accurate and left an operator who had
+   * just typed a bind password to work out which secret, and what to run.
+   */
+  private requireKeyFor(secret: string | undefined, what: string): void {
+    if (secret === undefined || secret === '' || this.store.canStoreSecrets) return;
+    throw new SettingsStoreError(
+      `Saving ${what} needs CONFIG_ENCRYPTION_KEY. Re-run scripts/deploy.sh, which generates ` +
+        'it, or set it in .env (openssl rand -base64 32) and restart.',
+    );
+  }
+
+  /**
+   * The pasted CA must parse, must not be a private key, and must not sit
+   * beside disabled verification, where it would be silently ignored — the
+   * same rule `LDAP_CA_PATH` has at boot.
+   */
+  private validateCa(config: LdapSettings): void {
+    const problem = caProblem(config);
+    if (problem !== null) throw new BadRequestException({ error: 'INVALID_CA', message: problem });
   }
 
   private async fillOidcSecret(candidate: OidcSettings): Promise<OidcSettings> {
@@ -355,6 +362,34 @@ export class SettingsService {
 
     return { ...candidate, bindPassword: stored.config.bindPassword };
   }
+}
+
+/** What is wrong with a configuration's pasted CA, or null when nothing is. */
+function caProblem(config: LdapSettings): string | null {
+  if (config.caPem === undefined) return null;
+
+  try {
+    parseCaPem(config.caPem);
+  } catch (error) {
+    return error instanceof CaPemError ? error.message : describe(error);
+  }
+
+  if (!config.tlsRejectUnauthorized) {
+    return (
+      'A CA certificate is set but TLS verification is off, so the CA would be ignored and any ' +
+      'certificate accepted. Turn verification on, or remove the CA.'
+    );
+  }
+  return null;
+}
+
+/** The configuration as the store keeps it in clear: secrets removed. */
+function redacted(config: object, secretFields: readonly string[]): Record<string, unknown> {
+  // Through JSON so `undefined` members vanish exactly as they do on the way
+  // into the database, and the audit row matches what a read-back would show.
+  const plain = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+  for (const field of secretFields) delete plain[field];
+  return plain;
 }
 
 function headerOf(request: AuthenticatedRequest, name: string): string | null {

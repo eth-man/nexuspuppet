@@ -21,6 +21,7 @@ import {
   type CreateUser,
   type ManagedUser,
   type ManagedUserDetail,
+  type ProvisionableAuthSources,
   type ResetPassword,
   type MoveAuthSource,
   type UpdateUser,
@@ -49,6 +50,23 @@ export class UsersController {
   @Get()
   list(): Promise<ManagedUser[]> {
     return this.users.list();
+  }
+
+  /**
+   * Which sources a new account may belong to, and which of them can sign
+   * anybody in yet (ADR-0029 §2).
+   *
+   * Not `GET /auth/mode`: that is the public login page's list and names only
+   * CONFIGURED sources. An administrator may provision directory accounts
+   * before turning the directory on, so this lists every registered source and
+   * flags the dormant ones for the dialog to say so.
+   *
+   * Declared before `:id` so Express does not read "auth-sources" as an id.
+   */
+  @RequirePermission('users:manage')
+  @Get('auth-sources')
+  async authSources(): Promise<ProvisionableAuthSources> {
+    return { sources: await this.users.provisionableSources() };
   }
 
   @RequirePermission('users:manage')

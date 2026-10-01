@@ -68,18 +68,16 @@ describe('LDAP settings API (integration)', () => {
           : null,
     }) as unknown as AuthProviderResolver;
 
-  const service = (resolver: AuthProviderResolver = resolverWith()) =>
+  const service = (_resolver: AuthProviderResolver = resolverWith(), key: string | null = KEY) =>
     new SettingsService(
-      new SettingsStore(prisma, KEY, 'db'),
+      new SettingsStore(prisma, key ?? undefined, 'db'),
       // A REAL PrismaService here, so the transaction that binds a settings
       // change to its audit record is a real one (#103).
       prisma,
       audit,
       () => null,
-      () => resolver.forSource('ldap') !== null,
       // No OIDC in these tests: this suite is about the LDAP kind.
       () => null,
-      () => false,
     );
 
   beforeAll(async () => {
@@ -133,26 +131,19 @@ describe('LDAP settings API (integration)', () => {
       expect((await service().describeLdap()).secretsHeld).toEqual(['bindPassword']);
     });
 
-    it('reports whether a change takes effect without a restart', async () => {
-      // Configuring LDAP for the first time needs a restart, because
-      // registration builds the DI graph. The console has to say so.
+    it('always reports live reload — the first configuration needs no restart either', async () => {
+      // Before ADR-0029 a deployment with no LDAP_URL had no provider, and this
+      // was false: "saved, restart to apply". Both providers are registered on
+      // every deployment now, so even an unset deployment reloads live.
+      expect((await service().describeLdap()).liveReload).toBe(true);
+
       await service().saveLdap(SETTINGS, request());
+      expect((await service().describeLdap()).liveReload).toBe(true);
+    });
 
-      const withProvider = await service(
-        resolverWith(async () => ({ ok: true, message: 'y' })),
-      ).describeLdap();
-      expect(withProvider.liveReload).toBe(true);
-
-      const noProvider = new SettingsService(
-        new SettingsStore(prisma, KEY, 'db'),
-        prisma,
-        audit,
-        () => null,
-        () => false,
-        () => null,
-        () => false,
-      );
-      expect((await noProvider.describeLdap()).liveReload).toBe(false);
+    it('says up front whether a bind password can be stored at all', async () => {
+      expect((await service().describeLdap()).secretsStorable).toBe(true);
+      expect((await service(resolverWith(), null).describeLdap()).secretsStorable).toBe(false);
     });
   });
 
@@ -199,6 +190,40 @@ describe('LDAP settings API (integration)', () => {
 
       expect(entry?.actorEmail).toBe('operator@example.com');
       expect(JSON.stringify(entry)).not.toContain('a-bind-secret');
+    });
+
+    it('stores the change and its audit record in one transaction', async () => {
+      // The audit row is written with the transaction client, so a failure of
+      // either rolls back both. Observable here as: both exist, and the audit
+      // row's AFTER is the redacted configuration that was saved.
+      await service().saveLdap(SETTINGS, request());
+
+      const entry = await prisma.auditLog.findFirst({
+        where: { action: 'settings.auth.ldap.update' },
+      });
+      expect(entry?.after).toMatchObject({ url: SETTINGS.url, searchBase: SETTINGS.searchBase });
+      expect(entry?.after).not.toHaveProperty('bindPassword');
+      expect(await prisma.providerSetting.count()).toBe(1);
+    });
+
+    it('refuses a bind password without CONFIG_ENCRYPTION_KEY, saying what to run', async () => {
+      // ADR-0029 §6. Staging and at least one real deployment ran without a key,
+      // so the console could not store a bind password at all — and the error
+      // said "holds a secret" without saying which, or what to do.
+      await expect(service(resolverWith(), null).saveLdap(SETTINGS, request())).rejects.toThrow(
+        /Saving a bind password needs CONFIG_ENCRYPTION_KEY\. Re-run scripts\/deploy\.sh/,
+      );
+      expect(await prisma.providerSetting.count()).toBe(0);
+      expect(await prisma.auditLog.count()).toBe(0);
+    });
+
+    it('stores a configuration without a password even with no key', async () => {
+      // Anonymous search is legitimate; the key is only needed for a secret.
+      const { bindPassword: _p, bindDn: _d, ...anonymous } = SETTINGS;
+
+      await service(resolverWith(), null).saveLdap(anonymous as LdapSettings, request());
+
+      expect(await prisma.providerSetting.count()).toBe(1);
     });
 
     it('clearing restores the environment and is audited', async () => {
@@ -260,13 +285,13 @@ describe('LDAP settings API (integration)', () => {
       expect(await prisma.auditLog.count()).toBe(0);
     });
 
-    it('says so plainly when no provider is running', async () => {
+    it('says so plainly if no provider is registered — a wiring fault since ADR-0029', async () => {
       const result = await service(resolverWith()).verifyLdap(SETTINGS, {
         forSource: () => null,
       } as unknown as AuthProviderResolver);
 
       expect(result.ok).toBe(false);
-      expect(result.message).toMatch(/no ldap provider is running/i);
+      expect(result.message).toMatch(/no ldap provider is registered/i);
     });
 
     it('reports a provider that throws as a failed test, not a 500', async () => {

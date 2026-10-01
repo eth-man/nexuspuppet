@@ -832,3 +832,83 @@ describe('describe()', () => {
     expect(described.refusesUnmappedUsers).toBe(true);
   });
 });
+
+/**
+ * Registered on every deployment, configured from the console (ADR-0029).
+ *
+ * No OIDC_ISSUER and nothing stored: DORMANT. A configuration saved later is
+ * served by clients built for it, with no boot clients to fall back on.
+ */
+describe('OidcAuthProvider with no environment baseline', () => {
+  const dormant = (settings: { resolve(source: string): Promise<unknown | null> }) => {
+    const http = new FakeHttp();
+    const exchange = new FakeExchange();
+    const provider = new OidcAuthProvider({
+      config: null,
+      identities: new FakeDirectoryUsers(),
+      logger: silentLogger,
+      now,
+      settings,
+      directoryFor: (next) => new OidcDirectory(next.issuer, http, next.timeoutMs, now),
+      exchangeFor: () => exchange,
+    });
+    return { provider, http };
+  };
+
+  it('is dormant, reports no baseline, and has nothing to check', async () => {
+    const { provider } = dormant({ resolve: async () => null });
+
+    await expect(provider.isConfigured()).resolves.toBe(false);
+    expect(provider.currentConfiguration()).toBeNull();
+    await expect(provider.verifyConfiguration()).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining('not configured'),
+    });
+  });
+
+  it('refuses a callback while dormant, without throwing', async () => {
+    const { provider } = dormant({ resolve: async () => null });
+
+    await expect(provider.completeRedirect({ state: 's', code: 'c' })).resolves.toEqual({
+      ok: false,
+      reason: 'INVALID_CREDENTIALS',
+    });
+  });
+
+  it('starts a login against a configuration saved later — no restart', async () => {
+    const state: { row: unknown } = { row: null };
+    const { provider } = dormant({ resolve: async () => state.row });
+
+    state.row = config({ clientId: 'saved-in-console' });
+
+    await expect(provider.isConfigured()).resolves.toBe(true);
+    const challenge = await provider.beginRedirect('/');
+    expect(new URL(challenge.location).searchParams.get('client_id')).toBe('saved-in-console');
+
+    state.row = null;
+    await expect(provider.isConfigured()).resolves.toBe(false);
+  });
+
+  /*
+   * Test-before-save on a fresh deployment. The candidate gets clients of its
+   * own; this used to ignore the candidate entirely and check the boot
+   * configuration, which on such a deployment does not exist.
+   */
+  it('checks a CANDIDATE with clients of its own', async () => {
+    const { provider, http } = dormant({ resolve: async () => null });
+
+    const result = await provider.verifyConfiguration(config());
+
+    expect(result).toMatchObject({ ok: true });
+    expect(http.getCount).toBeGreaterThan(0);
+  });
+
+  it('reports a candidate that is not a usable configuration', async () => {
+    const { provider } = dormant({ resolve: async () => null });
+
+    await expect(provider.verifyConfiguration({ issuer: 'nope' })).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining('not usable'),
+    });
+  });
+});

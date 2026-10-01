@@ -64,6 +64,14 @@ The convention *"enterprise-only routes exist in core and return `501` with a `c
 
 ### 5. Directory registration stays configuration-driven, and validation stays at boot
 
+> **Amended 2026-10-01 ([ADR-0029](./0029-directory-from-the-console.md)).** The
+> open follow-up below is done. Both directory providers are now registered on
+> every deployment; configuration — a row saved in the console, else the
+> environment — only decides whether one is dormant. A directory is enabled from
+> the console with no restart, and the console no longer shows a header naming
+> the variable that enables it. Validate-at-boot is unchanged: a present but
+> malformed `LDAP_*`, `OIDC_*` or `AUDIT_EXPORT_*` still stops the API.
+
 An LDAP provider is registered when `LDAP_URL` is set, and an OIDC provider when `OIDC_ISSUER` is. This is exactly what the layer's `register()` did. Registration happens at boot.
 
 **Validate-at-boot is kept.** `config/integrations.ts` reads the LDAP, OIDC and audit-export environment once, before any provider is built. A value that is present but malformed throws `IntegrationConfigError`, which names the integration and the reason, and the API refuses to start. The loader used to enforce the same rule, for the same reason: a deployment that believes it has a directory must never quietly run without one.

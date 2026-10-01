@@ -72,28 +72,28 @@ describe('AuthProviderResolver', () => {
    * comes from the registered providers instead.
    */
   describe('descriptors', () => {
-    it('describes every registered source, not just the local one', () => {
-      expect(resolver().descriptors()).toEqual([
+    it('describes every registered source, not just the local one', async () => {
+      expect(await resolver().descriptors()).toEqual([
         { source: 'ldap', mode: 'credentials', identifierLabel: 'Email' },
         { source: 'local', mode: 'credentials', identifierLabel: 'Email' },
       ]);
     });
 
-    it('reports a redirect provider, which is what draws the SSO button', () => {
+    it('reports a redirect provider, which is what draws the SSO button', async () => {
       const oidc: IAuthProvider = { ...stub('oidc', 'unused'), mode: 'redirect' };
       const withSso = new AuthProviderResolver([local, oidc], fakePrisma(accounts), 0);
 
-      expect(withSso.descriptors()).toEqual([
+      expect(await withSso.descriptors()).toEqual([
         { source: 'local', mode: 'credentials', identifierLabel: 'Email' },
         { source: 'oidc', mode: 'redirect', identifierLabel: 'Email' },
       ]);
     });
 
-    it("carries each provider's own identifier label", () => {
+    it("carries each provider's own identifier label", async () => {
       const ad: IAuthProvider = { ...stub('ldap', 'x'), identifierLabel: 'Username' };
       const withAd = new AuthProviderResolver([local, ad], fakePrisma(accounts), 0);
 
-      expect(withAd.descriptors().find((d) => d.source === 'ldap')?.identifierLabel).toBe(
+      expect((await withAd.descriptors()).find((d) => d.source === 'ldap')?.identifierLabel).toBe(
         'Username',
       );
     });
@@ -102,17 +102,185 @@ describe('AuthProviderResolver', () => {
      * Insertion order is whatever DI happened to produce. A login page that
      * reorders its own buttons between polls is a login page nobody trusts.
      */
-    it('is sorted, so the answer does not depend on registration order', () => {
+    it('is sorted, so the answer does not depend on registration order', async () => {
       const forwards = new AuthProviderResolver([local, ldap], fakePrisma(accounts), 0);
       const backwards = new AuthProviderResolver([ldap, local], fakePrisma(accounts), 0);
 
-      expect(forwards.descriptors()).toEqual(backwards.descriptors());
+      expect(await forwards.descriptors()).toEqual(await backwards.descriptors());
     });
 
-    it('is a list even with one source', () => {
+    it('is a list even with one source', async () => {
       const alone = new AuthProviderResolver([local], fakePrisma(accounts), 0);
 
-      expect(alone.descriptors()).toHaveLength(1);
+      expect(await alone.descriptors()).toHaveLength(1);
+    });
+  });
+
+  /**
+   * Registered is not configured (ADR-0029).
+   *
+   * Both directory providers exist on every deployment so one can be enabled
+   * from the console without a restart. With nothing to point at, a provider
+   * is DORMANT, and the resolver must treat it as absent everywhere a user can
+   * see — and refuse its accounts exactly as it refuses a wrong password.
+   */
+  describe('a dormant provider', () => {
+    /** A provider whose configuration can be switched on and off mid-test. */
+    function switchable(source: string, password: string, mode?: 'redirect') {
+      const state = { configured: false };
+      const provider: IAuthProvider = {
+        ...stub(source, password),
+        ...(mode === undefined ? {} : { mode }),
+        isConfigured: async () => state.configured,
+      };
+      return { provider, state };
+    }
+
+    const warn = () => jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    afterEach(() => jest.restoreAllMocks());
+
+    it('is not offered on the login page', async () => {
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      expect((await r.descriptors()).map((d) => d.source)).toEqual(['local']);
+    });
+
+    it('appears on the login page the moment it is configured, with no new resolver', async () => {
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      dormant.state.configured = true;
+
+      expect((await r.descriptors()).map((d) => d.source)).toEqual(['ldap', 'local']);
+    });
+
+    it('is still a registered source, so accounts can be provisioned for it', async () => {
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      expect(r.sources()).toEqual(['ldap', 'local']);
+      expect(await r.provisionableSources()).toEqual([
+        { source: 'ldap', mode: 'credentials', identifierLabel: 'Email', configured: false },
+        { source: 'local', mode: 'credentials', identifierLabel: 'Email', configured: true },
+      ]);
+    });
+
+    it('is never the redirect provider', async () => {
+      const sso = switchable('oidc', 'unused', 'redirect');
+      const r = new AuthProviderResolver([local, sso.provider], fakePrisma(accounts), 0);
+
+      await expect(r.redirectProvider()).resolves.toBeNull();
+
+      sso.state.configured = true;
+      await expect(r.redirectProvider()).resolves.toBe(sso.provider);
+    });
+
+    it('is not the provider described to an administrator', async () => {
+      const dormant = switchable('ldap', 'ldap-pw');
+      const described: IAuthProvider = {
+        ...dormant.provider,
+        describe: () => ({
+          source: 'ldap',
+          roleMappings: [],
+          refusesUnmappedUsers: true,
+          details: [],
+        }),
+      };
+      const r = new AuthProviderResolver([local, described], fakePrisma(accounts), 0);
+
+      await expect(r.describableProvider()).resolves.toBe(local);
+    });
+
+    it('refuses its accounts with the SAME answer as a wrong password', async () => {
+      warn();
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      // The RIGHT password, which the provider would accept if it were asked.
+      const refused = await r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' });
+      const wrong = await r.authenticate({ email: 'admin@example.com', password: 'nope' });
+
+      expect(refused).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
+      expect(refused).toEqual(wrong);
+    });
+
+    it('lets the same login through once it is configured', async () => {
+      warn();
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      await expect(
+        r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' }),
+      ).resolves.toMatchObject({ ok: false });
+
+      dormant.state.configured = true;
+
+      await expect(
+        r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it('never touches local accounts', async () => {
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      await expect(
+        r.authenticate({ email: 'admin@example.com', password: 'local-pw' }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it('says why in the log, once per change of state, not once per attempt', async () => {
+      const spy = warn();
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      for (let i = 0; i < 5; i += 1) {
+        await r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' });
+      }
+      const dormantLines = () =>
+        spy.mock.calls.filter(([line]) => String(line).includes('LDAP sign-in is not configured'));
+      expect(dormantLines()).toHaveLength(1);
+
+      // Configured, then discarded again: a NEW state, so it is said again.
+      dormant.state.configured = true;
+      await r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' });
+      dormant.state.configured = false;
+      await r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' });
+
+      expect(dormantLines()).toHaveLength(2);
+    });
+
+    it('ends its sessions at refresh, as a deregistered one does', async () => {
+      warn();
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      await expect(r.resolve('dave@corp.test')).resolves.toBeNull();
+      await expect(r.resolve('admin@example.com')).resolves.toMatchObject({ authSource: 'local' });
+    });
+
+    it('does not count as a configured directory for the no-account warning', async () => {
+      const spy = warn();
+      const dormant = switchable('ldap', 'ldap-pw');
+      const r = new AuthProviderResolver([local, dormant.provider], fakePrisma(accounts), 0);
+
+      await r.authenticate({ email: 'nobody@corp.test', password: 'x' });
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('is treated as configured when it cannot say, so it fails loudly rather than vanishing', async () => {
+      warn();
+      const confused: IAuthProvider = {
+        ...stub('ldap', 'ldap-pw'),
+        isConfigured: async () => {
+          throw new Error('store unreadable');
+        },
+      };
+      const r = new AuthProviderResolver([local, confused], fakePrisma(accounts), 0);
+
+      expect((await r.descriptors()).map((d) => d.source)).toEqual(['ldap', 'local']);
     });
   });
 
@@ -357,6 +525,31 @@ describe('AuthProviderResolver', () => {
       // -20ms of slack: setTimeout may fire fractionally early, and a test that
       // fails on timer jitter teaches people to rerun CI rather than to look.
       expect(await timed(email)).toBeGreaterThanOrEqual(FLOOR - 20);
+    });
+
+    /*
+     * A dormant directory answers without any network round trip at all —
+     * the fastest refusal there is, and so the most tempting oracle. The floor
+     * must cover it like every other path (ADR-0029 §2).
+     */
+    it('an account whose directory is dormant takes at least the floor', async () => {
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const dormant: IAuthProvider = {
+        ...stub('ldap', 'ldap-pw', 0),
+        isConfigured: async () => false,
+      };
+      const r = new AuthProviderResolver(
+        [stub('local', 'local-pw', 0), dormant],
+        fakePrisma(accounts),
+        FLOOR,
+      );
+
+      const startedAt = Date.now();
+      const result = await r.authenticate({ email: 'dave@corp.test', password: 'ldap-pw' });
+
+      expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(FLOOR - 20);
+      jest.restoreAllMocks();
     });
 
     it('does not pad a SUCCESSFUL login beyond the floor either', async () => {

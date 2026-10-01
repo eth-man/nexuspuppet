@@ -460,7 +460,7 @@ describe('auth (integration)', () => {
    * groups grant which role, without core knowing what a directory is.
    */
   describe('provider description', () => {
-    it('falls back to the source alone when a provider does not describe itself', () => {
+    it('falls back to the source alone when a provider does not describe itself', async () => {
       // Core's LocalAuthProvider has no describe(): there are no group mappings
       // to explain. The endpoint must still answer, so the UI can decide to
       // render nothing rather than handling an error.
@@ -473,7 +473,7 @@ describe('auth (integration)', () => {
         new RoleRegistry(prisma),
       );
 
-      expect(controller.describeProvider()).toEqual({
+      expect(await controller.describeProvider()).toEqual({
         source: 'local',
         roleMappings: [],
         refusesUnmappedUsers: false,
@@ -481,7 +481,7 @@ describe('auth (integration)', () => {
       });
     });
 
-    it('returns whatever a provider that does describe itself supplies', () => {
+    it('returns whatever a provider that does describe itself supplies', async () => {
       const describing: IAuthProvider = {
         source: 'ldap',
         mode: 'credentials',
@@ -503,7 +503,7 @@ describe('auth (integration)', () => {
         new RoleRegistry(prisma),
       );
 
-      expect(controller.describeProvider().roleMappings).toEqual([
+      expect((await controller.describeProvider()).roleMappings).toEqual([
         { group: 'cn=ops,dc=x', role: 'OPERATOR' },
       ]);
     });

@@ -499,8 +499,15 @@ describe('capability wiring', () => {
 });
 
 /**
- * Which directory providers exist, by configuration (ADR-0015, ADR-0023,
- * ADR-0027 §5).
+ * Which directory providers exist: BOTH, whatever the configuration (ADR-0015,
+ * ADR-0023, ADR-0029).
+ *
+ * Until ADR-0029 a provider was registered only when its environment was set,
+ * so enabling a directory needed an .env edit and a restart. Now registration
+ * is unconditional and configuration only decides whether a provider is
+ * dormant — which these cases pin, together with the two rules that did NOT
+ * change: local is first and always present, and a malformed environment
+ * still stops the boot.
  *
  * Ported from the old enterprise layer's register() suite. One of the
  * behaviours it pinned was load-bearing: with no directory configured the layer
@@ -535,22 +542,29 @@ describe('directory provider registration', () => {
     return (registration?.dependencies ?? []).map((d) => nameOf(d));
   };
 
-  it('boots with no directory configured, local authentication only', async () => {
+  const ALL = ['LocalAuthProvider', 'LdapAuthProvider', 'OidcAuthProvider'];
+
+  /*
+   * The case the user report was about: an old core install upgraded with no
+   * LDAP_* or OIDC_* in its .env. Both directories must still be registered —
+   * dormant — so the console can enable either without a restart.
+   */
+  it('registers both directories, dormant, when nothing is configured', async () => {
     withEnv({});
 
-    expect(await authProviders()).toEqual(['LocalAuthProvider']);
+    expect(await authProviders()).toEqual(ALL);
   });
 
-  it('adds LDAP ALONGSIDE local when LDAP_URL is set, never instead of it', async () => {
+  it('registers both, local first, when only LDAP_URL is set', async () => {
     withEnv(LDAP_ENV);
 
-    expect(await authProviders()).toEqual(['LocalAuthProvider', 'LdapAuthProvider']);
+    expect(await authProviders()).toEqual(ALL);
   });
 
-  it('adds OIDC alongside local when OIDC_ISSUER is set', async () => {
+  it('registers both, local first, when only OIDC_ISSUER is set', async () => {
     withEnv(OIDC_ENV);
 
-    expect(await authProviders()).toEqual(['LocalAuthProvider', 'OidcAuthProvider']);
+    expect(await authProviders()).toEqual(ALL);
   });
 
   /*
@@ -579,6 +593,15 @@ describe('directory provider registration', () => {
 
     await expect(AppModule.bootstrap()).rejects.toThrow(
       /LDAP is configured but its settings are invalid/,
+    );
+  });
+
+  it('refuses to boot on a malformed OIDC configuration', async () => {
+    withEnv({ ...OIDC_ENV, OIDC_REDIRECT_URI: 'not a url' });
+    const { AppModule } = await import('./app.module');
+
+    await expect(AppModule.bootstrap()).rejects.toThrow(
+      /OIDC is configured but its settings are invalid/,
     );
   });
 

@@ -4,9 +4,12 @@ These providers are contributed **alongside** core's local provider, never
 instead of it (ADR-0015). A login is dispatched by the account's `authSource`;
 local accounts keep working whatever happens here.
 
-Each is registered at boot when it is configured — LDAP when `LDAP_URL` is set,
-OIDC when `OIDC_ISSUER` is — and its environment is validated **at boot**
-(`config/integrations.ts`). A malformed value stops the API from starting,
+Both are registered on every deployment (ADR-0029). Each resolves its
+configuration per sign-in: a row saved in the console, else its environment
+(`LDAP_*`, `OIDC_*`), else none — **dormant**, reported by `isConfigured()`,
+which keeps it off the login page and has the resolver refuse its accounts like
+a wrong password. The environment is still validated **at boot**
+(`config/integrations.ts`): a malformed value stops the API from starting,
 rather than surfacing at someone's first login. See ADR-0027.
 
 This code lived in `packages/enterprise` until ADR-0027. The notes below moved

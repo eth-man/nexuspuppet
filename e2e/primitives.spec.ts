@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { apiLogin, assertStackReachable, login } from './support';
+import { expect, test, type Page } from '@playwright/test';
+import { assertStackReachable, login } from './support';
 
 /**
  * Card and control primitives (issue #72 slice 3), asserted through the screen
@@ -10,62 +10,47 @@ import { apiLogin, assertStackReachable, login } from './support';
  * into the row with the Save button. Neither shows up in a typecheck, and the
  * first is invisible to anyone not using a screen reader.
  */
+/**
+ * The LDAP card's region (ADR-0029).
+ *
+ * BOTH directories are always on this page now, and their cards share titles —
+ * each has "Role mappings", each has "Edit settings". Unscoped, those locators
+ * match twice and fail on strict mode rather than on anything under test; that
+ * is exactly how four of these tests failed whenever OIDC was also configured.
+ * Everything about the LDAP form is asked of this region.
+ */
+const ldap = (page: Page) => page.getByRole('region', { name: 'Directory (LDAP)' });
+
 test.describe('primitives', () => {
-  /**
-   * Whether an LDAP provider is running — registered at boot because LDAP_URL
-   * is set, reported by the API as `liveReload` (ADR-0027).
-   *
-   * Without one the screen is a header saying how to enable it rather than a
-   * form, so every assertion about inputs has to know which it is looking at.
-   * Resolved once, in beforeAll, because `test.skip()` in describe scope cannot
-   * take an async condition.
-   */
-  let directory = false;
-
-  test.beforeAll(async ({ request }) => {
-    await apiLogin(request);
-    const response = await request.get('/api/settings/auth/ldap');
-    if (!response.ok()) return;
-    const body = (await response.json()) as { liveReload?: boolean };
-    directory = body.liveReload === true;
-  });
-
   test.beforeEach(async ({ request }) => {
     await assertStackReachable(request);
   });
 
   /**
-   * A deployment must not be able to configure something that cannot run.
-   *
-   * It first rendered the whole form, accepted a save, and explained in a
-   * warning box that nothing would take effect — however honestly worded, an
-   * operator fills in six fields, gets a success, finds nobody can sign in,
-   * and concludes the product is broken.
-   *
-   * Now, until LDAP_URL registers a provider: named, explained, and not drawn.
-   * The feature is still discoverable, and the card says what enables it.
+   * The user report that started ADR-0029: an upgraded install showed
+   * "NOT ENABLED — set LDAP_URL and restart", so directory sign-in could only
+   * be turned on by editing .env. Now both directories are always configurable
+   * here, each says where its configuration comes from, and neither tells the
+   * operator to restart anything.
    */
-  test('names the directory feature and draws no form', async ({ page }) => {
-    test.skip(directory, 'an LDAP provider is running');
-
+  test('both directories are always configurable, with where their settings come from', async ({
+    page,
+  }) => {
     await login(page);
     await page.goto('/settings/auth');
 
-    // Still NAMED, and it says what is missing: configuration.
-    await expect(page.getByRole('heading', { name: /Directory/ })).toBeVisible();
-    await expect(page.getByText('Set LDAP_URL', { exact: false })).toBeVisible();
+    const sso = page.getByRole('region', { name: 'Single sign-on (OIDC)' });
+    await expect(ldap(page)).toBeVisible();
+    await expect(sso).toBeVisible();
 
-    /*
-     * ABSENT, not merely disabled — and that distinction is the point of this
-     * test. `toBeDisabled()` passed happily against the previous version, so
-     * only an absence assertion can tell the two apart.
-     */
-    await expect(page.getByRole('textbox', { name: /^Server URL/ })).toHaveCount(0);
-    await expect(page.getByRole('switch', { name: /Verify the directory/i })).toHaveCount(0);
-
-    for (const name of ['Save', 'Test connection', 'Edit settings']) {
-      await expect(page.getByRole('button', { name: new RegExp(`^${name}`) })).toHaveCount(0);
+    for (const region of [ldap(page), sso]) {
+      await expect(
+        region.getByText(/^(Not configured|From the environment|Saved in the console)$/),
+      ).toBeVisible();
     }
+
+    await expect(page.getByText(/Set (LDAP_URL|OIDC_ISSUER)/)).toHaveCount(0);
+    await expect(page.getByText(/restart the API|restart once/i)).toHaveCount(0);
   });
 
   /**
@@ -80,22 +65,45 @@ test.describe('primitives', () => {
     /*
      * This guards against somebody replacing the `<fieldset disabled>` with
      * styling that only looks inert while a keyboard user tabs in and types.
-     * Without a provider there is no form at all, so the risk lives in a
-     * configured deployment's resting state, before Edit is pressed.
+     * The locked state is the resting state of a CONFIGURED directory, so this
+     * one saves a configuration first — and puts the deployment back after.
      */
-    test.skip(!directory, 'no LDAP provider — no form; see the header-only test above');
-
     await login(page);
-    await page.goto('/settings/auth');
+    await withStoredDirectory(page, async () => {
+      await page.goto('/settings/auth');
 
-    const url = page.getByRole('textbox', { name: /^Server URL/ });
-    await expect(url).toBeVisible();
-    await expect(url).not.toBeEditable();
+      const url = ldap(page).getByRole('textbox', { name: /^Server URL/ });
+      await expect(url).toBeVisible();
+      await expect(url).not.toBeEditable();
+    });
   });
 
   /**
-   * Everything below needs an LDAP provider running (LDAP_URL set).
+   * Store a minimal LDAP configuration for the duration of `run`, through the
+   * same API the console uses, and discard it afterwards whatever happens.
    *
+   * No bind password: CI runs without CONFIG_ENCRYPTION_KEY, and an anonymous
+   * search configuration is enough to put the form into its resting state.
+   * Discarding returns the deployment to whatever it was — the environment
+   * baseline, or dormant (ADR-0029).
+   */
+  async function withStoredDirectory(page: Page, run: () => Promise<void>): Promise<void> {
+    const saved = await page.request.put('/api/settings/auth/ldap', {
+      data: {
+        url: 'ldaps://directory.e2e.invalid:636',
+        searchBase: 'ou=people,dc=e2e,dc=invalid',
+        roleMappings: [],
+      },
+    });
+    expect(saved.status(), await saved.text()).toBe(200);
+    try {
+      await run();
+    } finally {
+      await page.request.delete('/api/settings/auth/ldap');
+    }
+  }
+
+  /**
    * Reveals the form when nothing is configured yet. `count()` does NOT
    * auto-wait: called straight after `goto` it returns 0 because the panel has
    * not loaded, the branch never runs, and the failure surfaces as a missing
@@ -116,8 +124,9 @@ test.describe('primitives', () => {
   ) {
     await page.goto('/settings/auth');
 
-    const cta = page.getByRole('button', { name: 'Configure directory' });
-    const url = page.getByRole('textbox', { name: /^Server URL/ });
+    const region = ldap(page);
+    const cta = region.getByRole('button', { name: 'Configure directory' });
+    const url = region.getByRole('textbox', { name: /^Server URL/ });
     await expect(cta.or(url).first()).toBeVisible();
     if ((await cta.count()) > 0) await cta.click();
     await expect(url).toBeVisible();
@@ -127,26 +136,27 @@ test.describe('primitives', () => {
     // Absent on a deployment that arrived through the empty-state CTA — that
     // path opens straight into an editable form, since there is nothing yet to
     // protect from an accidental keystroke.
-    const edit = page.getByRole('button', { name: 'Edit settings' });
+    const edit = region.getByRole('button', { name: 'Edit settings' });
     if ((await edit.count()) > 0) await edit.click();
     await expect(url).toBeEditable();
   }
 
   test('an unconfigured deployment offers an empty state, not a blank form', async ({ page }) => {
-    test.skip(!directory, 'requires LDAP_URL');
-
     await login(page);
     await page.goto('/settings/auth');
 
-    const cta = page.getByRole('button', { name: 'Configure directory' });
-    const url = page.getByRole('textbox', { name: /^Server URL/ });
+    const region = ldap(page);
+    const cta = region.getByRole('button', { name: 'Configure directory' });
+    const url = region.getByRole('textbox', { name: /^Server URL/ });
     await expect(cta.or(url).first()).toBeVisible();
 
     if ((await cta.count()) > 0) {
-      await expect(page.getByRole('heading', { name: 'No directory connected' })).toBeVisible();
+      await expect(region.getByRole('heading', { name: 'No directory connected' })).toBeVisible();
+      await expect(region.getByText('Not configured', { exact: true })).toBeVisible();
       await expect(url).toHaveCount(0);
       await cta.click();
-      await expect(url).toBeVisible();
+      // Straight into an editable form: there is nothing yet to protect.
+      await expect(url).toBeEditable();
     } else {
       await expect(url).toBeVisible();
     }
@@ -162,13 +172,19 @@ test.describe('primitives', () => {
    * association is broken, whatever the markup looks like.
    */
   test('every field on the directory form is reachable by its label', async ({ page }) => {
-    test.skip(!directory, 'requires LDAP_URL');
-
     await login(page);
     await openDirectoryForm(page, { editing: true });
 
-    for (const label of ['Server URL', 'Bind DN', 'Search base', 'Group search base']) {
-      const control = page.getByRole('textbox', { name: new RegExp(`^${label}`) }).first();
+    for (const label of [
+      'Server URL',
+      'Bind DN',
+      'Search base',
+      'Group search base',
+      'CA certificate',
+    ]) {
+      const control = ldap(page)
+        .getByRole('textbox', { name: new RegExp(`^${label}`) })
+        .first();
       await expect(control, `"${label}" is not associated with a control`).toBeVisible();
     }
 
@@ -181,7 +197,9 @@ test.describe('primitives', () => {
      * finds nothing and a loose one also matches "Group search base". Going via
      * `for` asks the same question the browser does.
      */
-    const searchBase = page.getByRole('textbox', { name: /^Search base/ }).first();
+    const searchBase = ldap(page)
+      .getByRole('textbox', { name: /^Search base/ })
+      .first();
     const id = await searchBase.getAttribute('id');
     expect(id, 'the control has no id, so no label can point at it').toBeTruthy();
 
@@ -190,34 +208,28 @@ test.describe('primitives', () => {
   });
 
   test('the form is grouped into cards rather than one flat list', async ({ page }) => {
-    test.skip(!directory, 'requires LDAP_URL');
-
     await login(page);
     await openDirectoryForm(page);
 
     for (const heading of ['Connection & authentication', 'Search parameters', 'Role mappings']) {
-      await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+      await expect(ldap(page).getByRole('heading', { name: heading })).toBeVisible();
     }
   });
 
   test('field guidance is available from the keyboard', async ({ page }) => {
-    test.skip(!directory, 'requires LDAP_URL');
-
     await login(page);
     await openDirectoryForm(page, { editing: true });
 
-    await page.getByRole('button', { name: 'About the server URL' }).focus();
+    await ldap(page).getByRole('button', { name: 'About the server URL' }).focus();
     await expect(page.getByRole('tooltip')).toContainText('ldaps://');
     await page.keyboard.press('Escape');
   });
 
   test('TLS verification is a switch, not a bare checkbox', async ({ page }) => {
-    test.skip(!directory, 'requires LDAP_URL');
-
     await login(page);
     await openDirectoryForm(page);
 
-    const toggle = page.getByRole('switch', { name: /Verify the directory/i });
+    const toggle = ldap(page).getByRole('switch', { name: /Verify the directory/i });
     await expect(toggle).toBeVisible();
     await expect(toggle).toBeChecked();
   });
@@ -230,17 +242,44 @@ test.describe('primitives', () => {
    * saving happened.
    */
   test('the test result lands in its own panel, not in the action bar', async ({ page }) => {
-    test.skip(!directory, 'requires LDAP_URL');
-
     await login(page);
     await openDirectoryForm(page, { editing: true });
 
-    const heading = page.getByRole('heading', { name: 'Test this configuration' });
+    const region = ldap(page);
+    const heading = region.getByRole('heading', { name: 'Test this configuration' });
     await expect(heading).toBeVisible();
 
     const scope = heading.locator('xpath=ancestor::section[1]');
     await expect(scope.getByRole('button', { name: 'Save' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Test connection/i })).toBeVisible();
+    await expect(region.getByRole('button', { name: 'Save' })).toBeVisible();
+    await expect(region.getByRole('button', { name: /Test connection/i })).toBeVisible();
+  });
+
+  const PEM_DASHES = '-----';
+
+  /**
+   * A CA is pasted, not mounted (ADR-0029 §5), and a private key pasted into
+   * that box is refused with a message that says so — by the API, which is the
+   * control; the form only relays it.
+   */
+  test('a private key pasted as the CA is refused, by name', async ({ page }) => {
+    await login(page);
+
+    const refused = await page.request.put('/api/settings/auth/ldap', {
+      data: {
+        url: 'ldaps://directory.e2e.invalid:636',
+        searchBase: 'ou=people,dc=e2e,dc=invalid',
+        // Assembled, not written out: CI fails any commit containing a literal
+        // private-key header, and that guard is worth more than this fixture.
+        caPem: [
+          `${PEM_DASHES}BEGIN`,
+          `PRIVATE KEY${PEM_DASHES}\nMIIE\n${PEM_DASHES}END`,
+          `PRIVATE KEY${PEM_DASHES}\n`,
+        ].join(' '),
+      },
+    });
+
+    expect(refused.status()).toBe(400);
+    expect(await refused.text()).toMatch(/private key/i);
   });
 });

@@ -34,10 +34,10 @@ graph TB
         i_auth["LocalAuthProvider<br/><i>implements IAuthProvider</i>"]
     end
 
-    subgraph integ["Directory and audit forwarding — registered from config (ADR-0027)"]
+    subgraph integ["Directory and audit forwarding — always registered (ADR-0027, ADR-0029)"]
         a_res["AuthProviderResolver<br/>authSource → provider"]
-        a_ldap["LdapAuthProvider<br/><i>when LDAP_URL is set</i>"]
-        a_oidc["OidcAuthProvider<br/><i>when OIDC_ISSUER is set</i>"]
+        a_ldap["LdapAuthProvider<br/><i>console or LDAP_*; else dormant</i>"]
+        a_oidc["OidcAuthProvider<br/><i>console or OIDC_*; else dormant</i>"]
         f_sink["ForwardingAuditSink<br/>composes over the Postgres sink"]
         f_tx["SettingsAuditTransport<br/>syslog / webhook, from settings"]
     end

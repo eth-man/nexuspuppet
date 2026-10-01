@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   Info,
   KeyRound,
+  LogIn,
   Pencil,
   Plus,
   Trash2,
@@ -18,8 +19,8 @@ import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { NotEnabledCard } from '@/components/ui/not-enabled-card';
 import { Button } from '@/components/ui/button';
+import { DirectorySection, EncryptionKeyNotice } from '@/components/data/directory-section';
 import {
   Card,
   CardContent,
@@ -50,7 +51,10 @@ const BLANK: OidcSettings = {
 };
 
 /**
- * Configure OpenID Connect from the console (ADR-0016, issue #106).
+ * Configure OpenID Connect from the console (ADR-0016, issue #106) — including
+ * enabling it in the first place (ADR-0029). The provider is registered on
+ * every deployment, so a save takes effect at the next sign-in and there is no
+ * "set OIDC_ISSUER and restart" state any more.
  *
  * Same grammar as the directory card beside it, for the same reasons: locked
  * at rest, an explicit Edit, a stated delta before anything commits, and a
@@ -86,6 +90,8 @@ export function OidcSettingsPanel() {
   const [result, setResult] = useState<ProviderVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  /** Set by the empty state's button. */
+  const [revealed, setRevealed] = useState(false);
 
   const view = stored.data;
 
@@ -94,8 +100,24 @@ export function OidcSettingsPanel() {
   }, [view?.config]);
 
   if (!manages) return null;
-  if (stored.isError) return <QueryError error={stored.error} />;
-  if (stored.isPending) return <LoadingRows rows={5} columns={2} />;
+
+  /*
+   * One named region whatever its state, beside the directory's — their cards
+   * share titles, and the region is what tells them apart (ADR-0029).
+   */
+  const frame = (children: ReactNode) => (
+    <DirectorySection
+      id="oidc"
+      title="Single sign-on (OIDC)"
+      description="Sign people in through an OpenID Connect identity provider, with roles from a claim."
+      source={view?.source}
+    >
+      {children}
+    </DirectorySection>
+  );
+
+  if (stored.isError) return frame(<QueryError error={stored.error} />);
+  if (stored.isPending) return frame(<LoadingRows rows={5} columns={2} />);
 
   const field = <K extends keyof OidcSettings>(key: K, value: OidcSettings[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -110,35 +132,31 @@ export function OidcSettingsPanel() {
     setError(caught instanceof ApiError ? caught.message : String(caught));
 
   const holdsSecret = view?.secretsHeld.includes('clientSecret') === true;
+  /** No CONFIG_ENCRYPTION_KEY: a client secret cannot be stored (ADR-0029 §6). */
+  const cannotStoreSecrets = view?.secretsStorable === false;
   const blocked = form.issuer === '' || form.clientId === '' || form.redirectUri === '';
   const changes = describeChanges(view?.config ?? null, form, secret !== '');
 
   /*
-   * Whether an OIDC provider is RUNNING — registered at boot because
-   * OIDC_ISSUER was set, reported by the API as `liveReload`. It gates the
-   * form exactly as the `sso.oidc` capability used to, and for the same
-   * reason: until a provider is registered, nothing saved here can take
-   * effect (ADR-0027).
-   *
-   * After the hooks, never before them.
+   * Nothing stored, nothing in the environment: dormant (ADR-0029). An empty
+   * state one click from the form, which opens unlocked. After the hooks,
+   * never before them.
    */
-  const running = view?.liveReload === true;
-
-  if (!running) {
-    return (
-      <NotEnabledCard
-        title="Single sign-on (OIDC)"
-        description="Authenticate against an OpenID Connect provider."
-        note="Set OIDC_ISSUER and restart the API to enable it. A directory already configured keeps working alongside it, and so do local accounts."
-      />
+  if (view?.source === 'unset' && !revealed) {
+    return frame(
+      <NotConfigured
+        onConfigure={() => {
+          setRevealed(true);
+          setEditing(true);
+        }}
+      />,
     );
   }
 
-  return (
+  return frame(
     <div className="space-y-4">
-      {/* A provider is running past this point — the other case returned above. */}
       <fieldset disabled={!editing} className="min-w-0 space-y-4">
-        <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
+        <StatusNotices source={view?.source} cannotStoreSecrets={cannotStoreSecrets} />
 
         {error !== null && (
           <div
@@ -157,10 +175,9 @@ export function OidcSettingsPanel() {
                 Which provider signs people in, and how this deployment identifies itself to it.
               </CardDescription>
             </CardHeading>
-            {view !== undefined && (
+            {view?.disabled === true && (
               <div className="flex shrink-0 items-center gap-2">
-                <Badge>{sourceLabel(view.source)}</Badge>
-                {view.disabled && <Badge>disabled</Badge>}
+                <Badge>disabled</Badge>
               </div>
             )}
           </CardHeader>
@@ -204,7 +221,13 @@ export function OidcSettingsPanel() {
 
               <Field
                 className="min-w-64 flex-1"
-                hint={holdsSecret ? 'A secret is stored. Leave blank to keep it.' : undefined}
+                hint={
+                  cannotStoreSecrets
+                    ? 'Cannot be stored until CONFIG_ENCRYPTION_KEY is set — see above.'
+                    : holdsSecret
+                      ? 'A secret is stored. Leave blank to keep it.'
+                      : undefined
+                }
                 label="Client secret"
                 tooltip={
                   <InfoHint
@@ -225,6 +248,8 @@ export function OidcSettingsPanel() {
                     placeholder={
                       holdsSecret ? '•••••••• (unchanged)' : 'optional for a public client'
                     }
+                    // Presentation, not control: the API refuses the save.
+                    disabled={cannotStoreSecrets}
                   />
                 )}
               </Field>
@@ -482,22 +507,26 @@ export function OidcSettingsPanel() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </div>,
   );
 }
 
+/**
+ * No "restart required" strip any more: the provider is registered on every
+ * deployment, so a save takes effect at the next sign-in (ADR-0029).
+ */
 function StatusNotices({
   source,
-  liveReload,
+  cannotStoreSecrets,
 }: {
   source: 'database' | 'environment' | 'unset' | undefined;
-  liveReload: boolean;
+  cannotStoreSecrets: boolean;
 }) {
   if (source === undefined) return null;
 
   return (
     <>
-      {(source === 'environment' || (source === 'unset' && liveReload)) && (
+      {source === 'environment' && (
         <Notice tone="info">
           {'Configured from the environment. Saving here stores a configuration in the database, '}
           {'which then takes precedence. '}
@@ -508,17 +537,41 @@ function StatusNotices({
         </Notice>
       )}
 
-      {!liveReload && (
-        <Notice tone="warn">
-          {'No OIDC provider is running, so changes saved here will not take effect until the '}
-          {'API restarts. '}
-          <InfoHint
-            label="Why a restart is needed"
-            text="Providers register at boot. Set OIDC_ISSUER in the environment and restart once; after that this screen is enough."
-          />
-        </Notice>
-      )}
+      {cannotStoreSecrets && <EncryptionKeyNotice secret="a client secret" />}
     </>
+  );
+}
+
+/**
+ * Nothing configured yet — the ordinary state of a deployment that signs
+ * people in with local accounts. Not a fault, so not drawn as one.
+ */
+function NotConfigured({ onConfigure }: { onConfigure: () => void }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-3 px-6 py-8 text-center">
+        <span className="rounded-full border border-line-soft bg-panel-raised p-3">
+          <LogIn className="size-6 text-ink-faint" aria-hidden />
+        </span>
+
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold text-ink">No identity provider connected</h3>
+          <p className="mx-auto max-w-sm text-xs text-ink-muted">
+            {'Add a “Continue with SSO” button to the sign-in page, backed by Entra ID, Okta, '}
+            {'Keycloak or any other OpenID Connect provider.'}
+          </p>
+        </div>
+
+        <Button variant="primary" size="sm" onClick={onConfigure}>
+          Configure single sign-on
+        </Button>
+
+        <p className="flex items-center gap-1.5 text-2xs text-ink-faint">
+          <Info className="size-3 shrink-0" aria-hidden />
+          Local accounts keep working either way.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -769,12 +822,6 @@ function TestResult({ result }: { result: ProviderVerification }) {
       </div>
     </div>
   );
-}
-
-function sourceLabel(source: 'database' | 'environment' | 'unset'): string {
-  if (source === 'database') return 'stored here';
-  if (source === 'environment') return 'from the environment';
-  return 'not configured';
 }
 
 /**

@@ -66,7 +66,8 @@ function identities(overrides: Partial<LdapIdentityStore> = {}): LdapIdentitySto
 
 function provider(
   parts: {
-    config?: LdapConfig;
+    /** `null` is a provider with no environment baseline (ADR-0029). */
+    config?: LdapConfig | null;
     directory?: LdapDirectory;
     identities?: LdapIdentityStore;
     settings?: { resolve(source: string): Promise<unknown | null> };
@@ -74,7 +75,7 @@ function provider(
   } = {},
 ): LdapAuthProvider {
   return new LdapAuthProvider({
-    config: parts.config ?? config(),
+    config: parts.config === undefined ? config() : parts.config,
     directory: parts.directory ?? directory(),
     identities: parts.identities ?? identities(),
     logger: silent,
@@ -187,6 +188,193 @@ describe('LdapAuthProvider with a settings reader', () => {
 });
 
 const CREDS = { email: 'Alice@Example.com', password: 'correct-horse' };
+
+/**
+ * Registered on every deployment, configured from the console (ADR-0029).
+ *
+ * With no environment baseline and nothing stored the provider is DORMANT. The
+ * properties that matter: it says so, it never binds against anything, a
+ * saved configuration activates it on the very next call with no new
+ * instance, and discarding that configuration puts it back.
+ */
+describe('LdapAuthProvider with no environment baseline', () => {
+  const stored = { ...config(), url: 'ldaps://saved-in-console.example.test:636' };
+
+  /** A settings reader whose stored row can be written and discarded mid-test. */
+  const store = () => {
+    const state: { row: unknown } = { row: null };
+    return { state, settings: { resolve: async () => state.row } };
+  };
+
+  it('is dormant, and says so', async () => {
+    const { settings } = store();
+
+    await expect(provider({ config: null, settings }).isConfigured()).resolves.toBe(false);
+  });
+
+  it('refuses generically without contacting any directory', async () => {
+    const { settings } = store();
+    const built = jest.fn(() => directory());
+
+    const result = await provider({ config: null, settings, directoryFor: built }).authenticate(
+      CREDS,
+    );
+
+    expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
+    expect(built).not.toHaveBeenCalled();
+  });
+
+  it('activates on the next call once a configuration is saved — no restart, no new instance', async () => {
+    const { state, settings } = store();
+    const seen: string[] = [];
+    const p = provider({
+      config: null,
+      settings,
+      directoryFor: (c) => {
+        seen.push(c.url);
+        return directory();
+      },
+    });
+
+    await expect(p.isConfigured()).resolves.toBe(false);
+
+    state.row = stored;
+
+    await expect(p.isConfigured()).resolves.toBe(true);
+    await expect(p.authenticate(CREDS)).resolves.toMatchObject({ ok: true });
+    expect(seen).toContain('ldaps://saved-in-console.example.test:636');
+  });
+
+  it('goes dormant again when the stored configuration is discarded', async () => {
+    const { state, settings } = store();
+    const p = provider({ config: null, settings, directoryFor: () => directory() });
+
+    state.row = stored;
+    await expect(p.authenticate(CREDS)).resolves.toMatchObject({ ok: true });
+
+    state.row = null;
+
+    await expect(p.isConfigured()).resolves.toBe(false);
+    await expect(p.authenticate(CREDS)).resolves.toEqual({
+      ok: false,
+      reason: 'INVALID_CREDENTIALS',
+    });
+  });
+
+  it('returns to the ENVIRONMENT baseline, not to dormant, when one exists', async () => {
+    const { state, settings } = store();
+    const boot = directory();
+    const p = provider({ settings, directory: boot, directoryFor: () => directory() });
+
+    state.row = stored;
+    await p.authenticate(CREDS);
+    state.row = null;
+
+    await expect(p.isConfigured()).resolves.toBe(true);
+    const used = jest.spyOn(boot, 'findEntry');
+    await expect(p.authenticate(CREDS)).resolves.toMatchObject({ ok: true });
+    expect(used).toHaveBeenCalled();
+  });
+
+  it('reports no environment baseline, so the settings form opens empty', () => {
+    expect(provider({ config: null }).currentConfiguration()).toBeNull();
+  });
+
+  it('follows the stored dialect for the login label', async () => {
+    const { state, settings } = store();
+    const p = provider({ config: null, settings });
+
+    expect(p.identifierLabel).toBe('Email');
+
+    state.row = { ...stored, dialect: 'ad' };
+    await p.isConfigured();
+
+    expect(p.identifierLabel).toBe('Username');
+  });
+
+  it('counts an unreadable store as configured, so the login fails loudly instead', async () => {
+    const p = provider({
+      config: null,
+      settings: {
+        resolve: async () => {
+          throw new Error('database is down');
+        },
+      },
+    });
+
+    await expect(p.isConfigured()).resolves.toBe(true);
+    await expect(p.authenticate(CREDS)).resolves.toEqual({ ok: false, reason: 'PROVIDER_ERROR' });
+  });
+
+  it('can test a candidate with no boot configuration at all', async () => {
+    const p = provider({
+      config: null,
+      directoryFor: () => directory({ findEntry: async () => null }),
+    });
+
+    const result = await p.verifyConfiguration({
+      url: 'ldaps://fresh.example.test:636',
+      searchBase: 'dc=example,dc=test',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.details).toContainEqual({
+      label: 'TLS verification',
+      value: 'enforced (system trust store)',
+    });
+  });
+});
+
+/**
+ * A CA pasted in the console (ADR-0029 §5) is the trust material, and it
+ * wins over a mounted file inherited from the environment.
+ */
+describe('LdapAuthProvider with a CA saved in the console', () => {
+  // Shape only: these assert which trust material is CHOSEN, not that it
+  // parses — the schema would refuse this text, so it is passed pre-parsed.
+  const pem = 'pasted-pem';
+
+  it('does not inherit the boot caPath when the stored configuration carries PEM', async () => {
+    const parsedInputs: unknown[] = [];
+    const spy = jest.spyOn(ldapConfigSchema, 'safeParse').mockImplementation((input) => {
+      parsedInputs.push(input);
+      return { success: true, data: { ...config(), caPem: pem } } as never;
+    });
+
+    await provider({
+      config: { ...config(), caPath: '/etc/nexuspuppet/certs/ad-ca.pem' },
+      settings: { resolve: async () => ({ ...config(), caPem: pem }) },
+    }).authenticate(CREDS);
+    spy.mockRestore();
+
+    // What the stored row was resolved TO: its own PEM, never the inherited file.
+    expect(parsedInputs[0]).toMatchObject({ caPem: pem });
+    expect(parsedInputs[0]).not.toHaveProperty('caPath');
+  });
+
+  it('a candidate carrying PEM is tested with exactly that, and says so', async () => {
+    const p = new LdapAuthProvider({
+      config: config({ caPath: '/etc/nexuspuppet/certs/ad-ca.pem' }),
+      identities: identities(),
+      logger: silent,
+      directoryFor: () => directory({ findEntry: async () => null }),
+    });
+
+    // Bypass the X.509 check by stubbing the schema's view of the candidate:
+    // the provider is what is under test here, not the parser.
+    const spy = jest
+      .spyOn(ldapConfigSchema, 'safeParse')
+      .mockReturnValueOnce({ success: true, data: { ...config(), caPem: pem } } as never);
+
+    const result = await p.verifyConfiguration({});
+    spy.mockRestore();
+
+    expect(result.details).toContainEqual({
+      label: 'TLS verification',
+      value: 'enforced (CA certificate saved in the console)',
+    });
+  });
+});
 
 describe('LdapAuthProvider', () => {
   it('authenticates by binding as the user and maps their group to a role', async () => {

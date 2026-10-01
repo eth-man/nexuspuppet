@@ -8,14 +8,15 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import type {
-  AuthSources,
   DeploymentInfo,
+  DirectorySettingsView,
+  LdapSettingsView,
+  ProvisionableAuthSources,
   AuditForwardingView,
   AuthProviderDescription,
   ClassIndex,
   FactFilter,
   FactPathIndex,
-  LdapSettings,
   ManagedUser,
   OidcSettings,
   LogLevelSetting,
@@ -482,18 +483,28 @@ export function useUser(id: string | null): UseQueryResult<ManagedUserDetail> {
 }
 
 /**
- * Which authority this DEPLOYMENT authenticates against.
+ * Which authorities this DEPLOYMENT can hold accounts for, and which of them
+ * can sign anybody in yet (ADR-0029 §2).
  *
  * Not the same question as "how is the current user authenticated". An
  * administrator holding a local account on an LDAP deployment still needs to be
  * able to provision directory accounts, so the current principal's authSource
  * is the wrong signal — this is the right one.
+ *
+ * Not `/auth/mode` either, which is the public login page's list and names only
+ * CONFIGURED sources. An account may be created for a directory before it is
+ * enabled, so this lists every registered source with a `configured` flag.
+ *
+ * `staleTime: 0`: enabling a directory one tab over changes the answer.
  */
-export function useAuthSources(): UseQueryResult<AuthSources> {
+export function useProvisionableAuthSources(
+  enabled: boolean,
+): UseQueryResult<ProvisionableAuthSources> {
   return useQuery({
-    queryKey: ['auth-sources'],
-    queryFn: ({ signal }) => api.get<AuthSources>('/auth/mode', signal),
-    staleTime: Infinity,
+    queryKey: ['auth-sources', 'provisionable'],
+    queryFn: ({ signal }) => api.get<ProvisionableAuthSources>('/users/auth-sources', signal),
+    enabled,
+    staleTime: 0,
   });
 }
 
@@ -510,20 +521,23 @@ export function useAuthSources(): UseQueryResult<AuthSources> {
  * copy after somebody saved is worse than a slow one — an operator would be
  * editing a form that no longer describes the deployment.
  */
-export function useLdapSettings(enabled: boolean): UseQueryResult<SettingsView<LdapSettings>> {
+export function useLdapSettings(enabled: boolean): UseQueryResult<LdapSettingsView> {
   return useQuery({
     queryKey: ['settings', 'auth.ldap'],
-    queryFn: ({ signal }) => api.get<SettingsView<LdapSettings>>('/settings/auth/ldap', signal),
+    queryFn: ({ signal }) => api.get<LdapSettingsView>('/settings/auth/ldap', signal),
     enabled,
     staleTime: 0,
   });
 }
 
 /** The stored OIDC configuration, without its secret. Same freshness rule as LDAP. */
-export function useOidcSettings(enabled: boolean): UseQueryResult<SettingsView<OidcSettings>> {
+export function useOidcSettings(
+  enabled: boolean,
+): UseQueryResult<DirectorySettingsView<OidcSettings>> {
   return useQuery({
     queryKey: ['settings', 'auth.oidc'],
-    queryFn: ({ signal }) => api.get<SettingsView<OidcSettings>>('/settings/auth/oidc', signal),
+    queryFn: ({ signal }) =>
+      api.get<DirectorySettingsView<OidcSettings>>('/settings/auth/oidc', signal),
     enabled,
     staleTime: 0,
   });

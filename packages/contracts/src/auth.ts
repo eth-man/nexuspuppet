@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CertificateSummary } from './system';
 
 /**
  * Authentication and authorization contracts (ADR-0006).
@@ -149,6 +150,28 @@ export interface AuthSources {
   readonly sources: readonly AuthSourceDescriptor[];
 }
 
+/**
+ * A source an account may be CREATED for, and whether it can sign anybody in
+ * yet (ADR-0029 §2).
+ *
+ * Distinct from the login page's list on purpose. The login page offers only
+ * sources that are configured — a button for an identity provider nobody set
+ * up is a dead end. Provisioning offers every registered source, because an
+ * administrator may create directory accounts BEFORE turning the directory on,
+ * and the dialog should say "not configured yet" rather than hide the option.
+ *
+ * Authenticated (`users:manage`), unlike `GET /auth/mode`: whether a dormant
+ * directory exists is deployment topology, not something a stranger needs.
+ */
+export interface ProvisionableAuthSource extends AuthSourceDescriptor {
+  /** False while a directory provider is dormant: registered, with nothing to point at. */
+  readonly configured: boolean;
+}
+
+export interface ProvisionableAuthSources {
+  readonly sources: readonly ProvisionableAuthSource[];
+}
+
 /** Where to send the browser, and the state to correlate the return leg. */
 export interface RedirectChallenge {
   location: string;
@@ -250,6 +273,29 @@ export interface IAuthProvider {
    * nothing to report.
    */
   currentConfiguration?(): unknown;
+
+  /**
+   * Whether this provider has anything to authenticate against RIGHT NOW
+   * (ADR-0029).
+   *
+   * Directory providers are registered on every deployment, configured or not,
+   * so that an operator can enable one from the console without a restart. A
+   * provider with neither a stored configuration nor an environment baseline is
+   * DORMANT: the login page does not offer it, and the resolver refuses its
+   * accounts with the same generic answer as a wrong password.
+   *
+   * Asked per request, because the answer changes when somebody saves or
+   * discards settings — that is the point.
+   *
+   * MUST NOT throw, and should be cheap: it is called for the public login
+   * page's source list. A provider that cannot tell (an unreadable settings
+   * store) should answer true and let `authenticate` fail loudly, rather than
+   * quietly vanish from the login page.
+   *
+   * Optional; absent means always configured. Core's local provider, and every
+   * test double written before this existed, need nothing.
+   */
+  isConfigured?(): Promise<boolean>;
 }
 
 /** A directory group and the role it grants. */
@@ -845,6 +891,39 @@ export const ldapSettingsSchema = z.object({
    * surfaced in the UI as the warning it is.
    */
   tlsRejectUnauthorized: z.boolean().default(true),
+  /**
+   * The CA that signs the directory's certificate, as PEM text: one or more
+   * `CERTIFICATE` blocks (ADR-0029 §5).
+   *
+   * ORDINARY CONFIGURATION, NOT A SECRET. A CA certificate is public by
+   * construction — it is what every client is handed so it can verify the
+   * server — so it is stored in clear and returned by a read, like the syslog
+   * collector's `caCert`. What must never arrive here is a private key, and
+   * that is refused below rather than stored "safely": a key pasted into the
+   * wrong box is a key that has already been copied somewhere it should not
+   * be, and the operator needs to hear that.
+   *
+   * The structural check is here, where the browser can run it too. Whether
+   * each block is a certificate that actually PARSES is checked by the API
+   * with node:crypto, which this package may not depend on.
+   *
+   * Console only. The environment still names a mounted file (`LDAP_CA_PATH`)
+   * and never takes inline PEM.
+   */
+  caPem: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100_000)
+    .refine((value) => !/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(value), {
+      message:
+        'This is a private key. Paste the CA CERTIFICATE (-----BEGIN CERTIFICATE-----) only; ' +
+        'a private key must never leave the CA, and this console will not store one.',
+    })
+    .refine((value) => value.includes('-----BEGIN CERTIFICATE-----'), {
+      message: 'Expected one or more PEM blocks starting with -----BEGIN CERTIFICATE-----.',
+    })
+    .optional(),
 });
 
 export type LdapSettings = z.infer<typeof ldapSettingsSchema>;
@@ -864,11 +943,39 @@ export interface SettingsView<T> {
   /**
    * Whether a change here takes effect without a restart.
    *
-   * False when the provider is not registered — configuring LDAP for the first
-   * time still needs a restart, because registration builds the DI graph
-   * (ADR-0016 §4). The console must say so rather than appear to have worked.
+   * Always true for the directory providers since ADR-0029: both are
+   * registered on every deployment, so even the FIRST configuration takes
+   * effect at the next sign-in. Kept on the shape because a client that reads
+   * it should keep getting an answer, and because it is the honest field for
+   * a future setting that cannot reload.
    */
   liveReload: boolean;
+}
+
+/** A directory provider's settings, with what the console needs to edit them. */
+export interface DirectorySettingsView<T> extends SettingsView<T> {
+  /**
+   * Whether this deployment can store a bind password or client secret at all
+   * — that is, whether `CONFIG_ENCRYPTION_KEY` is set (ADR-0016 §3).
+   *
+   * Reported up front so the console can say what to do BEFORE somebody types
+   * a password and has the save refused.
+   */
+  secretsStorable: boolean;
+}
+
+/** The LDAP settings view: the configuration, plus its CA certificates parsed. */
+export interface LdapSettingsView extends DirectorySettingsView<LdapSettings> {
+  /**
+   * Each certificate in `config.caPem`, parsed, so the operator can confirm
+   * they pasted the CA they meant — subject, issuer, expiry. Empty when no CA
+   * is stored. Unparseable input never reaches the store, so this has no error
+   * state of its own.
+   *
+   * The same summary the console-certificate card renders (ADR-0017), so one
+   * certificate reads the same wherever it appears.
+   */
+  caCertificates: CertificateSummary[];
 }
 
 /**

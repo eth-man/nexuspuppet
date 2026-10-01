@@ -58,8 +58,20 @@ export interface LdapIdentityStore {
 export type StoredIdentity = DirectoryUser;
 
 export interface LdapAuthProviderDeps {
-  config: LdapConfig;
-  directory: LdapDirectory;
+  /**
+   * The ENVIRONMENT baseline, or null when `LDAP_URL` is not set (ADR-0029).
+   *
+   * Null is an ordinary state: the provider is registered on every deployment,
+   * and with nothing stored either it is DORMANT — not offered at login, and
+   * refusing its accounts — until somebody configures it from the console.
+   */
+  config: LdapConfig | null;
+  /**
+   * A client for `config`. Built at boot from the environment so an unreadable
+   * CA bundle fails the boot rather than a login; optional, and built on first
+   * use when absent.
+   */
+  directory?: LdapDirectory | null;
   identities: LdapIdentityStore;
   logger?: { log(m: string): void; warn(m: string): void; error(m: string): void };
   /**
@@ -90,11 +102,13 @@ interface EffectiveDirectory {
 }
 
 /**
- * LDAP / Active Directory authentication (ADR-0006, ADR-0015).
+ * LDAP / Active Directory authentication (ADR-0006, ADR-0015, ADR-0029).
  *
- * Registered at boot when LDAP_URL is set, ALONGSIDE the local provider in
+ * Registered on EVERY deployment, ALONGSIDE the local provider in
  * AUTH_PROVIDERS, and dispatched to for accounts whose `authSource` is `ldap`
- * (see app.module.ts). Nothing downstream changes: guards, RBAC, session
+ * (see app.module.ts). What it authenticates against is resolved per login:
+ * a configuration saved in the console, else the `LDAP_*` environment, else
+ * nothing — in which case it is dormant and `isConfigured()` says so. Nothing downstream changes: guards, RBAC, session
  * issuance and audit consume only AuthenticatedPrincipal, and this class knows
  * nothing about JWTs, cookies, or refresh rotation — by design, so that
  * adding the provider cannot alter any of them.
@@ -110,11 +124,11 @@ interface EffectiveDirectory {
 export class LdapAuthProvider implements IAuthProvider {
   readonly source = 'ldap';
   readonly mode = 'credentials' as const;
-  /** 'Username' for AD, 'Email' otherwise — see the dialect defaults. */
-  readonly identifierLabel: string;
 
-  private readonly config: LdapConfig;
-  private readonly directory: LdapDirectory;
+  /** The environment baseline, or null. See LdapAuthProviderDeps.config. */
+  private readonly config: LdapConfig | null;
+  /** A client for the baseline, built on first use if boot did not supply one. */
+  private bootDirectory: LdapDirectory | null;
   private readonly identities: LdapIdentityStore;
   private readonly logger: NonNullable<LdapAuthProviderDeps['logger']>;
   private readonly directoryFor: (config: LdapConfig) => LdapDirectory;
@@ -130,32 +144,50 @@ export class LdapAuthProvider implements IAuthProvider {
    */
   private effectiveCache: { key: string; effective: EffectiveDirectory } | null = null;
 
+  /**
+   * The configuration the last resolution found in force, or null when the
+   * provider was dormant. What `identifierLabel` and `describe()` report, since
+   * both are synchronous and the configuration is not.
+   */
+  private current: LdapConfig | null;
+
   constructor(deps: LdapAuthProviderDeps) {
     this.config = deps.config;
-    this.directory = deps.directory;
+    this.bootDirectory = deps.directory ?? null;
     this.settings = deps.settings;
     this.identities = deps.identities;
     this.logger = deps.logger ?? console;
     this.directoryFor = deps.directoryFor ?? ((config) => new LdaptsDirectory(config, this.logger));
-    this.identifierLabel = deps.config.identifierLabel;
+    this.current = deps.config;
 
-    if (!this.config.tlsRejectUnauthorized) {
-      this.logger.warn(
-        'LDAP TLS certificate verification is DISABLED. Every credential submitted to ' +
-          'this console is interceptable by anyone on the network path. Do not run this ' +
-          'outside initial bootstrapping.',
-      );
-    }
-    if (this.config.url.startsWith('ldap://')) {
-      this.logger.warn(
-        'LDAP_URL uses ldap:// — binds send the password in cleartext. Use ldaps://.',
-      );
-    }
-    if (this.config.roleMappings.length === 0) {
-      this.logger.warn(
-        'No LDAP_ROLE_MAPPINGS configured. Every login will be refused, because a user ' +
-          'in no mapped group is not granted a default role.',
-      );
+    if (this.config !== null) warnAbout(this.config, this.logger);
+  }
+
+  /**
+   * 'Username' for AD, 'Email' otherwise — see the dialect defaults.
+   *
+   * Follows the configuration in force, so switching the dialect to Active
+   * Directory from the console relabels the login form at the next page load.
+   * The resolver asks `isConfigured()` first, which refreshes it.
+   */
+  get identifierLabel(): string {
+    return this.current?.identifierLabel ?? 'Email';
+  }
+
+  /**
+   * Whether there is anything to authenticate against (ADR-0029).
+   *
+   * Dormant only when NOTHING is stored and the environment configured
+   * nothing. A stored configuration that cannot be read or parsed counts as
+   * configured: the login path then refuses loudly with a reason in the log,
+   * which is the existing fail-closed behaviour, rather than the directory
+   * silently vanishing from the login page.
+   */
+  async isConfigured(): Promise<boolean> {
+    try {
+      return (await this.effective()) !== null;
+    } catch {
+      return true;
     }
   }
 
@@ -191,22 +223,27 @@ export class LdapAuthProvider implements IAuthProvider {
    * `attributes` and `caPath` are not returned. They have no field in the
    * settings schema, so core would discard them; sending them would only invite
    * the impression that the form round-trips them.
+   *
+   * Null when the environment configures no directory — there is no baseline,
+   * and the console opens an empty form (ADR-0029).
    */
-  currentConfiguration(): Record<string, unknown> {
+  currentConfiguration(): Record<string, unknown> | null {
+    const config = this.config;
+    if (config === null) return null;
     return {
-      url: this.config.url,
-      bindDn: this.config.bindDn,
-      dialect: this.config.dialect,
-      searchBase: this.config.searchBase,
-      groupSearchBase: this.config.groupSearchBase,
-      searchFilter: this.config.searchFilter,
-      nestedGroups: this.config.nestedGroups,
-      roleMappings: this.config.roleMappings.map((mapping) => ({
+      url: config.url,
+      bindDn: config.bindDn,
+      dialect: config.dialect,
+      searchBase: config.searchBase,
+      groupSearchBase: config.groupSearchBase,
+      searchFilter: config.searchFilter,
+      nestedGroups: config.nestedGroups,
+      roleMappings: config.roleMappings.map((mapping) => ({
         groupDn: mapping.groupDn,
         role: mapping.role,
       })),
-      timeoutMs: this.config.timeoutMs,
-      tlsRejectUnauthorized: this.config.tlsRejectUnauthorized,
+      timeoutMs: config.timeoutMs,
+      tlsRejectUnauthorized: config.tlsRejectUnauthorized,
     };
   }
 
@@ -257,11 +294,18 @@ export class LdapAuthProvider implements IAuthProvider {
      * candidate is tested with the trust material this deployment actually has.
      * A candidate that names its own path still wins, which is what a non-UI
      * caller supplying one means by it.
+     *
+     * Since ADR-0029 the form CAN carry a CA, as pasted PEM — and a candidate
+     * carrying one is tested with exactly that and nothing inherited. With no
+     * environment baseline there is nothing to inherit either, and the test
+     * runs against the system trust store, which is what a save would do.
      */
-    const inheritedCa = parsed.data.caPath === undefined && this.config.caPath !== undefined;
-    const config: LdapConfig = inheritedCa
-      ? { ...parsed.data, caPath: this.config.caPath }
-      : parsed.data;
+    const bootCaPath = this.config?.caPath;
+    const inheritedCa =
+      parsed.data.caPem === undefined &&
+      parsed.data.caPath === undefined &&
+      bootCaPath !== undefined;
+    const config: LdapConfig = inheritedCa ? { ...parsed.data, caPath: bootCaPath } : parsed.data;
 
     const details: ProviderVerification['details'] = [
       { label: 'Directory', value: config.url },
@@ -301,9 +345,21 @@ export class LdapAuthProvider implements IAuthProvider {
   }
 
   describe(): AuthProviderDescription {
+    const config = this.current;
+    if (config === null) {
+      // Dormant. The resolver does not pick a dormant provider to describe,
+      // so this is for a direct caller: say so rather than throw.
+      return {
+        source: this.source,
+        roleMappings: [],
+        refusesUnmappedUsers: true,
+        details: [{ label: 'Status', value: 'not configured' }],
+      };
+    }
+
     return {
       source: this.source,
-      roleMappings: this.config.roleMappings.map((mapping) => ({
+      roleMappings: config.roleMappings.map((mapping) => ({
         group: mapping.groupDn,
         role: mapping.role,
       })),
@@ -312,22 +368,22 @@ export class LdapAuthProvider implements IAuthProvider {
       // role and no configuration that introduces one.
       refusesUnmappedUsers: true,
       details: [
-        { label: 'Dialect', value: this.config.dialect },
-        { label: 'Directory', value: this.config.url },
-        { label: 'Search base', value: this.config.searchBase },
-        { label: 'Search filter', value: this.config.searchFilter },
+        { label: 'Dialect', value: config.dialect },
+        { label: 'Directory', value: config.url },
+        { label: 'Search base', value: config.searchBase },
+        { label: 'Search filter', value: config.searchFilter },
         {
           label: 'Bind account',
-          value: this.config.bindDn ?? 'anonymous',
+          value: config.bindDn ?? 'anonymous',
         },
         {
           label: 'TLS verification',
-          value: describeTls(this.config),
+          value: describeTls(config),
         },
         {
           label: 'Group resolution',
-          value: this.config.nestedGroups
-            ? `nested (${this.config.groupSearchBase})`
+          value: config.nestedGroups
+            ? `nested (${config.groupSearchBase})`
             : 'direct membership only',
         },
         // Stated explicitly because it changes what the mapping table means: a
@@ -362,7 +418,15 @@ export class LdapAuthProvider implements IAuthProvider {
       // without a restart (ADR-0016 §4). A store that cannot be read throws
       // out of here into the catch below and refuses, rather than quietly
       // binding against a directory the operator has replaced.
-      const { config, directory } = await this.effective();
+      const effective = await this.effective();
+
+      // Dormant: nothing stored, nothing in the environment (ADR-0029). The
+      // resolver normally refuses before getting here; a direct caller gets
+      // the same generic answer, never an attempt against nothing.
+      if (effective === null) {
+        return { ok: false, reason: 'INVALID_CREDENTIALS' };
+      }
+      const { config, directory } = effective;
 
       const filter = buildFilter(config.searchFilter, email);
       const entry = await directory.findEntry(filter);
@@ -478,38 +542,42 @@ export class LdapAuthProvider implements IAuthProvider {
    * administrator quietly is not.
    */
   /**
-   * The configuration this login should use, and a client for it.
+   * The configuration this login should use, and a client for it — or null
+   * when there is none and the provider is DORMANT (ADR-0029).
    *
-   * Three outcomes, and the middle one is the whole point of #113:
+   * Four outcomes, in precedence order (ADR-0016 §2):
    *
-   * - **No settings reader** — the boot configuration, exactly as before. This
-   *   is what a build without core's seam gets, so behaviour is unchanged.
    * - **A stored configuration** — it governs, and takes effect on this login.
+   * - **Nothing stored, an environment baseline** — the boot configuration.
+   * - **Nothing stored, no baseline** — null. Dormant: not offered at login,
+   *   and its accounts are refused generically by the resolver.
    * - **Unreadable, or stored but unusable** — throws. The caller turns that
    *   into PROVIDER_ERROR, which is the existing fail-closed path for a
    *   misconfigured directory. Falling back to the boot configuration would
    *   bind against a directory the operator has replaced, and report success.
    *
    * `caPath` is INHERITED from the boot configuration when the stored one has
-   * none, because it names a file on the host that a settings screen cannot
-   * set. `verifyConfiguration` already does this for a candidate; the same
-   * reasoning applies to a saved one.
+   * neither a path nor pasted PEM, because it names a file on the host that a
+   * settings screen cannot set. `verifyConfiguration` does the same for a
+   * candidate; the same reasoning applies to a saved one.
    */
-  private async effective(): Promise<EffectiveDirectory> {
-    if (this.settings === undefined) {
-      return { config: this.config, directory: this.directory };
-    }
+  private async effective(): Promise<EffectiveDirectory | null> {
+    const stored = this.settings === undefined ? null : await this.settings.resolve(this.source);
 
-    const stored = await this.settings.resolve(this.source);
     if (stored === null || stored === undefined) {
-      return { config: this.config, directory: this.directory };
+      this.current = this.config;
+      if (this.config === null) return null;
+      this.bootDirectory ??= this.directoryFor(this.config);
+      return { config: this.config, directory: this.bootDirectory };
     }
 
+    const bootCaPath = this.config?.caPath;
     const merged =
       typeof stored === 'object' &&
       (stored as { caPath?: unknown }).caPath === undefined &&
-      this.config.caPath !== undefined
-        ? { ...(stored as object), caPath: this.config.caPath }
+      (stored as { caPem?: unknown }).caPem === undefined &&
+      bootCaPath !== undefined
+        ? { ...(stored as object), caPath: bootCaPath }
         : stored;
 
     const parsed = ldapConfigSchema.safeParse(merged);
@@ -528,11 +596,15 @@ export class LdapAuthProvider implements IAuthProvider {
     const key = JSON.stringify(parsed.data);
     if (this.effectiveCache?.key !== key) {
       this.logger.log('LDAP configuration changed; rebuilding the directory client.');
+      // Said once per change, as the boot configuration's warnings are said
+      // once per boot: a stored configuration deserves the same scrutiny.
+      warnAbout(parsed.data, this.logger);
       this.effectiveCache = {
         key,
         effective: { config: parsed.data, directory: this.directoryFor(parsed.data) },
       };
     }
+    this.current = this.effectiveCache.effective.config;
     return this.effectiveCache.effective;
   }
 
@@ -596,6 +668,7 @@ export class LdapAuthProvider implements IAuthProvider {
 function describeTls(config: LdapConfig, inherited = false): string {
   if (!config.url.startsWith('ldaps://')) return 'not applicable (cleartext ldap://)';
   if (!config.tlsRejectUnauthorized) return 'DISABLED';
+  if (config.caPem !== undefined) return 'enforced (CA certificate saved in the console)';
   if (config.caPath === undefined) return 'enforced (system trust store)';
   return inherited
     ? `enforced (CA bundle ${config.caPath}, from this deployment)`
@@ -604,4 +677,27 @@ function describeTls(config: LdapConfig, inherited = false): string {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The three configurations worth a warning whenever they come into force:
+ * at boot for the environment, and on each change for a stored one.
+ */
+function warnAbout(config: LdapConfig, logger: { warn(message: string): void }): void {
+  if (!config.tlsRejectUnauthorized) {
+    logger.warn(
+      'LDAP TLS certificate verification is DISABLED. Every credential submitted to ' +
+        'this console is interceptable by anyone on the network path. Do not run this ' +
+        'outside initial bootstrapping.',
+    );
+  }
+  if (config.url.startsWith('ldap://')) {
+    logger.warn('The LDAP URL uses ldap:// — binds send the password in cleartext. Use ldaps://.');
+  }
+  if (config.roleMappings.length === 0) {
+    logger.warn(
+      'No LDAP role mappings configured. Every login will be refused, because a user ' +
+        'in no mapped group is not granted a default role.',
+    );
+  }
 }
