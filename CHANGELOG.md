@@ -2,6 +2,16 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] — 2026-10-01
+
+**The support bundle now has everything the API printed.** A bundle downloaded from staging was compared line by line with `docker logs` of the same container: 122 of 124 lines matched. **No migration.**
+
+### Fixed
+
+**Node's own warnings and the stack trace of a crash were missing from the support bundle.** Node writes those straight to stderr, past the logger that feeds the API's local log copy, so the bundle never saw them. The crash trace is the thing support needs most. They are now copied into the log file as `context: "Process"` lines, `warn` for a runtime warning and `fatal` for an uncaught exception or unhandled rejection, with the stack and its origin. Node's behaviour is unchanged: it still prints them, and a crash still exits non-zero. A failed bootstrap, once the log file is open, is recorded there too, so a container restarting in a loop leaves its reason in the bundle. (#269)
+
+**A downloaded support bundle could be committed by accident.** `.gitignore` now covers `nexuspuppet-support-*.tar.gz` and `nexuspuppet-host-support-*.tar.gz`. (#269)
+
 ## [1.10.0] — 2026-10-01
 
 **One product, and one file to send to support.** There is no enterprise layer and no edition any more: LDAP/AD, OIDC, custom roles and audit forwarding are part of the API, always present, and inert until configured (ADR-0027, superseding ADR-0002). A new support bundle collects the console's logs, status and non-secret configuration into one archive, with an opt-in for personal data (ADR-0028). **No migration.**
