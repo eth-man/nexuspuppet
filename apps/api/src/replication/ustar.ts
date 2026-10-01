@@ -40,6 +40,19 @@ export interface TarEntry {
   content: Buffer;
 }
 
+export interface TarOptions {
+  /**
+   * Modification time stamped on every entry, in whole seconds since the epoch.
+   *
+   * DEFAULTS TO 0, and replication must never pass it: the ETag is the hash of
+   * these bytes (see above). It exists for the support bundle (ADR-0028), a
+   * one-off archive a person extracts and reads, where every file dated
+   * 1 January 1970 is noise and the generation time is information. The value
+   * is the CALLER'S — this module still never reads the clock.
+   */
+  mtime?: number;
+}
+
 /** Left-aligned NUL-padded string field. */
 function writeString(header: Buffer, value: string, offset: number, size: number): void {
   header.write(value, offset, size, 'utf8');
@@ -53,7 +66,7 @@ function writeOctal(header: Buffer, value: number, offset: number, size: number)
   header.write(value.toString(8).padStart(size - 1, '0'), offset, size - 1, 'ascii');
 }
 
-function buildHeader(entry: TarEntry): Buffer {
+function buildHeader(entry: TarEntry, mtime: number): Buffer {
   const nameBytes = Buffer.byteLength(entry.name, 'utf8');
   if (nameBytes > NAME_MAX) throw new TarNameTooLongError(entry.name);
 
@@ -64,7 +77,7 @@ function buildHeader(entry: TarEntry): Buffer {
   writeOctal(header, 0, 108, 8); // uid — always root, never the running user
   writeOctal(header, 0, 116, 8); // gid
   writeOctal(header, entry.content.length, 124, 12); // size
-  writeOctal(header, 0, 136, 12); // mtime — epoch, deliberately not now()
+  writeOctal(header, mtime, 136, 12); // mtime — epoch unless the caller says otherwise, never now()
   writeString(header, '0', 156, 1); // typeflag: regular file
   writeString(header, 'ustar', 257, 6);
   writeString(header, '00', 263, 2);
@@ -91,27 +104,43 @@ function pad(length: number): Buffer {
 }
 
 /**
- * Build a USTAR archive from entries, in the order given.
+ * The archive as a sequence of chunks, in the order given.
+ *
+ * A generator so a large archive can be streamed into gzip and out to a socket
+ * without first being concatenated into one buffer — the support bundle can
+ * carry up to 100 MiB of logs, and holding that twice to build a Buffer that is
+ * immediately compressed is waste. `buildTar` is this, concatenated, and emits
+ * exactly the bytes it always has.
  *
  * The caller sorts. Sorting here would hide a caller that produced entries in
  * filesystem order — which `readdir` does not guarantee to be stable — and the
  * resulting ETag flapping would be extremely hard to attribute.
  */
-export function buildTar(entries: readonly TarEntry[]): Buffer {
-  const parts: Buffer[] = [];
+export function* tarChunks(
+  entries: readonly TarEntry[],
+  options: TarOptions = {},
+): Generator<Buffer, void, undefined> {
+  const mtime = options.mtime ?? 0;
+  let length = 0;
 
   for (const entry of entries) {
-    parts.push(buildHeader(entry), entry.content, pad(entry.content.length));
+    const header = buildHeader(entry, mtime);
+    const padding = pad(entry.content.length);
+    yield header;
+    yield entry.content;
+    if (padding.length > 0) yield padding;
+    length += header.length + entry.content.length + padding.length;
   }
 
   // Two zero blocks terminate the archive, then it is padded to a 10240-byte
   // record. GNU tar accepts a short trailer but warns; other implementations
   // are less forgiving, and the padding costs nothing.
-  parts.push(Buffer.alloc(BLOCK * 2));
-  const body = Buffer.concat(parts);
-  const recordRemainder = body.length % (BLOCK * 20);
+  length += BLOCK * 2;
+  const recordRemainder = length % (BLOCK * 20);
+  yield Buffer.alloc(BLOCK * 2 + (recordRemainder === 0 ? 0 : BLOCK * 20 - recordRemainder));
+}
 
-  return recordRemainder === 0
-    ? body
-    : Buffer.concat([body, Buffer.alloc(BLOCK * 20 - recordRemainder)]);
+/** Build a USTAR archive from entries, in the order given. See `tarChunks`. */
+export function buildTar(entries: readonly TarEntry[], options: TarOptions = {}): Buffer {
+  return Buffer.concat([...tarChunks(entries, options)]);
 }

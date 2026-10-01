@@ -16,6 +16,33 @@ export const envSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
+  /**
+   * A bounded local copy of the API's own log, for the support bundle only
+   * (ADR-0028). Stdout stays the primary sink; shipping logs anywhere is still
+   * the container runtime's job (ADR-0016).
+   *
+   * Each replica writes `api-<hostname>.log` here, so a bundle exported from
+   * any replica sees all of them when the directory is shared. Missing or
+   * unwritable is not fatal: the copy switches itself off, says so once on
+   * stderr, and the bundle reports why its logs are absent.
+   */
+  LOG_DIR: z.string().min(1).default('/var/log/nexuspuppet'),
+  /**
+   * Rotate at this size. Disk use is bounded at MAX_BYTES × (KEEP + 1) per
+   * replica — 120 MiB at the defaults. 0 switches the file copy off entirely.
+   */
+  LOG_FILE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1024 * 1024 * 1024)
+    .default(20 * 1024 * 1024)
+    .refine((bytes) => bytes === 0 || bytes >= 64 * 1024, {
+      message: 'LOG_FILE_MAX_BYTES must be 0 (off) or at least 65536',
+    }),
+  /** Rotated files kept beside the live one. */
+  LOG_FILE_KEEP: z.coerce.number().int().min(0).max(50).default(5),
+
   // ADR-0005
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 

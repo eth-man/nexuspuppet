@@ -6,6 +6,7 @@ import { DeploymentCard } from '@/components/data/deployment-card';
 import { ChangePasswordCard } from '@/components/data/change-password';
 import { ConsoleTlsCard } from '@/components/data/console-tls-card';
 import { LogLevelCard } from '@/components/data/log-level-card';
+import { SupportBundleCard } from '@/components/data/support-bundle-card';
 
 /**
  * What this deployment is, who you are on it, and the certificate serving it.
@@ -26,6 +27,7 @@ export default function GeneralSettingsPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <DeploymentCard />
         <LogLevelCard />
+        <SupportBundleCard />
 
         <Card>
           <CardHeader>

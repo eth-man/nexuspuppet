@@ -20,6 +20,23 @@ describe('loadEnv', () => {
     expect(env.ENC_MAX_JOB_ATTEMPTS).toBe(5);
   });
 
+  describe('the local log copy (ADR-0028)', () => {
+    it('defaults to 20 MiB x (5 + 1) in /var/log/nexuspuppet', () => {
+      const env = loadEnv({ ...minimal });
+      expect(env.LOG_DIR).toBe('/var/log/nexuspuppet');
+      expect(env.LOG_FILE_MAX_BYTES).toBe(20 * 1024 * 1024);
+      expect(env.LOG_FILE_KEEP).toBe(5);
+    });
+
+    it('accepts 0 to switch it off, and refuses a size too small to be useful', () => {
+      expect(loadEnv({ ...minimal, LOG_FILE_MAX_BYTES: '0' }).LOG_FILE_MAX_BYTES).toBe(0);
+      expect(() => loadEnv({ ...minimal, LOG_FILE_MAX_BYTES: '1000' })).toThrow(
+        /LOG_FILE_MAX_BYTES/,
+      );
+      expect(() => loadEnv({ ...minimal, LOG_FILE_KEEP: '-1' })).toThrow(/LOG_FILE_KEEP/);
+    });
+  });
+
   // A .env file routinely carries `SOME_VAR=` for values not yet filled in.
   // Treating that as present-but-invalid would block boot on a fresh setup.
   describe('empty values are treated as absent', () => {

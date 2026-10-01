@@ -88,6 +88,22 @@ product — node groups, roles and settings are all global — so "mine" and
 _Avoid_: creator, author (both survive deletion in a way ownership does not:
 after the account goes, a shared query has an `ownerEmail` and no owner)
 
+### Support
+
+**Support bundle**:
+The redacted archive the console exports for somebody diagnosing a deployment
+from outside it (ADR-0028): the API's own logs, status, conditions and
+non-secret configuration. Its host-side counterpart, from
+`scripts/support-bundle.sh`, holds what the API cannot see — container logs,
+Docker state, timers, the journal — and embeds the console's archive.
+_Avoid_: log export (it is more than logs, and fewer than all of them — the
+container logs are the host's half), diagnostics dump, debug bundle
+
+**Local log copy**:
+The bounded, rotated file each API replica writes beside stdout, read only by
+the support bundle. Stdout remains **the** log; this is not log shipping.
+_Avoid_: API log file (suggests it is the primary log), log archive
+
 ### Certnames
 
 Two different identities share the word `certname`, and they appear in the same

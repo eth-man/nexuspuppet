@@ -250,6 +250,16 @@ jobs:
       - name: Shellcheck the ENC setup script
         run: shellcheck -s bash scripts/setup-enc.sh
 
+      # bash as well: an operator tool run by hand on the console VM or the
+      # Puppet server, never through /bin/sh (ADR-0028).
+      - name: Shellcheck the support bundle script
+        run: shellcheck -s bash scripts/support-bundle.sh
+
+      # Plants secrets in .env and in (stubbed) container logs, then searches
+      # every file of the resulting archive for them.
+      - name: Support bundle, host half
+        run: dash scripts/test/support-bundle.sh
+
       # dash, not bash: puppetserver invokes the ENC script through /bin/sh, and
       # on Debian and Ubuntu that is dash. A bashism here would pass every local
       # run and fail on the estate.

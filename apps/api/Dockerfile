@@ -123,6 +123,12 @@ COPY --from=build /repo/VERSION ./VERSION
 COPY scripts/test-puppetdb.mjs ./scripts/
 # The ENC volume is mounted here read-write; it is the only path this service writes.
 RUN mkdir -p /srv/nexuspuppet/enc && chown -R app:app /srv/nexuspuppet
+# The API's bounded local log copy, for support bundles (ADR-0028). Created and
+# owned HERE because a fresh named volume copies the ownership of the image
+# directory it is mounted over — so `api-logs` starts out writable by uid 100
+# with nobody running chown on the host. A bind mount does not get this; see
+# DEPLOYMENT.md, "Support bundles".
+RUN mkdir -p /var/log/nexuspuppet && chown app:app /var/log/nexuspuppet && chmod 0750 /var/log/nexuspuppet
 USER app
 EXPOSE 3001
 CMD ["node", "dist/main.js"]

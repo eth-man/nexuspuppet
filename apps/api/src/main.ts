@@ -1,6 +1,7 @@
 import 'reflect-metadata';
-import { ConsoleLogger, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { hostname } from 'node:os';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { BootstrapService } from './auth/core-capabilities';
@@ -8,6 +9,8 @@ import { runWithRequestId } from './common/request-context';
 import { LogLevelService } from './system/log-level.service';
 import { levelsFor } from './system/pure/log-levels';
 import { loadEnv } from './config/env';
+import { FileLogSink } from './logging/file-log-sink';
+import { TeeConsoleLogger } from './logging/tee-console-logger';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -26,13 +29,32 @@ async function bootstrap(): Promise<void> {
    *
    * The mapping comes from `levelsFor`, shared with the service, so the level
    * applied at boot and the level applied later can never diverge.
+   *
+   * A ConsoleLogger SUBCLASS that also writes each printed line to a bounded
+   * local file, for the support bundle (ADR-0028). Stdout is unchanged and
+   * still the primary sink; `setLogLevels` is inherited, so the live-level
+   * mechanism above works exactly as it did. Opened before Nest so the first
+   * line of boot is in the file too. It never throws: an unwritable LOG_DIR
+   * disables the copy and says so once on stderr.
    */
-  const appLogger = new ConsoleLogger();
-  appLogger.setLogLevels(levelsFor(env.LOG_LEVEL));
-
-  const app = await NestFactory.create<NestExpressApplication>(await AppModule.bootstrap(), {
-    logger: appLogger,
+  const logSink = FileLogSink.open({
+    directory: env.LOG_DIR,
+    host: hostname(),
+    maxBytes: env.LOG_FILE_MAX_BYTES,
+    keep: env.LOG_FILE_KEEP,
   });
+  const appLogger = new TeeConsoleLogger(logSink);
+  appLogger.setLogLevels(levelsFor(env.LOG_LEVEL));
+  // Installed NOW, not only by NestFactory.create below: AppModule.bootstrap()
+  // logs (the enterprise loader's verdict) before the app exists, and those
+  // lines would otherwise reach stdout but not the file. Found on a real
+  // container, where the file started one line later than `docker logs`.
+  Logger.overrideLogger(appLogger);
+
+  const app = await NestFactory.create<NestExpressApplication>(
+    await AppModule.bootstrap({ logSink }),
+    { logger: appLogger },
+  );
 
   // Hands the service the only thing it needs from the app: a way to apply a
   // level. It never sees the app itself, so it stays unit-testable.
