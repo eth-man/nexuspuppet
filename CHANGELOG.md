@@ -2,9 +2,9 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.0] — 2026-10-01
 
-**One product (ADR-0027).** There is no enterprise layer and no edition any more: LDAP/AD, OIDC, custom roles and audit forwarding are part of the API, always present, and inert until configured. ADR-0027 supersedes ADR-0002. **No migration.**
+**One product, and one file to send to support.** There is no enterprise layer and no edition any more: LDAP/AD, OIDC, custom roles and audit forwarding are part of the API, always present, and inert until configured (ADR-0027, superseding ADR-0002). A new support bundle collects the console's logs, status and non-secret configuration into one archive, with an opt-in for personal data (ADR-0028). **No migration.**
 
 ### Added
 
@@ -29,6 +29,8 @@ Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepac
 **CI's load-bearing job is renamed** from "Core builds without the enterprise layer" to "Build, typecheck, lint, unit tests". It no longer greps for enterprise imports, and it keeps the committed-certificate and private-key checks.
 
 ### Fixed
+
+**After an API restart during a PuppetDB outage, the console said PuppetDB "is not answering and never has".** The last successful contact was held only in memory, so a restart erased it. The condition summary, the system status card and the inventory screens' unreachable state now fall back to the newest `ManagedNode.projectedAt` — a contact that really happened — and say *"last successful query …"*. Production showed "never has" for three weeks of a six-week outage. (#263)
 
 **An install that followed DEPLOYMENT.md built an image without LDAP, OIDC, custom roles or audit forwarding.** The API image had an `EDITION` build argument defaulting to `core`, which left `packages/enterprise` out, and `scripts/deploy.sh` never set it. Since 1.9.0 made every feature part of the open-source product, that default meant the documented install path produced the smaller image, and nothing said so — role editing and audit forwarding answered `501` and the directory panels showed as unavailable.
 
