@@ -2,7 +2,7 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] — 2026-10-01
 
 **A directory is enabled from the console** ([ADR-0029](docs/architecture/adr/0029-directory-from-the-console.md)). An install upgraded from core showed LDAP and SSO as *Not enabled — set LDAP_URL and restart the API*. Both directories are now configurable and enable-able entirely from **Settings → Directory / Auth**, effective at the next sign-in, with no `.env` edit and no restart. Local accounts are never affected. **No migration.**
 
