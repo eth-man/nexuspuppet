@@ -22,22 +22,22 @@ The core product is complete, verified against real Puppet and OpenVox software,
 | ✅ **Local authentication** | JWT sessions, scrypt hashing, account lockout, full audit trail. |
 | ✅ **OpenVox support** | Works unchanged; verified operator-by-operator against a live openvoxdb. |
 | ✅ **Console TLS** | An optional bundled proxy terminating HTTPS from your own CA, and a Settings card reporting the certificate's subject, the names it covers and days remaining. Reads a file, so it works whatever terminates TLS ([ADR-0013](docs/architecture/adr/0013-console-tls-private-ca.md)). |
-| ✅ **Enterprise LDAP / Active Directory** | Nested groups, dialect switching, secure referral handling, admin-managed group→role mapping. |
-| ✅ **Enterprise OIDC SSO** | Authorization-code with PKCE, ID-token validation on `node:crypto` with an algorithm allow-list, discovery and JWKS caching with rotation, claim→role mapping. Verified against a live Keycloak. |
-| ✅ **Enterprise audit export** | A forwarding sink that composes over core's rather than replacing it, a transactional delivery outbox with leases and backoff, and a webhook transport. The local audit trail is never traded for the external copy. |
+| ✅ **LDAP / Active Directory** | Nested groups, dialect switching, secure referral handling, admin-managed group→role mapping. |
+| ✅ **OIDC SSO** | Authorization-code with PKCE, ID-token validation on `node:crypto` with an algorithm allow-list, discovery and JWKS caching with rotation, claim→role mapping. Verified against a live Keycloak. |
+| ✅ **Audit export** | A forwarding sink that composes over the Postgres sink rather than replacing it, a transactional delivery outbox with leases and backoff, and a webhook transport. The local audit trail is never traded for the external copy. |
 
 ---
 
 ## Next up
 
-### Enterprise capabilities
+### Authentication and authorization
 
-Four of the five declared capability tokens have no implementation yet. Routes for them already exist and return `501` with the capability name, so wiring one up is additive rather than invasive.
+Every feature ships to every deployment ([ADR-0027](docs/architecture/adr/0027-one-product.md)). There are no capability tokens or `501` placeholders, so each of these would arrive as an ordinary feature, enabled by configuration where it needs any.
 
-| Capability | Token | Notes |
-|---|---|---|
-| **SAML SSO** | `AUTH_PROVIDER` | The redirect plumbing OIDC needed now exists, so this is a provider implementation only. Read the caution below before starting. |
-| **Scoped RBAC** | `AUTHORIZATION_POLICY` | **Deferred** — designed and declined. See [ADR-0011](docs/architecture/adr/0011-scoped-rbac.md). |
+| Feature | Notes |
+|---|---|
+| **SAML SSO** | The redirect plumbing OIDC needed now exists, so this is one more provider in `AUTH_PROVIDERS`, beside LDAP and OIDC in `apps/api/src/directory/`. Read the caution below before starting. |
+| **Scoped RBAC** | **Deferred** — designed and declined. See [ADR-0011](docs/architecture/adr/0011-scoped-rbac.md). |
 
 #### A caution about SAML
 
@@ -54,7 +54,7 @@ margin, and the honest options are a well-audited library or not shipping SAML.
 Entra ID, Okta, Keycloak and Google all speak OIDC, so this is worth doing when
 a specific deployment needs it and not before.
 
-### Core
+### Validation and hardening
 
 - **Estate-scale validation.** Everything is verified for correctness but not for scale. A 1,000+ node estate with large custom facts will stress pagination, projection and the materializer in ways a local harness does not. **If you run one, we would like to hear what breaks.**
 - **Fixture diversity.** Captured fixtures come from one Debian node on puppet-agent 7.20. Captures from RedHat, Windows and Puppet 8 estates would exercise mappers that nothing currently touches.
@@ -70,7 +70,7 @@ Real limits of what is built, recorded so nobody discovers them in production.
 |---|---|---|
 | **OIDC login state is in-process** | A load-balanced deployment can route a callback to a replica that did not begin the login, and that login fails. Needs sticky sessions until there is an external store. | [DEPLOYMENT.md §8](DEPLOYMENT.md#8-high-availability-and-horizontal-scaling) |
 | **Login rate limiting is per replica** | N replicas permit N× the configured attempts. Account lockout is durable and still applies, so this widens the online-guessing window rather than removing the protection. | as above |
-| **JWKS refetch has a cooldown** | A rotated signing key is picked up within the cooldown rather than instantly. Deliberate — it bounds a flood of tokens bearing kids that will never exist. | enterprise `OidcDirectory` |
+| **JWKS refetch has a cooldown** | A rotated signing key is picked up within the cooldown rather than instantly. Deliberate — it bounds a flood of tokens bearing kids that will never exist. | `OidcDirectory`, `apps/api/src/directory/oidc/` |
 | **Not exercised at estate scale** | Correctness is verified against real Puppet and OpenVox estates; throughput is not. | [fixtures/README.md](fixtures/README.md) |
 | **`pg` deprecation on multi-relation `include` inside a transaction** | Prisma's interpreter loads relations concurrently on the single connection an interactive transaction pins, which `pg` 9 will stop tolerating. Noise today, a failure on upgrade. Not fixable from application code — see below. | `PrismaService`, `apps/api/src/prisma/prisma.service.ts` |
 
@@ -82,8 +82,7 @@ These were considered and consciously postponed. Each ADR records the alternativ
 |---|---|
 | **GitOps classification mirror** ([ADR-0012](docs/architecture/adr/0012-gitops-classification-mirror.md)) | Designed and held. Not rejected — just not next. The first live install by someone who had not seen the code hit four blocking defects in its first fifteen minutes, none of them found by CI. Stabilising installation, upgrade and estate-scale behaviour comes before adding a git transport with its own credentials and its own secrets question. |
 | **Scoped RBAC** ([ADR-0011](docs/architecture/adr/0011-scoped-rbac.md)) | Designed in full and declined. Scoping by node group turns out not to bound anything — group membership is fact-based, so a scoped operator can rewrite a rule to match the whole estate. A sound design exists (check the *effect* of a write, not the request) but costs a security-critical check on the classification write path, and the future-node loophole cannot be closed at write time. Deferred until a deployment actually needs it. |
-| **Enterprise as a published private npm package** ([ADR-0002](docs/architecture/adr/0002-open-core-runtime-discovery.md)) | The runtime-discovery design already supports it unchanged. Blocked only on a private registry the project does not have. |
-| **PE Orchestrator / RBAC API scoping** ([ADR-0004](docs/architecture/adr/0004-puppetdb-read-only-mtls.md)) | Not available on open-source Puppet, which is the core target. Available to the enterprise layer as a future capability. |
+| **PE Orchestrator / RBAC API scoping** ([ADR-0004](docs/architecture/adr/0004-puppetdb-read-only-mtls.md)) | Not available on open-source Puppet, which is the primary target. Could be added later as an optional integration for Puppet Enterprise estates. |
 | **SQLite single-binary demo mode** ([ADR-0005](docs/architecture/adr/0005-postgres-prisma-local-state.md)) | Rejected for production — no advisory locks, weak concurrent writes, blocks the multi-replica path. Still plausible for a demo build. |
 
 ---

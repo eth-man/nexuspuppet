@@ -26,10 +26,10 @@ const NEVER_REPORTED = ['bindPassword'] as const;
  * The LDAP configuration the running provider was built from, or null.
  *
  * This is the environment baseline for `auth.ldap` (ADR-0016 §3): what the
- * settings screen shows when nothing has been stored through the console. Core
- * cannot read it from the environment itself, because the variables belong to
- * the enterprise layer's parser (ADR-0002) — so it asks the provider that was
- * built from them.
+ * settings screen shows when nothing has been stored through the console. It
+ * asks the provider that was built from the variables rather than parsing them
+ * a second time — two parsers could disagree about what is in force. (This was
+ * once unavoidable: the parser lived in the separate enterprise package.)
  *
  * Fails to null rather than throwing. A settings page that renders a blank form
  * is a poor experience; one that returns 500 because a provider misbehaved is a
@@ -81,8 +81,8 @@ const OIDC_NEVER_REPORTED = ['clientSecret'] as const;
 /**
  * The OIDC configuration the running provider was built from, or null.
  *
- * Same rule and same failure posture as {@link ldapEnvBaseline}: core cannot
- * parse `OIDC_*` (ADR-0002), so it asks the provider built from them, and a
+ * Same rule and same failure posture as {@link ldapEnvBaseline}: it asks the
+ * provider built from `OIDC_*` rather than parsing them again, and a
  * misbehaving provider yields an empty view rather than a 500.
  */
 export function oidcEnvBaseline(resolver: AuthProviderResolver): OidcSettings | null {
@@ -139,8 +139,8 @@ export const AUDIT_SECRET_FIELDS: Record<AuditTransportKind, readonly string[]> 
  * The forwarding configuration the running transport was built from, or null.
  *
  * The environment baseline for `audit.syslog` / `audit.webhook` (ADR-0016 §2),
- * by the same rule as {@link ldapEnvBaseline}: the variables belong to the
- * enterprise layer's parser, so core asks the transport built from them.
+ * by the same rule as {@link ldapEnvBaseline}: it asks the transport built
+ * from the variables rather than parsing them a second time.
  * Same failure posture too — a blank form beats a 500.
  */
 export function auditEnvBaseline(

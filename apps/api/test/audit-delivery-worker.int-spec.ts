@@ -7,11 +7,8 @@ import type {
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { AuditDeliveryOutbox } from '../src/auth/audit-delivery.outbox';
-import {
-  AuditDeliveryWorker,
-  NoopAuditTransport,
-  type AuditDeliveryPacing,
-} from '../src/auth/audit-delivery.worker';
+import { AuditDeliveryWorker, type AuditDeliveryPacing } from '../src/auth/audit-delivery.worker';
+import { UnconfiguredAuditTransport } from './support/unconfigured-transport';
 import { roleIdFor } from './support/roles';
 
 /**
@@ -102,7 +99,7 @@ describe('audit delivery worker (integration)', () => {
   const worker = (t: IAuditTransport = transport, over: Partial<AuditDeliveryPacing> = {}) =>
     new AuditDeliveryWorker(prisma, outbox, t, pacing(over));
 
-  /** What a composing enterprise sink does: delegate the write, then enqueue. */
+  /** What the composing forwarding sink does: delegate the write, then enqueue. */
   const emit = (action: string) =>
     prisma.$transaction(async (tx) => {
       await sink.record(
@@ -140,8 +137,8 @@ describe('audit delivery worker (integration)', () => {
     });
 
     /**
-     * The transport lives in the enterprise layer and has no database access,
-     * so everything it needs to build a payload has to arrive in the entry.
+     * The transport has no database access of its own, so everything it needs
+     * to build a payload has to arrive in the entry.
      */
     it('hands the transport a complete, serialisable record', async () => {
       const id = await emit('nodegroup.create');
@@ -278,7 +275,7 @@ describe('audit delivery worker (integration)', () => {
     it('never touches the queue', async () => {
       await emit('nodegroup.create');
 
-      const result = await worker(new NoopAuditTransport()).drain();
+      const result = await worker(new UnconfiguredAuditTransport()).drain();
 
       expect(result).toEqual({ delivered: 0, failed: 0, ranHere: false });
       expect(await prisma.auditDeliveryJob.count()).toBe(1);
@@ -290,7 +287,7 @@ describe('audit delivery worker (integration)', () => {
     it('reports a backlog once rather than every tick', async () => {
       await emit('nodegroup.create');
       const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-      const w = worker(new NoopAuditTransport());
+      const w = worker(new UnconfiguredAuditTransport());
 
       try {
         await w.drain();

@@ -4,6 +4,20 @@ Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepac
 
 ## [Unreleased]
 
+**One product (ADR-0027).** There is no enterprise layer and no edition any more: LDAP/AD, OIDC, custom roles and audit forwarding are part of the API, always present, and inert until configured. ADR-0027 supersedes ADR-0002. **No migration.**
+
+### Changed
+
+**`packages/enterprise` moved into `apps/api`.** The directory providers are now `apps/api/src/directory/{ldap,oidc}`, and forwarding is `apps/api/src/audit-forwarding`. They are wired in `app.module.ts` like everything else, and their tests moved with them. `ldapts` is a dependency of `@nexuspuppet/api`. Removed with it: the runtime loader, the capability registry, `CONTRACTS_VERSION`, the descriptor types, `EnterpriseLoadError`, the `CAPABILITIES` constant, the ESLint enterprise boundary and the core no-op audit transport. The interfaces and DI tokens in `@nexuspuppet/contracts` stay, because they keep these testable.
+
+**Role editing and audit forwarding are always available.** The `rbac.custom` and `audit.export` checks are gone. `POST/PATCH/DELETE /roles` and the `/settings/audit/*` writes never answer `501`. The console's roles table is always editable for `settings:manage`, and the Syslog and Webhook cards are always real forms.
+
+**Directory settings cards key on configuration, not capabilities.** Without `LDAP_URL` or `OIDC_ISSUER`, the card reads *Not enabled* and names the variable that enables it. It no longer shows a padlock reading "Enterprise". The deployment card no longer has an Edition row.
+
+**Malformed directory or audit-export configuration still stops the API from booting.** The message now names the integration: `LDAP is configured but its settings are invalid, so the API will not start rather than run without it. …`
+
+**CI's load-bearing job is renamed** from "Core builds without the enterprise layer" to "Build, typecheck, lint, unit tests". It no longer greps for enterprise imports, and it keeps the committed-certificate and private-key checks.
+
 ### Fixed
 
 **An install that followed DEPLOYMENT.md built an image without LDAP, OIDC, custom roles or audit forwarding.** The API image had an `EDITION` build argument defaulting to `core`, which left `packages/enterprise` out, and `scripts/deploy.sh` never set it. Since 1.9.0 made every feature part of the open-source product, that default meant the documented install path produced the smaller image, and nothing said so — role editing and audit forwarding answered `501` and the directory panels showed as unavailable.
@@ -17,6 +31,10 @@ Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepac
 **`npm run test:e2e:core`, `npm run test:e2e:enterprise` and `scripts/dev/e2e-edition.sh`**, which ran the browser suite with the layer hidden. There is no smaller product left to test.
 
 **The `NEXUSPUPPET_ENTERPRISE_REPO` / `_REF` block in `.env.example`**, which described a fetch script deleted in 1.9.0.
+
+**`GET /capabilities`.** It was a public endpoint that reported an `edition`, an `enterpriseVersion` and a list of licensed capabilities, and after ADR-0027 it could only have returned a constant. Use `GET /auth/mode` for the sign-in sources a deployment offers.
+
+**`SystemStatus.auditForwarding.available`**, from `GET /system/status`. Forwarding is always available. The remaining fields say whether it is on and whether it can send.
 
 ### Upgrading
 
@@ -35,6 +53,12 @@ Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepac
 ```bash
 grep -E '^(LDAP_|OIDC_|AUDIT_EXPORT_)' .env
 ```
+
+**Anything that calls `GET /capabilities` now gets `404`.** Monitoring or scripts that probed it to learn the "edition" should stop. There is nothing to learn. A health check belongs on `GET /healthz`.
+
+**Anything that expected `501` from role or forwarding writes now gets the real answer.**
+
+**Consumers of `GET /system/status` lose `auditForwarding.available`.** It was only ever `false` on a core image.
 
 ## [1.9.0] — 2026-09-07
 

@@ -44,7 +44,7 @@ The first administrator is seeded from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMI
 
 Repeated failed attempts lock the account temporarily. This is deliberate and applies even to correct passwords once the account is locked — wait it out, or have another administrator reset it.
 
-If your deployment has the enterprise directory layer, the sign-in screen may offer your identity provider instead. Core deployments use local accounts only.
+Where a directory is configured, the sign-in screen offers it too: an LDAP or Active Directory account signs in through the same form, and an OIDC identity provider gets a button of its own. Local accounts keep working alongside either. With no directory configured, every account is local.
 
 ### Roles
 
@@ -321,7 +321,7 @@ Separately, a **projector** polls PuppetDB for changed facts and refreshes the c
 
 ![Settings](images/settings.png)
 
-**Settings** shows the running deployment: edition, version, and which capabilities are active. In core, the capability list is empty — that is expected, not a fault.
+**Settings** shows the running deployment: version, uptime and database connection, with an on-demand update check. There are no editions: every deployment has every feature. What differs is configuration. Under **Directory / Auth**, the LDAP and OIDC cards read *Not enabled* until `LDAP_URL` or `OIDC_ISSUER` is set and the API restarted. That is expected, not a fault.
 
 ### Users
 

@@ -5,12 +5,12 @@ import { MaterializationService } from '../src/materialization/materialization.s
 import { ReconcilerService } from '../src/materialization/reconciler.service';
 
 /**
- * The ENC storage seam (ADR-0002).
+ * The ENC storage seam.
  *
  * The token and the interface existed before this suite did, and were
- * decorative: every consumer injected the concrete PosixEncStorage, so the
- * enterprise layer could replace ENC_FILE_WRITER and nothing that writes ENC
- * files would have noticed.
+ * decorative: every consumer injected the concrete PosixEncStorage, so
+ * ENC_FILE_WRITER could be rebound — to a test double, say — and nothing that
+ * writes ENC files would have noticed.
  *
  * These tests substitute an in-memory implementation and assert it is actually
  * used. They would all have failed against the previous wiring, which is the
@@ -262,7 +262,7 @@ describe('ENC storage wiring', () => {
 
     // The concrete class must NOT be obtainable from the container. If it is
     // not registered, nothing can inject it, and the token is the only route
-    // to storage — which is what makes an enterprise override take effect.
+    // to storage — which is what makes rebinding the token take effect.
     expect(tokens).not.toContain(PosixEncStorage);
   });
 

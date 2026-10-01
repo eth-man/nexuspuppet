@@ -40,9 +40,9 @@ const NO_ACCOUNT_WARN_INTERVAL_MS = 60_000;
  * access, MFA or offboarding that directory enforces. Account creation would
  * become an authentication bypass.
  *
- * Core's local provider is always present. An enterprise directory provider is
- * contributed alongside it, never instead of it, so a misconfigured or expired
- * directory cannot lock an administrator out of their own console.
+ * The local provider is always present. A directory provider is contributed
+ * alongside it, never instead of it, so a misconfigured or disabled directory
+ * cannot lock an administrator out of their own console.
  */
 @Injectable()
 export class AuthProviderResolver {
@@ -224,8 +224,8 @@ export class AuthProviderResolver {
     const provider = this.forSource(account.authSource);
 
     if (provider === null) {
-      // The account names a provider this deployment no longer has — an
-      // enterprise layer removed, a licence expired, a directory disabled.
+      // The account names a provider this deployment no longer has — say,
+      // LDAP_URL unset after the account was provisioned for LDAP.
       // Refuse, and say so in the log rather than to the caller.
       this.logger.warn(
         `Login refused for an account whose authSource "${account.authSource}" has no provider. ` +
@@ -242,8 +242,8 @@ export class AuthProviderResolver {
    *
    * Fails closed when the source is gone: the session ends rather than the
    * request throwing (ADR-0015 §3). The access token already issued is left to
-   * expire on its own — killing sessions mid-request the instant a licence
-   * lapses is the abrupt behaviour ADR-0014 §2 exists to avoid.
+   * expire on its own — killing sessions mid-request the instant a directory
+   * is switched off would be needlessly abrupt.
    */
   async resolve(userId: string): Promise<AuthenticatedPrincipal | null> {
     const account = await this.prisma.user.findUnique({

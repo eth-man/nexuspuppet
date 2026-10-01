@@ -14,10 +14,10 @@ export const REFRESH_INTERVAL_MS = 10_000;
 /**
  * The roles table, held in memory so authorization can stay synchronous.
  *
- * `IAuthorizationPolicy.can()` is synchronous, and it is a published seam the
- * enterprise layer may replace (ADR-0002). Making it async to accommodate a
- * database read would change an interface other people implement, in order to
- * add a query to the hottest path in the product — every request takes it.
+ * `IAuthorizationPolicy.can()` is synchronous, and it is a seam with its own
+ * contract. Making it async to accommodate a database read would change that
+ * interface for every implementation, in order to add a query to the hottest
+ * path in the product — every request takes it.
  *
  * So the table is read into memory instead. What that buys, and what it costs,
  * stated plainly:

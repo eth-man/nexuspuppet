@@ -24,10 +24,9 @@ interface AuthSources {
  * Sign in.
  *
  * The form asks the API how to authenticate rather than assuming a password
- * (ADR-0006). A deployment running the enterprise SSO provider answers
- * `redirect`, and this screen offers a button instead of a password field —
- * without the enterprise layer adding routes or this page importing anything
- * from it (ADR-0002).
+ * (ADR-0006). A deployment running the OIDC provider answers `redirect`, and
+ * this screen offers a button instead of a password field — without the
+ * provider adding routes of its own.
  */
 export default function LoginPage() {
   const router = useRouter();
@@ -208,8 +207,8 @@ export default function LoginPage() {
                 <Button key={entry.source} variant="primary" size="md" className="w-full" asChild>
                   {/*
                     No `source` parameter, because only one redirect provider can
-                    exist: the enterprise layer contributes a single directory
-                    provider, and ADR-0023 keeps several-of-one-kind out of
+                    exist: at most one OIDC provider is registered, and
+                    ADR-0023 keeps several-of-one-kind out of
                     scope. Whoever lifts that has to give this link a source and
                     teach the callback which provider is completing — the state
                     cookie carries no such thing today.

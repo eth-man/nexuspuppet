@@ -80,7 +80,7 @@ describe('audit delivery outbox (integration)', () => {
     userAgent: 'jest',
   });
 
-  /** What a composing enterprise sink does: delegate the write, then enqueue. */
+  /** What the composing forwarding sink does: delegate the write, then enqueue. */
   const writeAndEnqueue = (action: string) =>
     prisma.$transaction(async (tx) => {
       await sink.record(record(action), tx);
@@ -160,8 +160,8 @@ describe('audit delivery outbox (integration)', () => {
       const claimed = await prisma.$transaction((tx) => outbox.claim(tx, 10, LEASE_MS));
 
       expect(claimed).toHaveLength(1);
-      // The enterprise layer has no database access, so everything it needs to
-      // build a payload has to arrive here.
+      // A transport has no database access, so everything it needs to build a
+      // payload has to arrive here.
       expect(claimed[0]?.entry.action).toBe('nodegroup.create');
       expect(claimed[0]?.entry.actorEmail).toBe(ACTOR.email);
       expect(claimed[0]?.entry.after).toEqual({ name: 'web-tier' });

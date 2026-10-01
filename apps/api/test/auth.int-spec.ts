@@ -441,7 +441,7 @@ describe('auth (integration)', () => {
 
     // The point of ADR-0006's separation: authorization never inspects how the
     // principal was authenticated.
-    it('decides identically for an enterprise-sourced principal', () => {
+    it('decides identically for a directory-sourced principal', () => {
       const fromSso = {
         userId: 'sso-1',
         email: 'ldap@example.com',

@@ -99,7 +99,6 @@ const POLICY: AuditRetentionPolicy = {
 
 function build(options?: {
   view?: AuditForwardingView;
-  available?: boolean;
   configured?: boolean;
   appSettings?: Record<string, unknown>;
   policy?: Partial<AuditRetentionPolicy>;
@@ -123,18 +122,16 @@ function build(options?: {
     PROJECTION,
     transport,
     forwarding,
-    () => options?.available ?? false,
     { ...POLICY, ...options?.policy },
     options?.replication ?? { enabled: false, allowedCertnames: [] },
   );
 }
 
 describe('SystemStatusService audit forwarding and retention', () => {
-  it('reports the unlicensed case as a state, not an omission', async () => {
+  it('reports forwarding switched off as a state, not an omission', async () => {
     const status = await build().status(false);
 
     expect(status.auditForwarding).toMatchObject({
-      available: false,
       active: 'none',
       configured: false,
       unconfirmableDelivery: false,
@@ -146,13 +143,13 @@ describe('SystemStatusService audit forwarding and retention', () => {
   });
 
   it('raises the unconfirmable flag only while UDP is the ACTIVE mode', async () => {
-    const udp = await build({ view: udpView(), available: true, configured: true }).status(false);
+    const udp = await build({ view: udpView(), configured: true }).status(false);
     expect(udp.auditForwarding.unconfirmableDelivery).toBe(true);
 
     const tcp = udpView();
     tcp.syslog.config = { ...tcp.syslog.config!, protocol: 'tcp' };
     expect(
-      (await build({ view: tcp, available: true, configured: true }).status(false)).auditForwarding
+      (await build({ view: tcp, configured: true }).status(false)).auditForwarding
         .unconfirmableDelivery,
     ).toBe(false);
 
@@ -160,8 +157,7 @@ describe('SystemStatusService audit forwarding and retention', () => {
     const stored = udpView();
     stored.active = 'none';
     expect(
-      (await build({ view: stored, available: true }).status(false)).auditForwarding
-        .unconfirmableDelivery,
+      (await build({ view: stored }).status(false)).auditForwarding.unconfirmableDelivery,
     ).toBe(false);
   });
 

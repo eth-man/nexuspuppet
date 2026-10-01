@@ -70,7 +70,7 @@ export const REFRESH_COOKIE = 'nexuspuppet_refresh';
  * in review.
  *
  * Authorization is resolved through the AUTHORIZATION_POLICY token rather than
- * a concrete class, so the enterprise layer's scoped RBAC replaces it without
+ * a concrete class, so a scoped policy (not yet built) could replace it without
  * this guard changing. Likewise the principal arrives from whichever provider
  * is registered; this guard never learns whether it came from a local password,
  * an LDAP bind, or a SAML assertion.

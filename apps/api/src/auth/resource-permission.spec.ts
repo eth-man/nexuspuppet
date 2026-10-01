@@ -21,12 +21,13 @@ describe('who holds resources:read', () => {
   });
 
   /*
-   * ADMIN holds it because otherwise NOBODY can: creating a custom role
-   * answers 501 without the enterprise layer (ADR-0018), so an unheld
-   * permission would make the feature unreachable in every core deployment
-   * rather than merely restricted.
+   * ADMIN holds it because, when it was introduced, otherwise NOBODY could:
+   * creating a custom role then answered 501 without the enterprise layer
+   * (ADR-0018), so an unheld permission would have made the feature
+   * unreachable rather than merely restricted. Custom roles are always
+   * available since ADR-0027; ADMIN keeps it, and the seeded table is pinned.
    */
-  it('ADMIN holds it, or the feature is unreachable in core', () => {
+  it('ADMIN holds it, as seeded when it was introduced', () => {
     expect(SEEDED_BUILT_IN_PERMISSIONS.ADMIN.has('resources:read')).toBe(true);
   });
 

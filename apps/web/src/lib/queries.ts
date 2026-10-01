@@ -12,7 +12,6 @@ import type {
   DeploymentInfo,
   AuditForwardingView,
   AuthProviderDescription,
-  DeploymentCapabilities,
   ClassIndex,
   FactFilter,
   FactPathIndex,
@@ -610,14 +609,6 @@ export function useConflictReport(): UseQueryResult<ConflictReport> {
     queryKey: ['conflict-report'],
     queryFn: ({ signal }) => api.get<ConflictReport>('/classification/conflicts', signal),
     staleTime: 60_000,
-  });
-}
-
-export function useCapabilities(): UseQueryResult<DeploymentCapabilities> {
-  return useQuery({
-    queryKey: ['capabilities'],
-    queryFn: ({ signal }) => api.get<DeploymentCapabilities>('/capabilities', signal),
-    staleTime: Infinity,
   });
 }
 

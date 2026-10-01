@@ -38,8 +38,6 @@ export class SystemStatusService {
     private readonly projection: NodeProjectionService,
     @Inject(AUDIT_TRANSPORT) private readonly transport: IAuditTransport,
     private readonly forwarding: AuditForwardingService,
-    /** Whether this deployment holds `audit.export` — forwarding can exist at all. */
-    private readonly forwardingAvailable: () => boolean,
     /** The same policy object the sweeper runs with; two copies would drift. */
     private readonly retention: AuditRetentionPolicy,
     /**
@@ -171,11 +169,10 @@ export class SystemStatusService {
   }
 
   /**
-   * The forwarding pipeline as one report, in EVERY edition (issue #95).
+   * The forwarding pipeline as one report, always present (issue #95).
    *
-   * Unlike `auditDelivery` below, the unlicensed case is a state, not an
-   * omission: "forwarding unavailable" is what the Integrations screen grays
-   * out, and the status surface should say the same thing in the same terms.
+   * Unlike `auditDelivery` below, "forwarding is off" is a state, not an
+   * omission: the Integrations screen says the same thing in the same terms.
    */
   private async auditForwarding(includeDetail: boolean): Promise<SystemStatus['auditForwarding']> {
     const [view, pending, oldest, last] = await Promise.all([
@@ -191,7 +188,6 @@ export class SystemStatusService {
     const outcome = isOutcome(last?.value) ? last.value : null;
 
     return {
-      available: this.forwardingAvailable(),
       active: view.active,
       configured: this.transport.configured,
       // The flag rides the ACTIVE mode, not the stored one: a saved UDP
@@ -276,11 +272,11 @@ export class SystemStatusService {
   }
 
   /**
-   * Null when no transport is installed.
+   * Null while no transport is configured.
    *
-   * Core forwards audit records nowhere, and that is a complete product rather
-   * than a fault (ADR-0002). Reporting an empty delivery queue for a deployment
-   * that was never going to deliver anything would invite someone to treat a
+   * Forwarding nowhere is a normal state rather than a fault — the records are
+   * in Postgres and queryable. Reporting an empty delivery queue for a
+   * deployment that is not delivering anything would invite someone to treat a
    * working system as broken.
    */
   private async auditDelivery(

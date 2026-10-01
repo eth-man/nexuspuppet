@@ -1,9 +1,9 @@
 import type { IAuditTransport } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditDeliveryOutbox } from '../src/auth/audit-delivery.outbox';
-import { NoopAuditTransport } from '../src/auth/audit-delivery.worker';
 import { SystemStatusService } from '../src/system/system-status.service';
 import { roleIdFor } from './support/roles';
+import { UnconfiguredAuditTransport } from './support/unconfigured-transport';
 
 /**
  * The operational status surface, against a REAL PostgreSQL.
@@ -98,14 +98,16 @@ describe('system status (integration)', () => {
     await prisma.user.deleteMany();
   });
 
-  const service = (transport: IAuditTransport = new NoopAuditTransport(), absent: string[] = []) =>
+  const service = (
+    transport: IAuditTransport = new UnconfiguredAuditTransport(),
+    absent: string[] = [],
+  ) =>
     new SystemStatusService(
       prisma,
       outbox,
       projectorReporting(absent),
       transport,
       forwardingOff(),
-      () => false,
       RETENTION,
       { enabled: false, allowedCertnames: [] },
     );
@@ -228,7 +230,7 @@ describe('system status (integration)', () => {
      * never going to deliver anything would invite treating it as broken.
      */
     it('is absent when no transport is installed', async () => {
-      const status = await service(new NoopAuditTransport()).status(true);
+      const status = await service(new UnconfiguredAuditTransport()).status(true);
 
       expect(status.auditDelivery).toBeUndefined();
     });
@@ -337,7 +339,9 @@ describe('system status (integration)', () => {
      * two releases to find.
      */
     it('names projected facts that no node reports', async () => {
-      const status = await service(new NoopAuditTransport(), ['role', 'fqdn']).status(false);
+      const status = await service(new UnconfiguredAuditTransport(), ['role', 'fqdn']).status(
+        false,
+      );
 
       expect(status.projection.factsNoNodeReports).toEqual(['role', 'fqdn']);
     });

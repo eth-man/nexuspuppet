@@ -2,7 +2,16 @@
 
 - **Status:** Accepted — implemented; see *Delivered* below
 - **Deciders:** Architect
-- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0014](./0014-enterprise-licensing.md)
+- **Related:** [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0014](./0014-enterprise-licensing.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** The decisions
+> here all stand. What changed is where §3's guarantee lives. There is no
+> enterprise layer and no `CapabilityRegistry` to refuse an `AUTH_PROVIDER`
+> override. LDAP and OIDC providers are registered in `app.module.ts` when
+> configured, and `AUTH_PROVIDERS` names `LocalAuthProvider` directly as its
+> first member. `app.wiring.spec.ts` pins that. Read "the enterprise layer
+> contributes" below as "a directory provider is contributed". The licence
+> scenarios are moot, because there is no licence.
 
 ## Delivered
 

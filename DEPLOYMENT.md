@@ -220,17 +220,19 @@ There is also **no `.gitmodules`, and there must never be one.** Instructions
 elsewhere to "initialise the submodule" date from when part of the product
 lived in a separate private repository. It does not any more.
 
-**Verifying what you are running:** `GET /capabilities` lists which integrations
-this deployment has configured — `directory.ldap` once `LDAP_URL` is set, and so
-on.
+**Verifying what you are running:** `GET /auth/mode` lists the sign-in sources
+the running API offers — `local` always, plus `ldap` once `LDAP_URL` is set and
+`oidc` once `OIDC_ISSUER` is. Settings → Directory / Auth shows a directory as
+*Not enabled* until its variable is set. (`GET /capabilities`, which reported an
+"edition", was removed with ADR-0027.)
 
 ### Provision your directory accounts BEFORE you set `LDAP_URL` or `OIDC_ISSUER`
 
 **Your local accounts keep working.** A directory provider is contributed
-*alongside* core's local provider, never instead of it, and `authSource` on the
+*alongside* the local provider, never instead of it, and `authSource` on the
 account decides which one handles a login ([ADR-0015](docs/architecture/adr/0015-hybrid-authentication.md)).
-An attempt by the enterprise layer to override `AUTH_PROVIDER` is refused
-outright. So `admin@example.com` signs in after the switch exactly as before.
+The local provider is always registered, and always first in the list — a test
+pins it. So `admin@example.com` signs in after the switch exactly as before.
 
 > **This section used to say the opposite** — that enabling a directory locked
 > every local account out with no way back. That was true before ADR-0015 and is
@@ -285,8 +287,8 @@ sudo docker compose exec -T db psql -U nexuspuppet -d nexuspuppet -c "
 local provider is supplemented rather than replaced ([ADR-0015](docs/architecture/adr/0015-hybrid-authentication.md) §3).
 This paragraph previously said the opposite and pointed at
 [ADR-0014](docs/architecture/adr/0014-enterprise-licensing.md) §3 as a future
-fix; that need was met by ADR-0015. ADR-0014 §3's `LICENSE_GRACE_LOGIN` remains
-relevant to a different case — an expired licence — and not to this one.
+fix; that need was met by ADR-0015. ADR-0014 was rejected and there are no
+licences, so its `LICENSE_GRACE_LOGIN` does not exist.
 
 ---
 
@@ -724,7 +726,7 @@ Confirm:
 
 ```bash
 curl -fsS http://localhost:3001/healthz          # {"status":"ok"}
-curl -fsS http://localhost:3001/capabilities     # edition and features
+curl -fsS http://localhost:3001/auth/mode        # sign-in sources: local, plus any configured directory
 docker compose logs api | grep -i 'projection\|puppetdb'
 ```
 
@@ -1723,6 +1725,7 @@ SQL
 | All nodes get `default.yaml` | The ENC directory is not reaching puppetserver, or is at a different path. Run the script by hand (§6) |
 | Change saved, nodes unchanged | Expected until the node's next Puppet run. Check `EncMaterialization` confirmed it |
 | Role editing or audit forwarding returns 501 | The image was built by a release up to 1.9.0 with the old `EDITION=core` default. Rebuild it: `docker compose build api && docker compose up -d api` |
+| `GET /capabilities` returns 404 | Removed in ADR-0027 — there is no edition to report. Use `GET /auth/mode` for sign-in sources |
 
 ## Security checklist
 

@@ -1,21 +1,22 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { apiLogin, assertStackReachable, lockedBadgeWord, login } from './support';
+import { apiLogin, assertStackReachable, login } from './support';
 
 /**
  * The OIDC settings card on Settings → Directory (issue #106).
  *
- * The locked-card rules and the unlicensed rendering are what get asserted,
- * as for the Integrations tab. The unlicensed assertions run everywhere,
- * including CI, because a disabled form is exactly what core shows; the edit
- * flow needs `sso.oidc` and skips where the deployment does not advertise it.
+ * Keyed on CONFIGURATION, not on an edition (ADR-0027). The form exists when
+ * an OIDC provider is running — registered at boot because OIDC_ISSUER is set
+ * — and the API reports that as `liveReload` on the settings view. Without
+ * one the card is a header saying how to enable it, and that is asserted
+ * wherever OIDC is not configured, which includes CI.
  */
 
-async function ssoAvailable(request: APIRequestContext): Promise<boolean> {
+async function oidcRunning(request: APIRequestContext): Promise<boolean> {
   await apiLogin(request);
-  const response = await request.get('/api/capabilities');
+  const response = await request.get('/api/settings/auth/oidc');
   if (!response.ok()) return false;
-  const body = (await response.json()) as { capabilities?: string[] };
-  return body.capabilities?.includes('sso.oidc') === true;
+  const body = (await response.json()) as { liveReload?: boolean };
+  return body.liveReload === true;
 }
 
 test.describe('OIDC settings card', () => {
@@ -24,7 +25,7 @@ test.describe('OIDC settings card', () => {
   });
 
   test('renders on the Directory tab', async ({ page, request }) => {
-    test.skip(!(await ssoAvailable(request)), 'without sso.oidc the card is a header alone');
+    test.skip(!(await oidcRunning(request)), 'without OIDC_ISSUER the card is a header alone');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -35,8 +36,8 @@ test.describe('OIDC settings card', () => {
 
   test('the resting state is read-only', async ({ page, request }) => {
     // Only meaningful where the form exists; the header-only case is asserted
-    // by 'core names the capability and renders no unusable form' below.
-    test.skip(!(await ssoAvailable(request)), 'without sso.oidc there is no form to disable');
+    // by 'says how to enable it and renders no unusable form' below.
+    test.skip(!(await oidcRunning(request)), 'without OIDC_ISSUER there is no form to disable');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -45,14 +46,14 @@ test.describe('OIDC settings card', () => {
     // aria-hidden marker inside its <label>, so label-text matching sees
     // "Issuer ✱" and finds nothing.
     //
-    // Locked until somebody presses Edit — and in core, permanently. Landing
-    // on the screen that decides who can sign in must change nothing.
+    // Locked until somebody presses Edit. Landing on the screen that decides
+    // who can sign in must change nothing.
     await expect(page.getByRole('textbox', { name: 'Issuer' })).toBeDisabled();
     await expect(page.getByRole('textbox', { name: 'Client ID' })).toBeDisabled();
   });
 
   test('the secret field is empty and never carries a stored value', async ({ page, request }) => {
-    test.skip(!(await ssoAvailable(request)), 'without sso.oidc there is no field to inspect');
+    test.skip(!(await oidcRunning(request)), 'without OIDC_ISSUER there is no field to inspect');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -69,63 +70,30 @@ test.describe('OIDC settings card', () => {
       data: { issuer: 'https://idp.example.test', clientId: 'x', redirectUri: 'https://a.test/cb' },
     });
 
-    // 200 where SSO is available, since the write is legitimate there. Where it
-    // is not, the settings routes still answer — OIDC settings are core-owned —
-    // so what must NOT happen is a 5xx or a silent success against no provider.
-    expect([200, 400, 403, 501]).toContain(response.status());
+    // The settings route answers whether or not a provider is running — the
+    // store is independent of registration (ADR-0016) — so what must NOT
+    // happen is a 5xx. There is no 501 any more: nothing is unlicensed.
+    expect([200, 400]).toContain(response.status());
   });
 
-  test('names the capability and renders no unusable form', async ({ page, request }) => {
-    test.skip(await ssoAvailable(request), 'entitled deployment — the form is real');
-
-    const badge = await lockedBadgeWord(request);
+  test('says how to enable it and renders no unusable form', async ({ page, request }) => {
+    test.skip(await oidcRunning(request), 'OIDC is configured — the form is real');
 
     await login(page);
     await page.goto('/settings/auth');
 
-    await expect(page.getByText('sso.oidc')).toBeVisible();
-    /*
-     * The badge word, taken from the edition rather than hard-coded.
-     *
-     * This asserted "Enterprise" unconditionally, which passed in core and
-     * left the enterprise rendering — a padlock telling an operator to buy
-     * what they already run — the one nothing checked.
-     */
-    await expect(page.getByText(badge).first()).toBeVisible();
+    // What is missing is configuration, and the card names it.
+    await expect(page.getByText('Set OIDC_ISSUER', { exact: false })).toBeVisible();
 
     // Gone, not disabled — see integrations.spec.ts for why that distinction
     // is what makes this assertion able to fail. By role: `Issuer` also
     // matches the InfoHint button "About the issuer" under substring matching.
     await expect(page.getByRole('textbox', { name: 'Issuer' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Edit settings' })).toHaveCount(0);
   });
 
-  /*
-   * The rule the badge exists to obey, from the side that was wrong.
-   *
-   * On a deployment already running the enterprise layer, a locked card must
-   * not advertise "Enterprise" — there is nothing to buy. Asserting the
-   * ABSENCE is what makes this able to fail: the previous assertion looked for
-   * the word and found it, in both editions, and called that a pass.
-   */
-  test('an enterprise deployment is never told to buy Enterprise', async ({ page, request }) => {
-    test.skip(await ssoAvailable(request), 'entitled deployment — the card is a real form');
-    test.skip(
-      (await lockedBadgeWord(request)) !== 'Unavailable',
-      'core — Enterprise is the answer',
-    );
-
-    await login(page);
-    await page.goto('/settings/auth');
-
-    const card = page.locator('section,div').filter({ hasText: 'Single sign-on (OIDC)' }).last();
-    await expect(card.getByText('Enterprise')).toHaveCount(0);
-    await expect(page.getByText('sso.oidc')).toBeVisible();
-  });
-
-  test.describe('editing (needs sso.oidc)', () => {
+  test.describe('editing (needs OIDC configured)', () => {
     test('unlock, delta, and a cancel that restores what is stored', async ({ page, request }) => {
-      test.skip(!(await ssoAvailable(request)), 'needs the sso.oidc capability');
+      test.skip(!(await oidcRunning(request)), 'needs OIDC_ISSUER');
 
       await login(page);
       await page.goto('/settings/auth');

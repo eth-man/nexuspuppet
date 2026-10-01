@@ -8,7 +8,6 @@ import {
 const STATUS: SystemStatus = {
   materialization: { pending: 0, failed: 0, oldestDueAt: null, failures: [] },
   auditForwarding: {
-    available: false,
     active: 'none',
     configured: false,
     pending: 0,
@@ -47,7 +46,7 @@ describe('condition catalogue', () => {
 
   /*
    * BINDING CONSTRAINT, ADR-0021 §1. The moment a summary names a person or an
-   * action, this feature is audit forwarding without the capability. Asserted
+   * action, this feature is audit forwarding by another name. Asserted
    * rather than trusted, because it is the constraint most likely to erode by
    * accident — one plausible-looking feature request at a time.
    */
@@ -167,7 +166,7 @@ describe('condition catalogue', () => {
   });
 
   describe('audit delivery', () => {
-    it('is absent where the capability is, rather than reported healthy', () => {
+    it('is absent while forwarding is off, rather than reported healthy', () => {
       expect(read().some((r) => r.key === 'audit.delivery-failing')).toBe(false);
     });
 
@@ -176,7 +175,6 @@ describe('condition catalogue', () => {
         ...STATUS,
         auditForwarding: {
           ...STATUS.auditForwarding,
-          available: true,
           active: 'syslog',
           lastDelivery: { ok: false, at: 'x', error: null },
         },

@@ -6,11 +6,11 @@ import { assertSafeCertname, EncPathError } from './posix-enc-storage';
 /**
  * Reads back the ENC document a node will actually be served (#143).
  *
- * SEPARATE FROM THE WRITER, deliberately. `IEncFileWriter` is a published
- * capability seam that the enterprise layer may implement (ADR-0002), so
- * adding a required method to it would break any implementation that already
- * exists. Reading needs none of the writer's guarantees — no atomicity, no
- * fsync, no change detection — so it does not belong on that interface.
+ * SEPARATE FROM THE WRITER, deliberately. `IEncFileWriter` is a seam with its
+ * own contract, and adding a required method to it would burden every
+ * implementation, test doubles included. Reading needs none of the writer's
+ * guarantees — no atomicity, no fsync, no change detection — so it does not
+ * belong on that interface.
  *
  * READS THE FILE, never re-renders it. Re-rendering would answer "what would
  * we write now", which is a different and quieter question: it would silently

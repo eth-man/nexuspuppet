@@ -59,8 +59,8 @@ export class UsersService {
      * An account whose authSource no configured provider answers to can never be
      * authenticated. Creating one silently is how an operator ends up with a
      * user list full of accounts that cannot log in, with no error to explain
-     * it. 'local' stays allowed regardless: dropping back to the core edition
-     * must not orphan the accounts created before it.
+     * it. 'local' stays allowed regardless: switching a directory off must not
+     * orphan the accounts created before it.
      *
      * Asks the RESOLVER, not a single injected provider. This compared against
      * `AUTH_PROVIDER.source` — one provider, chosen at boot — which was correct

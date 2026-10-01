@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Copy, Eye, Lock, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import type { BlockingRoleMapping, Permission, Role } from '@nexuspuppet/contracts';
-import { useCapabilities, useRoles } from '@/lib/queries';
+import { useRoles } from '@/lib/queries';
 import { useCreateRole, useDeleteRole, useUpdateRole } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
@@ -13,7 +13,6 @@ import {
   impactLabel,
   type PermissionImpact,
 } from '@/lib/permission-catalog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
@@ -24,10 +23,8 @@ import { LoadingRows, QueryError } from '@/components/states';
 /**
  * What a role grants, and who may change it (ADR-0018).
  *
- * Reading is unconditional; editing needs the `rbac.custom` capability. A
- * deployment without it still sees its three built-in roles and exactly what
- * they permit, because hiding that would hide how the product decides who can
- * do what.
+ * Every deployment can define its own roles (ADR-0027); the three built-in
+ * ones are fixed by the product and only ever viewed (ADR-0018 §1).
  *
  * The table never mutates. Every change to a role is made in a dialog and
  * committed explicitly — a stray click in a list of permissions should not be
@@ -36,10 +33,7 @@ import { LoadingRows, QueryError } from '@/components/states';
 export function RolesPanel() {
   const { can } = useAuth();
   const manages = can('settings:manage');
-  const capabilities = useCapabilities();
   const roles = useRoles(manages);
-
-  const editable = capabilities.data?.capabilities.includes('rbac.custom') === true;
 
   /**
    * `null` closed, otherwise what the dialog is doing.
@@ -62,15 +56,12 @@ export function RolesPanel() {
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Roles</CardTitle>
-        {!editable && <Badge>read-only</Badge>}
       </CardHeader>
 
       <CardContent className="space-y-3">
         <p className="max-w-prose text-2xs text-ink-faint">
           {'A role is a set of permissions. The API enforces these; the console only uses them '}
           {'to hide controls that would be refused.'}
-          {!editable &&
-            ' Defining your own roles is an enterprise capability — the built-in three are shown here regardless.'}
         </p>
 
         <div className="scroll-x">
@@ -88,7 +79,6 @@ export function RolesPanel() {
                 <RoleRow
                   key={role.id}
                   role={role}
-                  editable={editable}
                   onOpen={() => setEditing({ mode: 'edit', role })}
                 />
               ))}
@@ -96,12 +86,10 @@ export function RolesPanel() {
           </table>
         </div>
 
-        {editable && (
-          <Button variant="ghost" size="sm" onClick={() => setEditing({ mode: 'new' })}>
-            <Plus className="mr-1 size-3.5" aria-hidden />
-            New role
-          </Button>
-        )}
+        <Button variant="ghost" size="sm" onClick={() => setEditing({ mode: 'new' })}>
+          <Plus className="mr-1 size-3.5" aria-hidden />
+          New role
+        </Button>
 
         {editing !== null && (
           <RoleEditor
@@ -110,7 +98,6 @@ export function RolesPanel() {
             key={editing.mode === 'edit' ? editing.role.id : (editing.seed?.name ?? 'new')}
             role={editing.mode === 'edit' ? editing.role : null}
             seed={editing.mode === 'new' ? editing.seed : undefined}
-            editable={editable}
             existing={roles.data.map((r) => r.name)}
             onClose={() => setEditing(null)}
             onDuplicate={(from) =>
@@ -136,21 +123,13 @@ export function RolesPanel() {
  * the absent ones are a property of the role worth seeing while editing it, and
  * noise while scanning a list.
  */
-function RoleRow({
-  role,
-  editable,
-  onOpen,
-}: {
-  role: Role;
-  editable: boolean;
-  onOpen: () => void;
-}) {
+function RoleRow({ role, onOpen }: { role: Role; onOpen: () => void }) {
   const held = PERMISSIONS.filter((p) => role.permissions.includes(p));
   /*
-   * A built-in role is never editable, capability or not (ADR-0018 §1). The
-   * action says so up front rather than opening an editor that then refuses.
+   * A built-in role is never editable (ADR-0018 §1). The action says so up
+   * front rather than opening an editor that then refuses.
    */
-  const verb = editable && !role.builtIn ? 'Edit' : 'View';
+  const verb = role.builtIn ? 'View' : 'Edit';
 
   return (
     <tr
@@ -229,14 +208,12 @@ const IMPACT_STYLE: Record<PermissionImpact, string> = {
 function RoleEditor({
   role,
   seed,
-  editable,
   existing,
   onClose,
   onDuplicate,
 }: {
   role: Role | null;
   seed?: { name: string; permissions: Permission[] } | undefined;
-  editable: boolean;
   existing: string[];
   onClose: () => void;
   onDuplicate: (from: Role) => void;
@@ -247,13 +224,12 @@ function RoleEditor({
 
   const creating = role === null;
   /*
-   * Read-only for two different reasons, deliberately collapsed into one flag
-   * for rendering but explained separately to the operator below: the
-   * deployment cannot define roles at all, or this particular role is built in
-   * and is fixed by the product (ADR-0018 §1).
+   * Read-only for one reason: this role is built in and fixed by the product
+   * (ADR-0018 §1). There used to be a second — a deployment without the
+   * `rbac.custom` capability — which ADR-0027 removed.
    */
   const builtIn = role?.builtIn === true;
-  const readOnly = !editable || builtIn;
+  const readOnly = builtIn;
 
   const [name, setName] = useState(role?.name ?? seed?.name ?? '');
   const [description, setDescription] = useState(role?.description ?? '');
@@ -336,9 +312,7 @@ function RoleEditor({
       description={
         builtIn
           ? `${role.name} is built in. Its permissions are fixed so that runbooks, directory mappings and support answers naming it stay true.`
-          : readOnly
-            ? 'Editing roles is not available in this deployment.'
-            : 'Changes take effect for everybody holding this role as soon as you save.'
+          : 'Changes take effect for everybody holding this role as soon as you save.'
       }
       className="w-[min(46rem,calc(100vw-2rem))]"
       /*
@@ -358,7 +332,7 @@ function RoleEditor({
              * "ADMIN but without pql:raw" gets a role of its own name that
              * says so, instead of an ADMIN that no longer means ADMIN.
              */}
-            {builtIn && editable ? (
+            {builtIn ? (
               <Button variant="ghost" size="sm" onClick={() => onDuplicate(role)}>
                 <Copy className="mr-1 size-3.5" aria-hidden />
                 Duplicate as custom role

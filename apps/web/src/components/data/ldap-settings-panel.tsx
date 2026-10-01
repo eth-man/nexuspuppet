@@ -12,13 +12,13 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { LdapSettings, ProviderVerification } from '@nexuspuppet/contracts';
-import { useCapabilities, useLdapSettings, useRoles } from '@/lib/queries';
+import { useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
 import { useAuth } from '@/providers/auth-provider';
 import { absolute } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { CapabilityCard } from '@/components/ui/capability-card';
+import { NotEnabledCard } from '@/components/ui/not-enabled-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -70,27 +70,6 @@ export function LdapSettingsPanel() {
   const { can } = useAuth();
   const manages = can('settings:manage');
 
-  /*
-   * Entitlement is the CAPABILITY, not a licence.
-   *
-   * `directory.ldap` is advertised only when the enterprise layer is installed
-   * and a provider can actually run. Core used to render this whole form, store
-   * what was typed, and explain in a warning box that none of it would take
-   * effect — which reads as a broken product rather than an unavailable
-   * feature.
-   */
-  const capabilities = useCapabilities();
-  const licensed = capabilities.data?.capabilities.includes('directory.ldap') === true;
-
-  /*
-   * Fetched in every edition, including core.
-   *
-   * Gating this on the capability disabled the query, and a disabled query
-   * reports `isPending` forever — so the panel rendered a loading skeleton
-   * that never resolved, on the one edition that is supposed to be showing
-   * the form. Core owns this endpoint (ADR-0016); there is nothing to save by
-   * not calling it.
-   */
   const stored = useLdapSettings(manages);
   // So a mapping naming a role nobody defined is visible here rather than at
   // somebody's next sign-in.
@@ -169,20 +148,28 @@ export function LdapSettingsPanel() {
     password === '';
 
   /*
-   * Configured means SOMETHING is in force: stored settings, an environment
-   * baseline, or a provider that is demonstrably running. The last matters
-   * because core cannot read the enterprise layer's environment (ADR-0002) and
-   * would otherwise call a working LDAP deployment "not configured".
+   * Whether an LDAP provider is RUNNING — registered at boot because LDAP_URL
+   * was set. The API reports it as `liveReload`: with a provider running, a
+   * saved change takes effect on the next login.
+   *
+   * This is what gates the form now (ADR-0027). It used to be the
+   * `directory.ldap` capability, which was advertised in exactly the same
+   * circumstance; the difference is that nothing here is licensed any more,
+   * only configured or not.
    */
-  const configured =
-    view?.source === 'database' || view?.source === 'environment' || view?.liveReload === true;
+  const running = view?.liveReload === true;
 
   /*
-   * The empty state is for a deployment that COULD configure a directory and
-   * has not. Core cannot, so sending it there would hide the very thing it is
-   * meant to be able to look at.
+   * Configured means SOMETHING is in force: stored settings, an environment
+   * baseline, or a provider that is demonstrably running.
    */
-  if (licensed && !configured && !revealed) {
+  const configured = view?.source === 'database' || view?.source === 'environment' || running;
+
+  /*
+   * The empty state is for a deployment that has a provider running and
+   * nothing configured for it.
+   */
+  if (running && !configured && !revealed) {
     return <NotConfigured onConfigure={() => setRevealed(true)} />;
   }
 
@@ -201,38 +188,20 @@ export function LdapSettingsPanel() {
   const changes = describeChanges(before, form, password !== '');
 
   /*
-   * Header only without the capability.
+   * Header only while no provider is running.
    *
-   * This used to render the whole form inert, so an open-core evaluator saw
-   * the real thing rather than a description of it. That argument was sound
-   * and it is not what changed: what changed is the judgement that thirty
-   * unfillable controls cost more screen than the demonstration was worth. The
-   * feature is still named and still says which capability unlocks it.
-   *
-   * The original hazard stays fixed either way — nobody can fill six fields,
-   * press Save, and find out later that none of it ran, because there are no
-   * fields to fill.
+   * Providers register at boot, from LDAP_URL. Until then nothing typed here
+   * could take effect, and a screen of inputs whose Save needs a restart to
+   * mean anything is how somebody fills six fields and finds out later that
+   * none of it ran. Registering the provider always, and enabling it from
+   * this screen, is ADR-0027's open follow-up.
    */
-  if (!licensed) {
+  if (!running) {
     return (
-      <CapabilityCard
+      <NotEnabledCard
         title="Directory (LDAP)"
         description="Authenticate against an LDAP or Active Directory server."
-        capability="directory.ldap"
-        /*
-         * Symmetry with the OIDC card, which said how to enable itself while
-         * this one did not — so on a deployment with neither configured, two
-         * identical-looking cards gave different amounts of help.
-         *
-         * Enterprise-only advice: in core there is no LDAP provider to point at
-         * a server, so naming the variable would send an operator to edit a
-         * file that changes nothing.
-         */
-        note={
-          capabilities.data?.edition === 'enterprise'
-            ? 'Set LDAP_URL to add it. OIDC, if configured, keeps working alongside it, and so do local accounts.'
-            : 'Local accounts keep working either way.'
-        }
+        note="Set LDAP_URL and restart the API to enable it. OIDC, if configured, keeps working alongside it, and so do local accounts."
       />
     );
   }
@@ -245,7 +214,7 @@ export function LdapSettingsPanel() {
      * form the way a hand-maintained list would.
      */
     <div className="space-y-4">
-      {/* Licensed past this point — the unlicensed case returned above. */}
+      {/* A provider is running past this point — the other case returned above. */}
       <fieldset disabled={!editing} className="min-w-0 space-y-4">
         <StatusNotices source={view?.source} liveReload={view?.liveReload === true} />
 
@@ -521,60 +490,53 @@ export function LdapSettingsPanel() {
             </div>
           )}
 
-          {/*
-            Not rendered at all in core: a row of live buttons under a form
-            nobody can use is exactly the "configure a dead form" this screen
-            was rebuilt to avoid.
-          */}
-          {licensed && (
-            <ActionBar
-              editing={editing}
-              onEdit={() => setEditing(true)}
-              onCancel={() => {
-                // Back to what is stored, not to what was typed. Cancel has to mean
-                // "forget this", or it is just a slower Save.
-                setForm(
-                  view?.config === null || view?.config === undefined
-                    ? BLANK
-                    : { ...BLANK, ...view.config },
-                );
-                setPassword('');
-                setResult(null);
-                setError(null);
-                setEditing(false);
-              }}
-              busy={save.isPending || test.isPending || clear.isPending}
-              blocked={blocked}
-              testing={test.isPending}
-              saving={save.isPending}
-              onTest={() => {
-                setError(null);
-                test.mutate(submission(), { onSuccess: setResult, onError: fail });
-              }}
-              onSave={() => {
-                setError(null);
-                save.mutate(submission(), {
-                  // Clear the field on success: the value is now stored, and leaving
-                  // it on screen implies it is still pending.
-                  onSuccess: () => {
-                    setPassword('');
-                    setEditing(false);
-                  },
-                  onError: fail,
-                });
-              }}
-              onDiscard={
-                view?.source === 'database'
-                  ? () => {
-                      setError(null);
-                      clear.mutate(undefined, { onError: fail });
-                    }
-                  : undefined
-              }
-              updatedAt={view?.updatedAt ?? null}
-              updatedByEmail={view?.updatedByEmail ?? null}
-            />
-          )}
+          <ActionBar
+            editing={editing}
+            onEdit={() => setEditing(true)}
+            onCancel={() => {
+              // Back to what is stored, not to what was typed. Cancel has to mean
+              // "forget this", or it is just a slower Save.
+              setForm(
+                view?.config === null || view?.config === undefined
+                  ? BLANK
+                  : { ...BLANK, ...view.config },
+              );
+              setPassword('');
+              setResult(null);
+              setError(null);
+              setEditing(false);
+            }}
+            busy={save.isPending || test.isPending || clear.isPending}
+            blocked={blocked}
+            testing={test.isPending}
+            saving={save.isPending}
+            onTest={() => {
+              setError(null);
+              test.mutate(submission(), { onSuccess: setResult, onError: fail });
+            }}
+            onSave={() => {
+              setError(null);
+              save.mutate(submission(), {
+                // Clear the field on success: the value is now stored, and leaving
+                // it on screen implies it is still pending.
+                onSuccess: () => {
+                  setPassword('');
+                  setEditing(false);
+                },
+                onError: fail,
+              });
+            }}
+            onDiscard={
+              view?.source === 'database'
+                ? () => {
+                    setError(null);
+                    clear.mutate(undefined, { onError: fail });
+                  }
+                : undefined
+            }
+            updatedAt={view?.updatedAt ?? null}
+            updatedByEmail={view?.updatedByEmail ?? null}
+          />
         </CardContent>
       </Card>
     </div>
@@ -986,12 +948,12 @@ function RoleMappings({
 /**
  * What this deployment is actually reading its directory settings from.
  *
- * "unset" needs the provider check. Core cannot parse the enterprise layer's
- * environment variables (ADR-0002), so it reports no stored configuration and
- * no environment baseline it can see — which rendered as "not configured" on a
- * deployment where LDAP was demonstrably running and people were signing in
- * through it. A running provider is proof the environment configured one, even
- * though core cannot read the detail.
+ * "unset" needs the provider check. The settings surface reads the
+ * environment baseline from the running provider rather than parsing LDAP_*
+ * itself, and a provider that cannot describe it reports "unset" — which
+ * rendered as "not configured" on a deployment where LDAP was demonstrably
+ * running and people were signing in through it. A running provider is proof
+ * the environment configured one.
  */
 function sourceLabel(
   source: 'database' | 'environment' | 'unset',

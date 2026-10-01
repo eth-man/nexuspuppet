@@ -20,12 +20,13 @@ const SETTING_KIND: Record<AuditTransportKind, SettingKind> = {
  *
  * A separate class from AuditForwardingService, and the separation is
  * load-bearing rather than tidy. The service injects AUDIT_TRANSPORT (for the
- * Test button and the env baseline); the enterprise transport injects
+ * Test button and the env baseline); the settings-driven transport injects
  * AUDIT_FORWARDING_SETTINGS. Binding the token to the service closed that
- * loop — a circular dependency the injector deadlocks on, silently, and only
- * in enterprise deployments, because core's noop transport injects nothing.
- * Found on staging's first boot with the real transport; this resolver
- * depends on the store alone, so the transport's dependency chain terminates.
+ * loop — a circular dependency the injector deadlocks on, silently. It showed
+ * only in deployments that then loaded the forwarding transport, because the
+ * no-op transport other deployments had injected nothing. Found on staging's
+ * first boot with the real transport; this resolver depends on the store
+ * alone, so the transport's dependency chain terminates.
  */
 @Injectable()
 export class AuditForwardingResolver implements IAuditForwardingSettings {

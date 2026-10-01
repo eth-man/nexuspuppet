@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { apiLogin, assertStackReachable, lockedBadgeWord, login } from './support';
+import { apiLogin, assertStackReachable, login } from './support';
 
 /**
  * Card and control primitives (issue #72 slice 3), asserted through the screen
@@ -12,10 +12,11 @@ import { apiLogin, assertStackReachable, lockedBadgeWord, login } from './suppor
  */
 test.describe('primitives', () => {
   /**
-   * Whether this deployment can run a directory at all.
+   * Whether an LDAP provider is running — registered at boot because LDAP_URL
+   * is set, reported by the API as `liveReload` (ADR-0027).
    *
-   * Core does not, and the screen is a teaser rather than a form there — so
-   * every assertion about inputs has to know which edition it is looking at.
+   * Without one the screen is a header saying how to enable it rather than a
+   * form, so every assertion about inputs has to know which it is looking at.
    * Resolved once, in beforeAll, because `test.skip()` in describe scope cannot
    * take an async condition.
    */
@@ -23,10 +24,10 @@ test.describe('primitives', () => {
 
   test.beforeAll(async ({ request }) => {
     await apiLogin(request);
-    const response = await request.get('/api/capabilities');
+    const response = await request.get('/api/settings/auth/ldap');
     if (!response.ok()) return;
-    const body = (await response.json()) as { capabilities?: string[] };
-    directory = body.capabilities?.includes('directory.ldap') === true;
+    const body = (await response.json()) as { liveReload?: boolean };
+    directory = body.liveReload === true;
   });
 
   test.beforeEach(async ({ request }) => {
@@ -34,31 +35,25 @@ test.describe('primitives', () => {
   });
 
   /**
-   * Core must not be able to configure something that cannot run.
+   * A deployment must not be able to configure something that cannot run.
    *
    * It first rendered the whole form, accepted a save, and explained in a
    * warning box that nothing would take effect — however honestly worded, an
-   * open-source user fills in six fields, gets a success, finds nobody can
-   * sign in, and concludes the product is broken.
+   * operator fills in six fields, gets a success, finds nobody can sign in,
+   * and concludes the product is broken.
    *
-   * It then rendered the form inert, so the feature could still be SEEN. That
-   * was better, and it was still thirty controls nobody could fill, pushing
-   * the settings this deployment can actually use below the fold.
-   *
-   * Now: named, explained, and not drawn. The feature is still discoverable —
-   * the header was the part anyone read — and there is nothing to operate.
+   * Now, until LDAP_URL registers a provider: named, explained, and not drawn.
+   * The feature is still discoverable, and the card says what enables it.
    */
-  test('names the directory feature and draws no form', async ({ page, request }) => {
-    test.skip(directory, 'this deployment can run a directory');
+  test('names the directory feature and draws no form', async ({ page }) => {
+    test.skip(directory, 'an LDAP provider is running');
 
     await login(page);
     await page.goto('/settings/auth');
 
-    // Still NAMED, and it still says which capability unlocks it — the same
-    // string the API's 501 carries.
+    // Still NAMED, and it says what is missing: configuration.
     await expect(page.getByRole('heading', { name: /Directory/ })).toBeVisible();
-    await expect(page.getByText('directory.ldap')).toBeVisible();
-    await expect(page.getByText(await lockedBadgeWord(request)).first()).toBeVisible();
+    await expect(page.getByText('Set LDAP_URL', { exact: false })).toBeVisible();
 
     /*
      * ABSENT, not merely disabled — and that distinction is the point of this
@@ -83,15 +78,12 @@ test.describe('primitives', () => {
    */
   test('a locked directory form cannot be typed into', async ({ page }) => {
     /*
-     * INVERTED from core to entitled.
-     *
-     * This guarded against somebody replacing the `<fieldset disabled>` with
+     * This guards against somebody replacing the `<fieldset disabled>` with
      * styling that only looks inert while a keyboard user tabs in and types.
-     * Core no longer renders a form at all, so the risk moved: it now lives in
-     * an entitled deployment's resting state, before Edit is pressed. That is
-     * where the assertion belongs.
+     * Without a provider there is no form at all, so the risk lives in a
+     * configured deployment's resting state, before Edit is pressed.
      */
-    test.skip(!directory, 'core renders no directory form; see the header-only test above');
+    test.skip(!directory, 'no LDAP provider — no form; see the header-only test above');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -102,7 +94,7 @@ test.describe('primitives', () => {
   });
 
   /**
-   * Everything below needs a directory-capable deployment.
+   * Everything below needs an LDAP provider running (LDAP_URL set).
    *
    * Reveals the form when nothing is configured yet. `count()` does NOT
    * auto-wait: called straight after `goto` it returns 0 because the panel has
@@ -141,7 +133,7 @@ test.describe('primitives', () => {
   }
 
   test('an unconfigured deployment offers an empty state, not a blank form', async ({ page }) => {
-    test.skip(!directory, 'requires the directory.ldap capability');
+    test.skip(!directory, 'requires LDAP_URL');
 
     await login(page);
     await page.goto('/settings/auth');
@@ -170,7 +162,7 @@ test.describe('primitives', () => {
    * association is broken, whatever the markup looks like.
    */
   test('every field on the directory form is reachable by its label', async ({ page }) => {
-    test.skip(!directory, 'requires the directory.ldap capability');
+    test.skip(!directory, 'requires LDAP_URL');
 
     await login(page);
     await openDirectoryForm(page, { editing: true });
@@ -198,7 +190,7 @@ test.describe('primitives', () => {
   });
 
   test('the form is grouped into cards rather than one flat list', async ({ page }) => {
-    test.skip(!directory, 'requires the directory.ldap capability');
+    test.skip(!directory, 'requires LDAP_URL');
 
     await login(page);
     await openDirectoryForm(page);
@@ -209,7 +201,7 @@ test.describe('primitives', () => {
   });
 
   test('field guidance is available from the keyboard', async ({ page }) => {
-    test.skip(!directory, 'requires the directory.ldap capability');
+    test.skip(!directory, 'requires LDAP_URL');
 
     await login(page);
     await openDirectoryForm(page, { editing: true });
@@ -220,7 +212,7 @@ test.describe('primitives', () => {
   });
 
   test('TLS verification is a switch, not a bare checkbox', async ({ page }) => {
-    test.skip(!directory, 'requires the directory.ldap capability');
+    test.skip(!directory, 'requires LDAP_URL');
 
     await login(page);
     await openDirectoryForm(page);
@@ -238,7 +230,7 @@ test.describe('primitives', () => {
    * saving happened.
    */
   test('the test result lands in its own panel, not in the action bar', async ({ page }) => {
-    test.skip(!directory, 'requires the directory.ldap capability');
+    test.skip(!directory, 'requires LDAP_URL');
 
     await login(page);
     await openDirectoryForm(page, { editing: true });

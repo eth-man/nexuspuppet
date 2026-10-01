@@ -13,7 +13,7 @@ A web console for Puppet estates running open-source `puppetserver` + PuppetDB, 
 1. **Visibility** — node inventory, facts, run reports, failure triage. Read-only projection of PuppetDB.
 2. **Classification** — a native ENC (External Node Classifier): node groups, fact-based matching rules, class and parameter assignment, stored in PostgreSQL and **materialized to YAML files on disk** for `puppetserver` to consume.
 
-It is **fully open source**: one public Apache-2.0 repository containing the entire product, with no paid tier and no feature held back. It was open core until 2026 — the directory and audit integrations lived in a private repository behind a licence — and `packages/enterprise` is what remains of that split: a separate package loaded at runtime, now an internal boundary rather than a commercial one.
+It is **fully open source**: one public Apache-2.0 repository containing the entire product, with no paid tier and no feature held back. It was open core until 2026, when the directory and audit integrations lived in a private repository behind a licence. Since [ADR-0027](./adr/0027-one-product.md) it is one product. Those integrations live in `apps/api`, every deployment has every feature, and deployments differ only in configuration.
 
 ## 2. What NexusPuppet is not
 
@@ -36,22 +36,19 @@ The cost is that classification changes are eventually consistent — typically 
 
 See [ADR-0003](./adr/0003-enc-generate-dont-serve.md).
 
-### 3.2 The enterprise layer is discovered at runtime, never imported at compile time
+### 3.2 One product, with no enterprise seam
 
-The public repository must build, typecheck, lint, and pass its full test suite with no knowledge that an enterprise layer exists. Enterprise code lives in a separate private repository, cloned into `packages/enterprise/` by an environment-driven script at build time. It is `.gitignore`d in the public repo, so no private URL is ever published.
+This was once "the enterprise layer is discovered at runtime, never imported at compile time" ([ADR-0002](./adr/0002-open-core-runtime-discovery.md)). [ADR-0027](./adr/0027-one-product.md) supersedes it. LDAP/AD, OIDC and audit forwarding are ordinary code in `apps/api` (`src/directory/`, `src/audit-forwarding/`) and are wired in `app.module.ts`. A directory provider is registered at boot when it is configured, and a malformed configuration stops the API from starting. There is no loader, no capability registry, no edition and no `501`-for-a-missing-feature.
 
-Core depends only on interfaces declared in `@nexuspuppet/contracts`. At boot the API attempts a dynamic `import()` of the enterprise entrypoint; on failure it silently continues with core implementations. An ESLint boundary rule makes a static import of enterprise code a lint error everywhere except the single loader file.
-
-See [ADR-0002](./adr/0002-open-core-runtime-discovery.md).
+What survives from the old boundary is what was useful about it. Seams are interfaces in `@nexuspuppet/contracts`, which keeps them testable against fakes. A fresh clone builds and tests with no secrets and nothing from outside the repository.
 
 ## 4. Component responsibilities
 
 | Component | Responsibility | Explicitly not responsible for |
 |---|---|---|
 | `apps/web` | Next.js App Router UI. Server components fetch through the API. Never talks to PuppetDB or Postgres directly. | Business rules, authorization decisions |
-| `apps/api` | NestJS. Owns all business logic, authorization, PuppetDB access, Postgres access, and ENC materialization. | Rendering |
+| `apps/api` | NestJS. Owns all business logic, authorization, PuppetDB access, Postgres access, and ENC materialization, plus directory authentication (LDAP/AD, OIDC) and audit forwarding. | Rendering |
 | `packages/contracts` | Interfaces, injection tokens, Zod schemas, shared DTO types. Zero runtime dependencies beyond `zod`. | Any implementation |
-| `packages/enterprise` | Optional, private, not in this repo. Implements contracts. | Reaching into core internals |
 | PostgreSQL | Users, sessions, node groups, rules, class assignments, the materialization outbox, audit log, cached node projection. | Being a source of truth for facts or reports |
 | PuppetDB | Source of truth for facts, catalogs, reports, node status. | Storing anything NexusPuppet owns |
 | ENC volume | Shared filesystem. Written by `api`, read by `puppetserver`. | Anything else |
@@ -85,7 +82,8 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | PuppetDB down | Inventory/report screens show an explicit error. Classification and materialization continue from the `ManagedNode` cache. **Puppet runs unaffected.** |
 | ENC volume unmounted on `api` | Materialization fails loudly, jobs retry. `puppetserver` still reads its own mount. |
 | ENC volume lost entirely | Nodes fall back to `default.yaml`. Full reconcile rebuilds it from Postgres. |
-| Enterprise package absent | Core runs. Enterprise-only endpoints return `501 Not Implemented`. |
+| Directory (LDAP/OIDC) unreachable | Directory users cannot sign in, and are told the directory failed rather than that their password is wrong. Local accounts keep working. **Puppet runs unaffected.** |
+| LDAP/OIDC/audit export misconfigured | The API refuses to boot with a message naming the integration, rather than running without it ([ADR-0027](./adr/0027-one-product.md)). |
 
 ## 8. Security posture
 
@@ -106,11 +104,11 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 |---|---|
 | [0000](./adr/0000-record-architecture-decisions.md) | Record architecture decisions |
 | [0001](./adr/0001-typescript-monorepo-npm-workspaces.md) | TypeScript monorepo on npm workspaces |
-| [0002](./adr/0002-open-core-runtime-discovery.md) | Open-core boundary via runtime discovery |
+| [0002](./adr/0002-open-core-runtime-discovery.md) | Open-core boundary via runtime discovery — **Superseded** by 0027 |
 | [0003](./adr/0003-enc-generate-dont-serve.md) | ENC generates files, does not serve requests |
 | [0004](./adr/0004-puppetdb-read-only-mtls.md) | PuppetDB is read-only over mTLS |
 | [0005](./adr/0005-postgres-prisma-local-state.md) | PostgreSQL + Prisma for local state only |
-| [0006](./adr/0006-auth-local-jwt-modular-sso.md) | Local JWT in core, modular SSO in enterprise |
+| [0006](./adr/0006-auth-local-jwt-modular-sso.md) | Local JWT in core, modular SSO in enterprise — amended by 0027 |
 | [0007](./adr/0007-apache-2-0-for-public-core.md) | Apache-2.0 for the public core |
 | [0008](./adr/0008-nextjs-app-router-latest-stable.md) | Next.js App Router, latest stable |
 | [0009](./adr/0009-classification-merge-semantics.md) | Classification merge and conflict resolution |
@@ -124,6 +122,7 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0017](./adr/0017-console-certificate-management.md) | Installing a console certificate from the console — **Accepted** |
 | [0018](./adr/0018-custom-roles.md) | Custom roles with granular permissions — **Accepted** |
 | [0019](./adr/0019-enc-tree-replication.md) | Replicating the ENC tree to puppetserver — **Accepted** |
+| [0027](./adr/0027-one-product.md) | One product: the enterprise seam is removed — **Accepted**; supersedes 0002 |
 
 ## 11. Open questions
 

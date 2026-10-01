@@ -139,7 +139,8 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((error: unknown) => {
-  // Anything thrown here — invalid env, a broken enterprise layer — must stop
+  // Anything thrown here — invalid env, a malformed LDAP/OIDC/audit export
+  // configuration (config/integrations.ts) — must stop
   // the process. Starting in a degraded state would be worse than not starting.
   console.error('[bootstrap] Fatal:', error instanceof Error ? error.message : error);
   process.exit(1);

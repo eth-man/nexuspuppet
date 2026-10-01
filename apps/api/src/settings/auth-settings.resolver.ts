@@ -10,7 +10,7 @@ import { SETTING_KINDS, SettingsStore, type SettingKind } from './settings.store
  * the audit forwarding resolver is separate from its service: the service
  * injects providers, and a provider injects this. Binding the token to the
  * service would close a dependency cycle the injector deadlocks on — silently,
- * and only where an enterprise provider is registered.
+ * and only where a directory provider is registered.
  *
  * ONLY A STORED ROW OVERRIDES. `resolve` answers null when nothing is stored or
  * when the environment is in force, because ADR-0016 §2 makes the environment

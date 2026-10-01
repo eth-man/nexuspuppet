@@ -13,8 +13,8 @@ import { SettingsGuard } from '@/components/settings-guard';
  * place that denied it existed, next to a dashboard reporting open conditions.
  *
  * Audit forwarding stays on Integrations, deliberately. The two destinations
- * look alike and are not: that one carries audit RECORDS and is gated on
- * `audit.export`, this one carries CONDITIONS and is core. Splitting them
+ * look alike and are not: that one carries audit RECORDS, this one carries
+ * CONDITIONS. Splitting them
  * across tabs makes that boundary structural rather than a comment somebody has
  * to notice.
  */

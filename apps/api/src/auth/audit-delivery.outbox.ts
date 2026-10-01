@@ -21,11 +21,11 @@ import { PrismaService } from '../prisma/prisma.service';
  * So delivery is decoupled exactly as ENC materialization is: enqueue in the
  * transaction, deliver afterwards. Late is acceptable; lost or invented is not.
  *
- * EXPOSED TO THE ENTERPRISE LAYER
- * -------------------------------
- * A forwarding sink registered under AUDIT_SINK injects this to queue its work.
- * It exists in core because only core owns the schema and the Prisma client —
- * ADR-0002 forbids the enterprise package reaching either.
+ * EXPOSED THROUGH A TOKEN
+ * ----------------------
+ * The forwarding sink bound to AUDIT_SINK injects this, as
+ * AUDIT_DELIVERY_OUTBOX, to queue its work. The sink depends on the interface
+ * rather than on Prisma, so it is unit-tested against a fake queue.
  */
 export type TransactionClient = Omit<
   Prisma.TransactionClient,
@@ -107,9 +107,9 @@ export class AuditDeliveryOutbox {
    * lease expires. Delivery is at-least-once; a SIEM can dedupe on
    * `auditLogId`, and cannot recover a record nobody sent.
    *
-   * The audit record is loaded with the job, so a caller — including one in the
-   * enterprise layer, which has no database access — receives everything it
-   * needs to build a payload.
+   * The audit record is loaded with the job, so a caller — including a
+   * transport, which has no database access of its own — receives everything
+   * it needs to build a payload.
    */
   async claim(tx: TransactionClient, limit: number, leaseMs: number): Promise<PendingDelivery[]> {
     const jobs = await tx.auditDeliveryJob.findMany({

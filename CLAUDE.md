@@ -7,14 +7,15 @@ conflict, the ADR wins.
 ## What this is
 
 A Puppet estate console: read-only PuppetDB visibility plus a native ENC that
-classifies nodes. Open core (Apache-2.0) with an optional private enterprise
-layer loaded at runtime.
+classifies nodes. Fully open source (Apache-2.0) and one product: every
+feature is always present, and deployments differ only in configuration
+(ADR-0027).
 
 ```
-apps/api            NestJS      all business logic, authz, PuppetDB, materializer
+apps/api            NestJS      all business logic, authz, PuppetDB, materializer,
+                                LDAP/AD + OIDC (src/directory), audit forwarding
 apps/web            Next.js     rendering only
 packages/contracts  types       interfaces, DI tokens, Zod schemas
-packages/enterprise Apache-2.0  LDAP/AD, OIDC, audit forwarding; loaded at runtime
 ```
 
 ## The three rules that are not negotiable
@@ -27,12 +28,16 @@ classifier route, or any synchronous path from `puppetserver` into this
 application. If NexusPuppet is down, agent runs must continue unaffected.
 Changing this requires a superseding ADR, not a PR comment.
 
-**2. Core must build, typecheck, lint, and test with no enterprise layer.** (ADR-0002)
+**2. A fresh clone builds with nothing from outside this repository.** (ADR-0027)
 
-Never `import` from `@nexuspuppet/enterprise`. Depend on an interface in
-`@nexuspuppet/contracts`; the enterprise layer registers an implementation at
-boot. The only file permitted to reference enterprise code is
-`apps/api/src/enterprise/enterprise.loader.ts`. ESLint enforces this.
+It must build, typecheck, lint, and pass its unit tests with no secrets, no
+private code, and no build flag — CI's "Build, typecheck, lint, unit tests"
+job proves it on every commit. There are no editions and no optional layer: do
+not add a feature flag that ships a smaller product, a capability check, or a
+`501` for "this deployment lacks it". What varies between deployments is
+configuration, and a feature that needs some says so on its own settings
+surface. Seams are interfaces in `@nexuspuppet/contracts`, which stays
+dependency-free apart from `zod` and never imports its consumers (ADR-0001).
 
 **3. `apps/web` never touches data directly.** (C4 L2, ADR-0008)
 
@@ -100,8 +105,10 @@ confirms it.
   denied even to an authenticated caller — access is granted by an explicit
   decorator, never by forgetting one. `@Public()` opts out and is greppable.
 - Depend on the `AUTHORIZATION_POLICY` and `AUTH_PROVIDER` tokens, never on
-  `RbacPolicy` or `LocalAuthProvider` directly. The enterprise layer replaces
-  either one independently (ADR-0006).
+  `RbacPolicy` or `LocalAuthProvider` directly, so each is replaceable in a
+  test and nothing reaches around the seam; `app.wiring.spec.ts` enforces it
+  (ADR-0006). The one deliberate exception is `AUTH_PROVIDERS`, which names
+  `LocalAuthProvider` directly so local sign-in can never be unbound (ADR-0015).
 - Login failures return one message for every cause. Distinguishing "no such
   user" from "wrong password" makes login a user-enumeration oracle.
 - Never log a token, a password, or a refresh value.
@@ -111,8 +118,9 @@ confirms it.
 - TypeScript is pinned to `~5.9.3` on purpose. See ADR-0010 before upgrading.
 - `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.
   Indexing a record yields `T | undefined`; handle it rather than asserting.
-- Enterprise-only routes exist in core and return `501` with a `capability`
-  field — not `404`. The feature exists; this deployment lacks it.
+- No route answers `501` because a deployment lacks a feature — that
+  convention was retired with the editions (ADR-0027). A directory or
+  forwarding integration that is not configured is reported as not configured.
 - Secrets arrive as env vars or mounted files. `JWT_SECRET` has no default and
   the API refuses to boot without it; do not add a development fallback.
 - Passwords use `node:crypto` scrypt. No native crypto dependencies — on-prem

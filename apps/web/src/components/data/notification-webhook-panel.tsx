@@ -27,9 +27,8 @@ import { LoadingRows, QueryError } from '@/components/states';
 /**
  * Where operational notifications are POSTed (ADR-0021 §4).
  *
- * NOT capability-gated, and not the audit webhook. That one lives under
- * `audit.export` and carries audit records; this is core and carries
- * conditions. Two destinations, so the boundary is enforced by which transport
+ * Not the audit webhook. That one lives under audit forwarding and carries
+ * audit records; this carries conditions. Two destinations, so the boundary is enforced by which transport
  * is used rather than by remembering.
  */
 export function NotificationWebhookPanel() {

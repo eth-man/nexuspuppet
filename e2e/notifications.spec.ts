@@ -11,7 +11,8 @@ import { assertStackReachable, login } from './support';
  * that denied it existed. Nothing failed; nothing was covering it.
  *
  * So the first test here is the one that would have caught it: the panels are
- * on THIS tab. Both are core, so all of this runs in every edition.
+ * on THIS tab. Neither needs configuration to render, so all of this runs
+ * everywhere.
  */
 
 test.describe('the Notifications tab', () => {
@@ -30,8 +31,8 @@ test.describe('the Notifications tab', () => {
   });
 
   /*
-   * The other half of the same boundary: audit forwarding carries RECORDS and
-   * is gated on `audit.export`; these carry CONDITIONS and are core. Two
+   * The other half of the same boundary: audit forwarding carries RECORDS;
+   * these carry CONDITIONS. Two
    * destinations that look alike and are not, so neither tab may quietly
    * acquire the other's cards.
    */
@@ -50,12 +51,10 @@ test.describe('the Notifications tab', () => {
 /**
  * The notification webhook (ADR-0021 §4).
  *
- * A SEPARATE destination from the audit webhook on Integrations, and core
- * rather than capability-gated — so it must render on a deployment without
- * `audit.export`, where the audit cards are a header alone.
+ * A SEPARATE destination from the audit webhook on Integrations.
  */
 test.describe('the notification webhook', () => {
-  test('is offered in every edition, unlike audit forwarding', async ({ page }) => {
+  test('is offered, and says it is not the audit webhook', async ({ page }) => {
     await login(page);
     await page.goto('/settings/notifications');
 
@@ -76,11 +75,10 @@ test.describe('the notification webhook', () => {
 /**
  * The notification email relay (ADR-0021 §4).
  *
- * Core, like the webhook — so it must render on a deployment without
- * `audit.export`, where the audit cards are a header alone.
+ * Like the webhook, it needs no configuration to render.
  */
 test.describe('the notification email relay', () => {
-  test('is offered in every edition, with one team recipient', async ({ page }) => {
+  test('is offered, with one team recipient', async ({ page }) => {
     await login(page);
     await page.goto('/settings/notifications');
 

@@ -10,7 +10,7 @@ holds the decisions.
 
 **Staging**:
 The environment that tracks `main` — where merged work is verified against
-realistic infrastructure (enterprise edition, synthetic fixtures giving way to
+realistic infrastructure (synthetic fixtures giving way to
 real services as they are commissioned) before any release is cut.
 _Avoid_: test server, dev environment, preprod
 

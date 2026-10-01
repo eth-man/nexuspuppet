@@ -1,8 +1,16 @@
 # ADR-0018 — Custom roles with granular permissions
 
-- **Status:** Accepted — mechanism in core, editing behind an enterprise capability
+- **Status:** Accepted. Editing was originally gated on an enterprise capability; since [ADR-0027](./0027-one-product.md), editing is always available.
 - **Deciders:** Architect
-- **Related:** [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0011](./0011-scoped-rbac.md), [ADR-0015](./0015-hybrid-authentication.md), [ADR-0002](./0002-open-core-runtime-discovery.md)
+- **Related:** [ADR-0006](./0006-auth-local-jwt-modular-sso.md), [ADR-0011](./0011-scoped-rbac.md), [ADR-0015](./0015-hybrid-authentication.md), [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** §6's split is
+> gone. The `rbac.custom` capability and the `501` it guarded were removed, so
+> every deployment can create, edit and delete roles, given `settings:manage`.
+> Everything §6 put "in core" is unchanged: the table, per-request resolution,
+> the lockout rules, directory mapping, and the three fixed built-ins. Open
+> question 2, about a lapsing licence stranding custom roles, is moot because
+> there is no licence.
 
 ## Context
 

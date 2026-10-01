@@ -2,6 +2,12 @@
 
 > **HISTORICAL. Do not follow this document.**
 >
+> **Since [ADR-0027](docs/architecture/adr/0027-one-product.md) (2026-09-30)
+> there is one product.** Where this document or the note below describes an
+> enterprise layer, editions, or a layer fetched and discovered at runtime,
+> ADR-0027 wins: that code lives in `apps/api`, and every deployment has every
+> feature.
+>
 > This is the intake questionnaire from before any code existed, kept because it
 > records what was assumed at the start and what those assumptions became. Some
 > of it was wrong, and the corrections are the interesting part.

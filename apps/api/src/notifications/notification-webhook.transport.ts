@@ -6,11 +6,10 @@ import type { NotificationPayload, NotificationWebhookSettings } from '@nexuspup
  * POSTs an operational condition to the operator's endpoint (ADR-0021 §4).
  *
  * SEPARATE FROM THE AUDIT WEBHOOK, and that is the design rather than
- * duplication. The audit transport exists under `audit.export` and carries
- * audit records; this is core and carries conditions. Routing notifications
- * through the enterprise-gated component would either break core or perforate
- * the capability — keeping them apart makes ADR-0021 §1 something the
- * transports enforce rather than something a reviewer has to remember.
+ * duplication. The audit transport carries audit records; this carries
+ * conditions. Keeping them apart makes ADR-0021 §1 — no audit content in a
+ * notification — something the transports enforce rather than something a
+ * reviewer has to remember.
  */
 
 export interface DeliveryOutcome {

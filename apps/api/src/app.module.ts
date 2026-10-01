@@ -1,4 +1,4 @@
-import { Module, type DynamicModule, type Provider, type Type } from '@nestjs/common';
+import { Logger, Module, type DynamicModule, type Provider, type Type } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import {
@@ -7,7 +7,6 @@ import {
   AUDIT_FORWARDING_SETTINGS,
   AUDIT_TRANSPORT,
   AUTH_PROVIDER_SETTINGS,
-  CAPABILITIES,
   CORE_AUDIT_SINK,
   AUTHORIZATION_POLICY,
   AUTH_PROVIDER,
@@ -15,10 +14,7 @@ import {
   ENC_FILE_WRITER,
   PUPPETDB_CLIENT,
   USER_DIRECTORY,
-  type CapabilityToken,
 } from '@nexuspuppet/contracts';
-import { CapabilityRegistry } from './enterprise/capability.registry';
-import { EnterpriseLoader } from './enterprise/enterprise.loader';
 import { HealthController } from './health/health.controller';
 import { NodesController } from './inventory/nodes.controller';
 import { ResourcesController } from './inventory/resources.controller';
@@ -63,11 +59,7 @@ import { ConsoleTlsService } from './system/console-tls.service';
 import { readFileSync } from 'node:fs';
 import { DeploymentService } from './system/deployment.service';
 import { ConsoleTlsGrantService } from './system/console-tls-grant.service';
-import {
-  AuditDeliveryWorker,
-  DEFAULT_AUDIT_PACING,
-  NoopAuditTransport,
-} from './auth/audit-delivery.worker';
+import { AuditDeliveryWorker, DEFAULT_AUDIT_PACING } from './auth/audit-delivery.worker';
 import { AuditRetentionSweeper } from './auth/audit-retention.sweeper';
 import { PuppetDbExceptionFilter } from './common/puppetdb-exception.filter';
 import { AuthGuard } from './auth/auth.guard';
@@ -93,25 +85,26 @@ import { DirectoryMappingSource, OidcMappingSource } from './auth/directory-mapp
 import { TokenService } from './auth/token.service';
 import { BootstrapService, LoginRateLimiter, PrismaAuditSink } from './auth/core-capabilities';
 import { loadEnv, type Env } from './config/env';
+import { integrationsFromEnv, type IntegrationConfig } from './config/integrations';
+import { LdapAuthProvider } from './directory/ldap/ldap-auth.provider';
+import { LdaptsDirectory } from './directory/ldap/ldap-client';
+import { OidcAuthProvider } from './directory/oidc/oidc-auth.provider';
+import { OidcDirectory } from './directory/oidc/discovery';
+import { HttpTokenExchange, NodeOidcHttp } from './directory/oidc/http';
+import { ForwardingAuditSink } from './audit-forwarding/forwarding-audit-sink';
+import { SettingsAuditTransport } from './audit-forwarding/settings-transport';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import type {
+  IAuditDeliveryOutbox,
+  IAuditForwardingSettings,
   IAuditSink,
   IAuditTransport,
   IAuthProvider,
+  IAuthProviderSettings,
   IPuppetDbClient,
+  IUserDirectory,
 } from '@nexuspuppet/contracts';
 
-/**
- * Root module.
- *
- * Composed asynchronously because the enterprise layer is discovered at
- * runtime (ADR-0002) and its registrations must resolve before the injector is
- * built.
- *
- * `coreDefaults` must contain an implementation for EVERY capability token.
- * A token with no core default would mean the product is incomplete without
- * the enterprise layer, which ADR-0002 forbids.
- */
 /**
  * The running version, as the console reports it.
  *
@@ -153,9 +146,22 @@ const PACKAGE_VERSION: string = resolveVersion();
 
 @Module({})
 export class AppModule {
+  /**
+   * Root module.
+   *
+   * Built from validated configuration rather than declared statically, so
+   * the providers that exist can follow it: a directory provider is
+   * registered only when that directory is configured (ADR-0027).
+   *
+   * Every seam in `CAPABILITY_TOKENS` is bound exactly once, below.
+   * app.wiring.spec.ts enforces it.
+   */
   static async bootstrap(): Promise<DynamicModule> {
     const env = loadEnv();
-    const enterprise = await EnterpriseLoader.load();
+    // BEFORE anything is built. A present-but-malformed LDAP, OIDC or audit
+    // export configuration stops the API here, with a message naming it —
+    // never a deployment that quietly runs without its directory (ADR-0027 §5).
+    const integrations = integrationsFromEnv();
 
     // ONE policy object, shared by the sweeper that enforces it and the status
     // surface that reports it — two copies built from the same env would still
@@ -168,59 +174,39 @@ export class AppModule {
       maxBatchesPerPass: env.AUDIT_RETENTION_MAX_BATCHES,
     };
 
-    // EVERY capability token gets a core default (ADR-0002). A token without
-    // one would mean the product is incomplete without the enterprise layer.
-    const coreDefaults = new Map<CapabilityToken, Provider>([
-      [PUPPETDB_CLIENT, puppetDbProvider(env)],
-      [ENC_FILE_WRITER, encWriterProvider(env)],
+    // Every seam, bound once. Interfaces and tokens stay in contracts because
+    // they keep these independently testable, not because anything replaces
+    // them at runtime — nothing does (ADR-0027).
+    const seams: Provider[] = [
+      puppetDbProvider(env),
+      encWriterProvider(env),
       // useExisting, not useClass: LocalAuthProvider is built by a factory
       // below so it can receive the lockout policy from config. useClass would
       // have Nest construct a SECOND instance through DI metadata, which fails
       // because the policy is a plain object rather than an injectable — and
       // would silently give the two instances different configuration if it
       // did not.
-      // Core's local provider, and it stays core's local provider. The registry
-      // refuses an enterprise override of this token (ADR-0015): replacing it
-      // removed local authentication outright rather than shadowing it, which
-      // locked every local account out the moment a directory was enabled.
-      [AUTH_PROVIDER, { provide: AUTH_PROVIDER, useExisting: LocalAuthProvider }],
-      [AUTHORIZATION_POLICY, { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy }],
-      [USER_DIRECTORY, { provide: USER_DIRECTORY, useClass: LocalUserDirectory }],
-      // An ALIAS onto CORE_AUDIT_SINK, not a second construction of it.
-      //
-      // Core behaviour is unchanged: AUDIT_SINK still resolves to the Postgres
-      // sink. What changes is that the core sink now has a stable token of its
-      // own, so a replacement registered under AUDIT_SINK can COMPOSE over it —
-      // delegate the transactional write, then forward — instead of having to
-      // own a write it cannot perform (ADR-0002 keeps Prisma out of the
-      // enterprise layer). An estate that gains a SIEM must not lose its local
-      // audit trail.
-      [AUDIT_SINK, { provide: AUDIT_SINK, useExisting: CORE_AUDIT_SINK }],
-      // Core forwards audit records nowhere. That is a complete product, not a
-      // gap: the records are in Postgres and queryable. The no-op reports
-      // itself unconfigured so the worker leaves the queue alone rather than
-      // draining records into nothing.
-      [AUDIT_TRANSPORT, { provide: AUDIT_TRANSPORT, useClass: NoopAuditTransport }],
-    ]);
+      { provide: AUTH_PROVIDER, useExisting: LocalAuthProvider },
+      { provide: AUTHORIZATION_POLICY, useClass: RbacPolicy },
+      { provide: USER_DIRECTORY, useClass: LocalUserDirectory },
+      ...auditForwardingProviders(integrations),
+    ];
 
-    // Registered outside coreDefaults: this is not a capability the enterprise
-    // layer may replace, it is a core service the enterprise layer may depend on.
-    // Class constructors, not provider descriptors: each is registered as its
-    // own provider AND used as the injection token for the list below.
-    const enterpriseAuthProviders = (enterprise?.descriptor.authProviders ??
-      []) as Type<IAuthProvider>[];
+    // Directory providers for the directories that are configured, in the
+    // order they are dispatched to after local (ADR-0015, ADR-0023).
+    const directory = directoryProviders(integrations);
 
     const coreServices: Provider[] = [
       // Every provider that can answer a login, local first (ADR-0015).
       //
-      // The enterprise contributions are ADDITIVE. Core's local provider is
-      // always in this list and the registry refuses any attempt to displace
-      // it, which is what makes an administrator lockout structurally
-      // impossible rather than a documented hazard.
-      ...enterpriseAuthProviders,
+      // Directory providers are ADDITIVE. The local provider is always in this
+      // list — named directly, not through AUTH_PROVIDER — which is what makes
+      // an administrator lockout structurally impossible rather than a
+      // documented hazard. app.wiring.spec.ts pins it.
+      ...directory.providers,
       {
         provide: AUTH_PROVIDERS,
-        inject: [LocalAuthProvider, ...enterpriseAuthProviders],
+        inject: [LocalAuthProvider, ...directory.tokens],
         useFactory: (...providers: IAuthProvider[]): IAuthProvider[] => providers,
       },
       {
@@ -242,13 +228,12 @@ export class AppModule {
             store,
             prisma,
             audit,
-            // The environment baseline for LDAP is owned by the enterprise
-            // layer's own parser, which core cannot call (ADR-0002) — so core
-            // asks the provider built from it what it is running with, rather
-            // than reading the variables itself.
+            // The environment baseline for LDAP is what the registered provider
+            // is running with, so the settings surface asks it rather than
+            // parsing the variables a second time — two parsers could disagree.
             () => ldapEnvBaseline(resolver),
             () => resolver.forSource('ldap') !== null,
-            // Same route, same reason: core cannot parse OIDC_* either.
+            // Same route, same reason, for OIDC_*.
             () => oidcEnvBaseline(resolver),
             () => resolver.forSource('oidc') !== null,
           ),
@@ -261,9 +246,9 @@ export class AppModule {
       },
       { provide: CORE_AUDIT_SINK, useClass: PrismaAuditSink },
       AuditDeliveryOutbox,
-      // Aliased under a contracts token so a forwarding capability can inject
-      // it. The enterprise layer cannot name the class (ADR-0002), and this is
-      // the only part of the delivery machinery it needs to reach.
+      // Aliased under a contracts token so the forwarding sink depends on the
+      // interface — the only part of the delivery machinery it needs — and is
+      // unit-tested against a fake queue.
       { provide: AUDIT_DELIVERY_OUTBOX, useExisting: AuditDeliveryOutbox },
       {
         // Explicit factory: the pacing argument is a plain object, which Nest
@@ -286,11 +271,6 @@ export class AppModule {
           new AuditRetentionSweeper(prisma, retentionPolicy),
       },
     ];
-
-    const { providers, registry } = CapabilityRegistry.buildProviders(
-      coreDefaults,
-      enterprise?.descriptor ?? null,
-    );
 
     return {
       module: AppModule,
@@ -362,8 +342,8 @@ export class AppModule {
         },
         encReplicationProvider(env),
         CompileReceiptsService,
-        // Core, not capability-gated: what keeps ADR-0021 §1 honest is the
-        // content constraint, not a licence check.
+        // Not gated on anything: what keeps ADR-0021 §1 honest is the content
+        // constraint.
         NotificationWebhookTransport,
         NotificationEmailTransport,
         {
@@ -430,7 +410,7 @@ export class AppModule {
             ),
         },
         // RbacPolicy reads the roles table through this. A dependency of the
-        // policy, not a seam: the enterprise layer replaces the POLICY, not
+        // policy, not a seam: AUTHORIZATION_POLICY abstracts the policy, not
         // where roles live (ADR-0018 §2).
         RoleRegistry,
         LdapMappingSource,
@@ -459,20 +439,18 @@ export class AppModule {
             ),
         },
         ...coreServices,
-        ...providers,
-        { provide: CapabilityRegistry, useValue: registry },
+        ...seams,
         {
           provide: AuditForwardingResolver,
           inject: [SettingsStore],
           useFactory: (store: SettingsStore): AuditForwardingResolver =>
             new AuditForwardingResolver(store),
         },
-        // Aliased under a contracts token so the forwarding capability can ask
+        // Aliased under a contracts token so the forwarding transport can ask
         // which transport is active and with what configuration (ADR-0016 §4).
         // Bound to the RESOLVER, never the service: the service injects the
-        // transport, and an enterprise transport injects this token — binding
-        // it to the service is a circular dependency the injector deadlocks
-        // on, silently, and only in enterprise deployments.
+        // transport, and the transport injects this token — binding it to the
+        // service is a circular dependency the injector deadlocks on, silently.
         { provide: AUDIT_FORWARDING_SETTINGS, useExisting: AuditForwardingResolver },
         {
           provide: AuthSettingsResolver,
@@ -480,7 +458,7 @@ export class AppModule {
           useFactory: (store: SettingsStore): AuthSettingsResolver =>
             new AuthSettingsResolver(store),
         },
-        // What an enterprise auth provider reads to pick up a saved
+        // What a directory provider reads to pick up a saved
         // configuration without a restart (ADR-0016 §4, #113). Bound to the
         // RESOLVER, never to SettingsService: the service injects providers,
         // and a provider injects this — the same cycle that deadlocked the
@@ -502,17 +480,7 @@ export class AppModule {
             audit: IAuditSink,
             transport: IAuditTransport,
           ): AuditForwardingService =>
-            new AuditForwardingService(
-              store,
-              prisma,
-              resolver,
-              audit,
-              transport,
-              // "Registered" is the capability, not the transport instance —
-              // core's noop holds the token in every deployment, and what the
-              // console needs to know is whether edits can reach a real sender.
-              () => registry.has(CAPABILITIES.AUDIT_EXPORT),
-            ),
+            new AuditForwardingService(store, prisma, resolver, audit, transport),
         },
         Reflector,
 
@@ -564,7 +532,6 @@ export class AppModule {
               projection,
               transport,
               forwarding,
-              () => registry.has(CAPABILITIES.AUDIT_EXPORT),
               retentionPolicy,
               // The SAME values main.ts opens the listener from. Reading the
               // environment twice would let the console report a listener that
@@ -604,19 +571,19 @@ export class AppModule {
             new ConsoleTlsGrantService(audit, env.CERT_HELPER_SECRET),
         },
         // RbacPolicy, LocalUserDirectory and PrismaAuditSink are NOT
-        // registered here. They reach the container only through their
-        // capability tokens above (ADR-0002).
+        // registered here. They reach the container only through their tokens.
         //
         // Registering a class as well as aliasing it is what makes a seam
         // decorative: the class stays injectable, so a consumer can take it
-        // directly and an enterprise override is constructed and never called.
-        // With useClass it is worse — Nest builds a SECOND instance, and the two
-        // diverge. AUDIT_SINK had exactly that defect: every user-administration
-        // and classification event bypassed the token.
+        // directly and bypass whatever the token is bound to. With useClass it
+        // is worse — Nest builds a SECOND instance, and the two diverge.
+        // AUDIT_SINK had exactly that defect: every user-administration and
+        // classification event bypassed the token, and so would have bypassed
+        // forwarding.
         //
         // LocalAuthProvider above is the one exception, and only because
         // useExisting aliases a provider that must already exist.
-        // capability-wiring.spec.ts enforces all of this.
+        // app.wiring.spec.ts enforces all of this.
         // Explicit factory: the constructor's defaulted numeric parameters
         // would otherwise be treated by Nest as injectable dependencies.
         { provide: LoginRateLimiter, useFactory: (): LoginRateLimiter => new LoginRateLimiter() },
@@ -751,7 +718,6 @@ export class AppModule {
         { provide: APP_FILTER, useClass: PuppetDbExceptionFilter },
       ],
       exports: [
-        CapabilityRegistry,
         PUPPETDB_CLIENT,
         ENC_FILE_WRITER,
         PrismaService,
@@ -835,8 +801,8 @@ function environmentClassesProvider(env: Env): Provider {
  * It used to alias the token onto a separately-registered concrete class while
  * every consumer injected that class — so the token could be overridden and
  * nothing that writes ENC files would notice. The seam existed and did nothing.
- * The token is now the only way to obtain storage, which is what makes an
- * enterprise override (ADR-0002) actually take effect.
+ * The token is now the only way to obtain storage, so a consumer can be tested
+ * against a fake writer and nothing reaches around it.
  *
  * Still exactly one instance: two owners of the ENC directory would break the
  * content-hash change detection that keeps a no-op from becoming estate-wide
@@ -867,4 +833,111 @@ function encReplicationProvider(env: Env): Provider {
       new EncReplicationService(prisma, env.ENC_OUTPUT_DIR),
     inject: [PrismaService],
   };
+}
+
+/**
+ * Audit forwarding (ADR-0016), registered in EVERY deployment (ADR-0027).
+ *
+ * Both halves, together. The sink without the transport would queue records
+ * with nowhere to go; the transport without the sink would leave nothing
+ * enqueuing them.
+ *
+ * The sink COMPOSES over the Postgres one: it delegates the transactional
+ * write to CORE_AUDIT_SINK and then enqueues for forwarding, so an estate that
+ * gains a SIEM never loses its local trail. It asks the transport's live view
+ * whether anything can send before enqueueing, so a deployment that has not
+ * configured forwarding queues nothing.
+ *
+ * `integrations.auditExport` is only the environment BASELINE for the webhook
+ * transport; what is active is resolved from the settings store on every
+ * delivery, and stored settings win once written.
+ */
+function auditForwardingProviders(integrations: IntegrationConfig): Provider[] {
+  return [
+    {
+      provide: AUDIT_SINK,
+      inject: [CORE_AUDIT_SINK, AUDIT_DELIVERY_OUTBOX, AUDIT_TRANSPORT],
+      useFactory: (
+        core: IAuditSink,
+        outbox: IAuditDeliveryOutbox,
+        transport: IAuditTransport,
+      ): ForwardingAuditSink =>
+        new ForwardingAuditSink(core, outbox, integrations.auditExport, () => transport.configured),
+    },
+    {
+      provide: AUDIT_TRANSPORT,
+      inject: [AUDIT_FORWARDING_SETTINGS],
+      useFactory: (settings: IAuditForwardingSettings): SettingsAuditTransport =>
+        new SettingsAuditTransport(settings, integrations.auditExport),
+    },
+  ];
+}
+
+/**
+ * Directory authentication providers, one per CONFIGURED directory.
+ *
+ * Registered at boot from the environment: LDAP when `LDAP_URL` is set, OIDC
+ * when `OIDC_ISSUER` is. Both may be; each claims its own `authSource`, and
+ * the resolver dispatches by the account's (ADR-0023). A saved configuration
+ * then takes effect on the next login without a restart, through
+ * AUTH_PROVIDER_SETTINGS (ADR-0016 §4) — but REGISTERING a provider still needs
+ * the environment and a restart. Registering both always, and enabling from
+ * the console, is ADR-0027's open follow-up.
+ *
+ * Each class is its own injection token, so AUTH_PROVIDERS can list it
+ * alongside the local provider.
+ */
+function directoryProviders(integrations: IntegrationConfig): {
+  providers: Provider[];
+  tokens: Type<IAuthProvider>[];
+} {
+  const providers: Provider[] = [];
+  const tokens: Type<IAuthProvider>[] = [];
+  const { ldap, oidc } = integrations;
+
+  if (ldap !== null) {
+    providers.push({
+      provide: LdapAuthProvider,
+      inject: [USER_DIRECTORY, AUTH_PROVIDER_SETTINGS],
+      useFactory: (identities: IUserDirectory, settings: IAuthProviderSettings): LdapAuthProvider =>
+        new LdapAuthProvider({
+          config: ldap,
+          // Reads LDAP_CA_PATH here, so an unreadable CA bundle fails the boot
+          // rather than somebody's first login.
+          directory: new LdaptsDirectory(ldap),
+          identities,
+          logger: new Logger('LdapAuthProvider'),
+          settings,
+        }),
+    });
+    tokens.push(LdapAuthProvider);
+  }
+
+  if (oidc !== null) {
+    providers.push({
+      provide: OidcAuthProvider,
+      inject: [USER_DIRECTORY, AUTH_PROVIDER_SETTINGS],
+      useFactory: (
+        identities: IUserDirectory,
+        settings: IAuthProviderSettings,
+      ): OidcAuthProvider => {
+        const http = new NodeOidcHttp();
+        return new OidcAuthProvider({
+          config: oidc,
+          directory: new OidcDirectory(oidc.issuer, http, oidc.timeoutMs),
+          identities,
+          logger: new Logger('OidcAuthProvider'),
+          exchange: new HttpTokenExchange(oidc, http),
+          settings,
+          // A different issuer gets its own discovery cache, JWKS and token
+          // credentials — none of the boot ones survive a change of provider.
+          directoryFor: (next) => new OidcDirectory(next.issuer, http, next.timeoutMs),
+          exchangeFor: (next) => new HttpTokenExchange(next, http),
+        });
+      },
+    });
+    tokens.push(OidcAuthProvider);
+  }
+
+  return { providers, tokens };
 }

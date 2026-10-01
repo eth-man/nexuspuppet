@@ -119,7 +119,7 @@ export class NotificationEvaluatorService implements OnModuleInit, OnModuleDestr
 
     /*
      * Conditions the catalogue no longer produces — a peer removed from the
-     * allowlist, replication switched off, a capability lost. They are treated
+     * allowlist, replication switched off, forwarding turned off. They are treated
      * as passing and resolved.
      *
      * Leaving them open would strand an alert about something that no longer

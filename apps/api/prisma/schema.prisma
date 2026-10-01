@@ -65,7 +65,7 @@ model User {
   displayName         String
   /// scrypt$N$r$p$salt$hash — self-describing so parameters can be raised
   /// later and verified per-record. Null when an external directory owns
-  /// authentication (enterprise LDAP/SAML).
+  /// authentication (LDAP or OIDC).
   passwordHash        String?
   /// The role's NAME, denormalised (ADR-0018).
   ///
@@ -458,9 +458,10 @@ model AuditLog {
 /// written in the SAME transaction as the change and its audit record; a worker
 /// drains it afterwards. There is no committed change without a queued delivery.
 ///
-/// Core writes nothing here unless a capability that forwards audit records is
-/// installed. The table exists in core because only core owns the schema —
-/// the enterprise layer cannot add a migration.
+/// Nothing is written here until a forwarding transport is configured: the
+/// forwarding sink checks the transport before it enqueues (ADR-0016). Written
+/// when this table lived apart from the code that fills it, which is why it is
+/// described here rather than beside a migration of its own.
 model AuditDeliveryJob {
   id         String   @id @default(uuid()) @db.Uuid
   /// Cascades: if audit retention removes the record, an undelivered job for it

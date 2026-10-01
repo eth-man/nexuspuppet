@@ -41,9 +41,9 @@ export const SETTING_KINDS = [
    * Where operational notifications are POSTed (ADR-0021).
    *
    * SEPARATE from `audit.webhook`, which is not an accident of naming. That one
-   * exists under `audit.export` and carries audit records; this one is core and
-   * carries conditions only. Sharing a destination would make the boundary a
-   * convention rather than something the transports enforce.
+   * carries audit records; this one carries conditions only. Sharing a
+   * destination would make the boundary a convention rather than something the
+   * transports enforce.
    */
   'notifications.webhook',
   /** The mail relay operational notifications go through (ADR-0021 §4). */

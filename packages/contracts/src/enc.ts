@@ -253,8 +253,7 @@ export type MaterializationStatus = z.infer<typeof materializationStatusSchema>;
  *
  * Named for the POSIX case it was born in, and kept that way deliberately: an
  * implementation may equally be an object store or a git repository, and
- * renaming a published contract for a better word costs every enterprise build
- * a rebuild for no behavioural gain.
+ * renaming a contract for a better word is churn with no behavioural gain.
  *
  * IMPLEMENTORS
  * ------------

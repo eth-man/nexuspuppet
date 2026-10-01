@@ -23,7 +23,7 @@ const DATABASE_URL =
   'postgresql://nexuspuppet:nexuspuppet@localhost:5432/nexuspuppet_test?schema=public';
 
 /**
- * Stands in for the enterprise forwarding sink.
+ * Stands in for the forwarding sink (src/audit-forwarding).
  *
  * It follows the same rule the real one does — enqueue only when given a
  * transaction — because that rule is what the fix has to satisfy. A stub that

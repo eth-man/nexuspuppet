@@ -12,10 +12,10 @@ import { RoleRegistry } from './role-registry';
  * Core's flat role-based authorization (ADR-0006).
  *
  * Registered under AUTHORIZATION_POLICY, which is a SEPARATE token from
- * AUTH_PROVIDER. That separation is the point: the enterprise layer replaces
- * scoped RBAC without touching authentication, and replaces SSO without
- * touching authorization. Coupling them would force enterprise to reimplement
- * both in order to change one.
+ * AUTH_PROVIDER. That separation is the point: a scoped policy (not yet built)
+ * could replace this without touching authentication, and directory providers
+ * were added without touching authorization. Coupling them would force a
+ * change to one to reimplement both.
  *
  * `can()` is a pure function of the principal and the request. It performs no
  * I/O, so it can be called on every request and reasoned about in isolation.
@@ -51,15 +51,16 @@ export const SEEDED_BUILT_IN_PERMISSIONS: Record<UserRole, ReadonlySet<Permissio
      * OPERATOR deliberately do not hold it. Those are the roles most people
      * actually hold, and that is where the risk lives.
      *
-     * ADMIN holds it because otherwise NOBODY can. Creating a custom role
-     * answers 501 without the enterprise layer (ADR-0018), so leaving this
-     * unheld would make the feature unreachable in every core deployment
-     * rather than merely restricted. `pql:raw` is not an alternative route —
-     * it is declared and has no endpoint.
+     * ADMIN holds it because, when it was introduced (1.8.0), otherwise NOBODY
+     * could: creating a custom role then answered 501 without the enterprise
+     * layer (ADR-0018), so leaving this unheld would have made the feature
+     * unreachable rather than merely restricted. `pql:raw` is not an
+     * alternative route — it is declared and has no endpoint.
      *
-     * The cost is explicit: core cannot express "an admin who manages users
-     * but must not read file contents". With the enterprise layer it can, by
-     * granting this to a custom role and narrowing ADMIN.
+     * "An admin who manages users but must not read file contents" is a custom
+     * role: every deployment can define one since ADR-0027, granting the
+     * user-administration permissions without this one, and use it in place of
+     * ADMIN.
      */
     'resources:read',
   ]),
@@ -98,15 +99,14 @@ export class RbacPolicy implements IAuthorizationPolicy {
 }
 
 /**
- * Enforce the optional scoping an enterprise provider may attach to a
- * principal.
+ * Enforce the optional scoping a provider may attach to a principal — scoped
+ * RBAC, which is not yet built.
  *
- * Core never populates `scopedGroupIds`/`scopedEnvironments`, so this is a
- * no-op for local accounts. It lives in core anyway because the ENFORCEMENT
- * must not be optional: if scope were only checked inside the enterprise
- * policy, a deployment that loaded an enterprise provider but kept the core
- * policy would silently ignore every scope restriction and hand narrow users
- * estate-wide access.
+ * Nothing populates `scopedGroupIds`/`scopedEnvironments` today, so this is a
+ * no-op. It lives in the base policy anyway because the ENFORCEMENT must not be
+ * optional: if scope were only checked inside a future scoped policy, a
+ * deployment whose provider attached scope but kept this policy would silently
+ * ignore every scope restriction and hand narrow users estate-wide access.
  */
 function withinScope(
   principal: AuthenticatedPrincipal,

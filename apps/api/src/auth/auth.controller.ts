@@ -51,10 +51,9 @@ const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
  * Session endpoints (ADR-0006).
  *
  * These routes are FIXED regardless of which provider is registered. A
- * redirect-mode provider (SAML/OIDC from the enterprise layer) answers the same
- * POST /auth/login with a challenge instead of a session, so the enterprise
- * layer never has to add routes and core never has to know they exist —
- * exactly the coupling ADR-0002 forbids.
+ * redirect-mode provider (OIDC today) answers the same POST /auth/login with a
+ * challenge instead of a session, so a provider never has to add routes of its
+ * own and these never have to know which providers exist.
  */
 @Controller('auth')
 export class AuthController {
@@ -100,9 +99,9 @@ export class AuthController {
    * rather than users:manage — this is deployment configuration, not user
    * administration.
    *
-   * Core renders whatever the provider returns without interpreting it, which
-   * is what lets an LDAP layer explain itself without core knowing what LDAP is
-   * (ADR-0002).
+   * This renders whatever the provider returns without interpreting it, which
+   * is what lets a provider explain itself without this controller knowing
+   * what LDAP is.
    */
   @RequirePermission('settings:manage')
   @Get('provider')

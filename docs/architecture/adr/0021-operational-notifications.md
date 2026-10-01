@@ -2,7 +2,17 @@
 
 - **Status:** Accepted (2026-08-07)
 - **Deciders:** Architect
-- **Related:** [ADR-0016](./0016-settings-store-and-audit-forwarding.md) (audit forwarding — the boundary this ADR must not cross), [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0019](./0019-enc-tree-replication.md)
+- **Related:** [ADR-0016](./0016-settings-store-and-audit-forwarding.md) (audit forwarding — the boundary this ADR must not cross), [ADR-0002](./0002-open-core-runtime-discovery.md), [ADR-0019](./0019-enc-tree-replication.md), [ADR-0027](./0027-one-product.md)
+
+> **Amended 2026-09-30 ([ADR-0027](./0027-one-product.md)).** There are no
+> editions, and audit forwarding no longer requires `audit.export`. Every
+> deployment has both features. The boundary in §1 and the binding constraints
+> **stand unchanged**: a notification never carries audit content, and the two
+> use separate transports. The reason is now the one §1 already gives on its
+> own terms, that *who did what* belongs to the audit trail. It no longer has
+> to keep a licensed capability from being perforated. Read "core" below as
+> "every deployment", and "without the capability" as "around the audit
+> transports".
 
 ## Context
 
