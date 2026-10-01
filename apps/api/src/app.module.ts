@@ -93,6 +93,10 @@ import { OidcDirectory } from './directory/oidc/discovery';
 import { HttpTokenExchange, NodeOidcHttp } from './directory/oidc/http';
 import { ForwardingAuditSink } from './audit-forwarding/forwarding-audit-sink';
 import { SettingsAuditTransport } from './audit-forwarding/settings-transport';
+import { FileLogSink } from './logging/file-log-sink';
+import { SupportBundleController } from './support/support-bundle.controller';
+import { SupportBundleService } from './support/support-bundle.service';
+import { hostname } from 'node:os';
 import type { IEncFileWriter } from '@nexuspuppet/contracts';
 import type {
   IAuditDeliveryOutbox,
@@ -155,8 +159,13 @@ export class AppModule {
    *
    * Every seam in `CAPABILITY_TOKENS` is bound exactly once, below.
    * app.wiring.spec.ts enforces it.
+   *
+   * @param options.logSink the local log copy main.ts opened before the app
+   *   existed (ADR-0028). Optional so a module built by a test, or any caller
+   *   that is not main.ts, gets a sink that reports itself disabled rather
+   *   than a missing provider.
    */
-  static async bootstrap(): Promise<DynamicModule> {
+  static async bootstrap(options: { logSink?: FileLogSink } = {}): Promise<DynamicModule> {
     const env = loadEnv();
     // BEFORE anything is built. A present-but-malformed LDAP, OIDC or audit
     // export configuration stops the API here, with a message naming it —
@@ -298,6 +307,7 @@ export class AppModule {
         NotificationsController,
         SettingsController,
         AuditForwardingController,
+        SupportBundleController,
       ],
       providers: [
         // Read-audit for the resource surface (ADR-0025 §6). Registered
@@ -561,6 +571,51 @@ export class AppModule {
            */
           useFactory: (prisma: PrismaService): DeploymentService =>
             new DeploymentService(prisma, PACKAGE_VERSION),
+        },
+        {
+          provide: FileLogSink,
+          useValue:
+            options.logSink ??
+            FileLogSink.disabled(env.LOG_DIR, 'not opened: the API was not started by main.ts'),
+        },
+        {
+          // Explicit factory: the options are plain values from config, and
+          // reading them here rather than inside the service keeps the service
+          // constructible in a test with no environment at all.
+          provide: SupportBundleService,
+          inject: [
+            PrismaService,
+            AUDIT_SINK,
+            SystemStatusService,
+            PropagationService,
+            LogLevelService,
+            DeploymentService,
+            FileLogSink,
+          ],
+          useFactory: (
+            prisma: PrismaService,
+            audit: IAuditSink,
+            status: SystemStatusService,
+            propagation: PropagationService,
+            logLevels: LogLevelService,
+            deployment: DeploymentService,
+            sink: FileLogSink,
+          ): SupportBundleService =>
+            new SupportBundleService(
+              prisma,
+              audit,
+              status,
+              propagation,
+              logLevels,
+              deployment,
+              sink,
+              {
+                logDirectory: env.LOG_DIR,
+                host: hostname(),
+                version: PACKAGE_VERSION,
+                environment: process.env,
+              },
+            ),
         },
         {
           provide: ConsoleTlsGrantService,

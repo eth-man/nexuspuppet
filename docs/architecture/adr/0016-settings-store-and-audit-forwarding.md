@@ -223,6 +223,8 @@ empty field on save means *keep it*.
 
 - **Not multi-destination.** One syslog target, as with one webhook — and one *active transport* at a time (§5): syslog or webhook, never both.
 - **Not application-log shipping.** Operational logs stay on stdout; getting them to a collector is the container runtime's job (Docker's syslog logging driver), documented in the deployment guide. This ADR is about the audit trail only.
+
+  > **Amended 2026-09-30 by [ADR-0028](./0028-support-bundle.md).** Still true: stdout is the primary sink, and shipping logs anywhere is still the runtime's job. The API now *additionally* keeps a bounded local copy of its own log (size-rotated, per replica), solely so a support bundle can include it without the API being given the Docker socket. Nothing reads or forwards that copy except the support-bundle export.
 - **Not a local audit viewer.** The records are kept and indexed, so one can be built; this ADR does not build it.
 - **Not tamper-evidence.** Neither signed records nor a hash chain. A retained local trail plus a forwarded copy is two places to compare, which is weaker than integrity proof and better than one.
 - **Not unbounded history.** Anything older than the window is gone. A deployment with a statutory retention requirement must forward to something that keeps it.

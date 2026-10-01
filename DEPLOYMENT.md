@@ -1617,6 +1617,9 @@ whereas a rebuild during an incident is one more moving part.
 Also back up `.env` (it holds `JWT_SECRET`) into your secret store. Losing
 `JWT_SECRET` invalidates every session; losing the database loses the audit log.
 
+The `api-logs` volume does not need backing up. It is a bounded, rotating copy
+of the API's stdout kept only for support bundles (see Troubleshooting).
+
 ---
 
 ## 11. Upgrades
@@ -1726,6 +1729,65 @@ SQL
 | Change saved, nodes unchanged | Expected until the node's next Puppet run. Check `EncMaterialization` confirmed it |
 | Role editing or audit forwarding returns 501 | The image was built by a release up to 1.9.0 with the old `EDITION=core` default. Rebuild it: `docker compose build api && docker compose up -d api` |
 | `GET /capabilities` returns 404 | Removed in ADR-0027 — there is no edition to report. Use `GET /auth/mode` for sign-in sources |
+| API stderr: "The local log copy in /var/log/nexuspuppet is disabled" | The `api-logs` volume is not mounted or not writable by uid 100. Support bundles will lack API logs; see below |
+
+### Support bundles
+
+When you need to hand a problem to someone else, collect **both halves** and
+send one file (ADR-0028):
+
+1. **The console's half.** Settings → General → Support bundle (needs
+   `settings:manage`), or from a script:
+
+   ```bash
+   curl -fsS -c jar -H 'content-type: application/json' \
+     -d '{"email":"admin@example.com","password":"…"}' http://127.0.0.1:3001/auth/login >/dev/null
+   curl -fsS -b jar -OJ 'http://127.0.0.1:3001/system/support-bundle?hours=24'
+   ```
+
+   The API's own logs from every replica, status, every operational condition,
+   non-secret configuration, queue and migration summaries, and audit actions
+   without actors. Secrets, identities, client addresses and audit payloads are
+   excluded, and every file is scanned for secret values before archiving.
+   Add `&includePersonalData=true` (the console's tick) when support needs the
+   users, the full audit trail and the classification with its parameter
+   values; that file is named `…-with-personal-data.tar.gz`. Environment
+   secrets, stored credentials, password hashes and tokens are never included.
+
+2. **The host's half.** The API cannot read container logs, Docker state,
+   systemd timers or the journal — giving it the Docker socket would give it
+   root on the host (ADR-0013). On the console VM, and on each Puppet server
+   running the sync timers:
+
+   ```bash
+   cd /opt/nexuspuppet
+   sudo ./scripts/support-bundle.sh --since 24h --include ~/nexuspuppet-support-*.tar.gz
+   ```
+
+   It runs `docker compose ps` and `logs` (never `docker compose config` or a
+   full `docker inspect`, which expand secrets), collects host facts, the
+   `nexuspuppet-*` timers and their journal, and filters `.env` through an
+   allow-list. It masks the values of `.env` secrets wherever they appear.
+   `--help` lists the options. Run it as root or a member of the `docker`
+   group; without access it says what it skipped. With the syslog log driver
+   (`docker-compose.syslog.example.yml`) Docker keeps no readable copy, and the
+   archive says to collect those lines from your collector instead.
+
+**Where the API's log history lives.** The API writes each line to stdout as
+before, and also to `${LOG_DIR}/api-<hostname>.log` — the `api-logs` named
+volume, mounted at `/var/log/nexuspuppet`. It rotates at `LOG_FILE_MAX_BYTES`
+(default 20 MiB) and keeps `LOG_FILE_KEEP` older files (default 5): at most
+about 120 MiB per replica. A container's hostname is its id, so every redeploy
+starts new files; the API removes other hosts' files at start-up once nobody has
+written them for four days, longer than any bundle window reaches. `LOG_FILE_MAX_BYTES=0`
+switches the copy off. It records exactly the levels stdout records, so raising
+the log level to `debug` before reproducing a problem puts the detail in the
+bundle — and shortens how far back the bundle can reach; `manifest.json` says
+where the kept history actually starts.
+
+A fresh named volume inherits the image directory's owner (uid 100), so nothing
+needs to be chowned. **If you replace it with a bind mount**, the host directory
+must be writable by uid 100: `sudo install -d -o 100 -g 101 -m 0750 /srv/nexuspuppet-logs`.
 
 ## Security checklist
 

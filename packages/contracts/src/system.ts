@@ -388,6 +388,39 @@ export const setLogLevelSchema = z.object({
 export type SetLogLevel = z.infer<typeof setLogLevelSchema>;
 
 /**
+ * The support bundle's time window (ADR-0028).
+ *
+ * 72 hours is the ceiling because it is what the API's bounded log history can
+ * plausibly hold at the default size, and because a longer window mostly adds
+ * volume to the file somebody has to read. The API's log-file pruning is sized
+ * from this same number, so the two cannot drift.
+ */
+export const SUPPORT_BUNDLE_MAX_HOURS = 72;
+export const SUPPORT_BUNDLE_DEFAULT_HOURS = 24;
+/** The choices the console offers. The API accepts any whole hour in range. */
+export const SUPPORT_BUNDLE_WINDOWS = [1, 6, 24, 72] as const;
+
+export const supportBundleQuerySchema = z.object({
+  hours: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(SUPPORT_BUNDLE_MAX_HOURS)
+    .default(SUPPORT_BUNDLE_DEFAULT_HOURS),
+  /**
+   * Opt in to identities, audit payloads and the full classification
+   * (ADR-0028 §6). Exactly `true` or `false`: a query string is text, and
+   * `z.coerce.boolean()` would read "false" as true — the one direction a
+   * privacy switch must never fail in.
+   */
+  includePersonalData: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+});
+export type SupportBundleQuery = z.infer<typeof supportBundleQuerySchema>;
+
+/**
  * An operational condition that is currently open (ADR-0021).
  *
  * Describes the DEPLOYMENT'S HEALTH and never a person or an action they took.

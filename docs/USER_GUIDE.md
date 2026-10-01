@@ -361,6 +361,49 @@ docker compose up -d --force-recreate
 
 Read the comments in that file before adopting it — the driver trades away `docker compose logs`, and its delivery is best-effort in a way the audit path's is not.
 
+### Support bundle
+
+When something is wrong and you need to hand it to somebody else, **Settings → General → Support bundle** downloads one archive describing this deployment. It needs the `settings:manage` permission; the download is recorded in the audit log, and forwarded like any other record.
+
+Pick a window — 1, 6, 24 or 72 hours — and press **Download**. You get `nexuspuppet-support-<host>-<time>.tar.gz`. Open `summary.txt` first: it leads with anything that needs attention, such as a condition that has been open for weeks.
+
+**What is in it**
+
+| File | What |
+|---|---|
+| `summary.txt` | Open conditions and how long they have been open, stale caches, stranded jobs, and any gap in the logs |
+| `manifest.json` | The version, the window, which log files were read and whether they cover the whole window, what was redacted, and what is deliberately excluded |
+| `logs/api-<host>.log` | The API's own log for the window, from **every** API replica, oldest first |
+| `status/` | System status, every operational condition (open and resolved), propagation, and the log level |
+| `config/` | Configuration values that are not secrets; secrets appear only as `set` or `unset`. Stored directory and forwarding settings, without their secrets |
+| `database/` | Migrations applied, outstanding and failed materialization jobs, delivery queues, cache summaries, and user counts per role |
+| `audit/audit-log.jsonl` | The audit actions in the window — what happened and when |
+
+**What is deliberately not in it**: secrets of any kind, the user list, email addresses, client IP addresses and user agents, audit before/after values, classification parameter values (which can themselves be credentials), node facts and ENC documents. Every file is also scanned before archiving for secret values, private keys, credentials in URLs, tokens and email addresses, which are masked as `[REDACTED:…]` — `manifest.json` says how many of each. This default archive is safe to attach to a ticket.
+
+**Including configuration and personal data.** Sometimes the problem *is* an account or a group. Tick **Include configuration and personal data** before downloading, and the archive additionally contains:
+
+| File | What |
+|---|---|
+| `audit/audit-log.jsonl` | Each action **with** who did it (email and user id), their IP address and browser, and the before/after values |
+| `personal/users.json` | Every account: email, name, role, sign-in source, active or not, last login, lockout state, and how many sessions are live — no password or token |
+| `config/classification.json` | Every node group with its rules, pins, classes and **parameter values in full** |
+| `config/saved-queries.json` | Every saved query, with its owner and whether it is shared |
+
+Class parameters can hold secrets, and this variant contains them. Share it only with someone entitled to see the users, addresses and configuration it holds. The file is named `…-with-personal-data.tar.gz`, `manifest.json` says `"includesPersonalData": true` at the top, and `summary.txt` opens with a warning, so it cannot be mistaken for the default. The audit log records which variant you downloaded. The tick is not remembered: every download starts from the safe default.
+
+**Never included, ticked or not**: secret values from the environment (still redacted wherever they appear, including inside a class parameter), stored directory and forwarding credentials, password hashes, session and access tokens, and private keys.
+
+**What the console cannot collect.** Container logs, Docker's view of the stack, the Puppet server's sync timers and the system journal live on the host, and the console has no access to them — by design (see [ADR-0028](architecture/adr/0028-support-bundle.md)). An administrator collects those with one command on the host, passing the archive you downloaded so support receives a single file:
+
+```bash
+sudo ./scripts/support-bundle.sh --since 24h --include ~/nexuspuppet-support-*.tar.gz
+```
+
+Look inside either archive before you send it (`tar -tzf <file>`). Nothing is sent anywhere by either half.
+
+The API keeps a bounded copy of its log for this — about 120 MiB per replica at the defaults, rotated — so the bundle's history depends on how busy the API is. At `debug`, 72 hours may not fit; `manifest.json` says where the kept history actually starts.
+
 ### Triggering a reconcile
 
 Administrators can queue a full reconcile from the console. This re-materializes every node in cursored chunks. It is safe to run at any time — it is how you recover if the ENC directory is ever lost or inconsistent.

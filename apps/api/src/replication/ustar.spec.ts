@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildTar, TarNameTooLongError } from './ustar';
+import { createHash } from 'node:crypto';
+import { buildTar, tarChunks, TarNameTooLongError } from './ustar';
 
 const entry = (name: string, body: string) => ({ name, content: Buffer.from(body, 'utf8') });
 
@@ -97,5 +98,58 @@ describe('buildTar', () => {
     writeFileSync(archive, buildTar([]));
 
     expect(() => execFileSync('tar', ['-tf', archive])).not.toThrow();
+  });
+
+  /*
+   * PINNED BYTES, not just "equal to itself".
+   *
+   * These hashes were taken from the writer BEFORE it grew `tarChunks` and the
+   * `mtime` option for the support bundle (ADR-0028). Replication's ETag is the
+   * hash of this output, so a refactor that changed a single byte would make
+   * every Puppet server re-download and rewrite the whole tree once, on
+   * upgrade, and nothing else would notice. Self-consistency tests cannot see
+   * that; a fixed hash can.
+   */
+  it.each([
+    ['an empty archive', [], '84ff92691f909a05b224e1c56abb4864f01b4f8e3c854e4bb4c7baf1d3f6d652'],
+    [
+      'two small files',
+      [
+        entry('default.yaml', 'classes: {}\n'),
+        entry('nodes/web01.example.com.yaml', 'classes:\n  base: {}\n'),
+      ],
+      '235b4dccb8151225a87932cab5225ae6b02c73e4e8ad868e2a9683a049c71503',
+    ],
+    [
+      'a file spanning a record',
+      [entry('nodes/a.yaml', 'x'.repeat(10_000))],
+      '89e7b15e32898d2b03c006d033fe1c95e410b113b481ff6cc1b424a0860b4471',
+    ],
+  ])('still emits the exact bytes replication has always served: %s', (_label, input, sha) => {
+    expect(createHash('sha256').update(buildTar(input)).digest('hex')).toBe(sha);
+  });
+
+  it('streams the same bytes it builds', () => {
+    const input = [entry('a.json', '{}'), entry('logs/b.log', 'z'.repeat(1_234))];
+
+    expect(Buffer.concat([...tarChunks(input)]).equals(buildTar(input))).toBe(true);
+    expect(
+      Buffer.concat([...tarChunks(input, { mtime: 42 })]).equals(buildTar(input, { mtime: 42 })),
+    ).toBe(true);
+  });
+
+  it('stamps a caller-supplied mtime that the system tar reads back', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ustar-mtime-'));
+    const archive = join(dir, 'bundle.tar');
+    // 2026-09-30T12:00:00Z
+    const mtime = Date.UTC(2026, 8, 30, 12, 0, 0) / 1000;
+
+    writeFileSync(archive, buildTar([entry('manifest.json', '{}')], { mtime }));
+    const listing = execFileSync('tar', ['-tvf', archive], {
+      encoding: 'utf8',
+      env: { ...process.env, TZ: 'UTC' },
+    });
+
+    expect(listing).toContain('2026-09-30 12:00');
   });
 });

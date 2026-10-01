@@ -6,6 +6,16 @@ Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepac
 
 **One product (ADR-0027).** There is no enterprise layer and no edition any more: LDAP/AD, OIDC, custom roles and audit forwarding are part of the API, always present, and inert until configured. ADR-0027 supersedes ADR-0002. **No migration.**
 
+### Added
+
+**Support bundle** ([ADR-0028](docs/architecture/adr/0028-support-bundle.md)). **Settings → General → Support bundle** downloads one `.tar.gz` for the last 1, 6, 24 or 72 hours: the API's own logs from every replica, system status, every operational condition with how long it has been open, propagation, non-secret configuration, queue and migration summaries, and audit actions without actors. `summary.txt` leads with what needs attention — a condition open for six weeks is the first line, not line 90,000. Secrets, identities, client addresses and audit payloads are excluded, and every file is scanned for secret values, private keys, URL credentials, tokens and email addresses before archiving. Needs `settings:manage`; each export is audited. Also `GET /system/support-bundle?hours=N`.
+
+**Opt-in: configuration and personal data.** A per-download tick (`&includePersonalData=true`) adds the audit trail with actors, addresses and before/after values, the user list with session counts, the full classification including parameter values, and saved queries. The file is named `…-with-personal-data.tar.gz`, the manifest says so first, and the export's audit row records the choice. Environment secrets, stored credentials, password hashes, tokens and private keys stay out either way.
+
+**`scripts/support-bundle.sh`** collects what the console cannot see — container logs, Docker state, host facts, the `nexuspuppet-*` timers and the journal — on the console VM or a Puppet server, and embeds the console's archive with `--include` so support gets one file. It never runs `docker compose config` or a full `docker inspect`, filters `.env` through an allow-list, and masks the values of its secrets everywhere.
+
+**The API keeps a bounded copy of its own log** in the new `api-logs` volume (`/var/log/nexuspuppet`): JSON lines, rotated at `LOG_FILE_MAX_BYTES` (20 MiB) keeping `LOG_FILE_KEEP` (5) — at most 120 MiB per replica. Stdout is unchanged and remains the log; ADR-0016 is amended to say so. `LOG_FILE_MAX_BYTES=0` switches the copy off.
+
 ### Changed
 
 **`packages/enterprise` moved into `apps/api`.** The directory providers are now `apps/api/src/directory/{ldap,oidc}`, and forwarding is `apps/api/src/audit-forwarding`. They are wired in `app.module.ts` like everything else, and their tests moved with them. `ldapts` is a dependency of `@nexuspuppet/api`. Removed with it: the runtime loader, the capability registry, `CONTRACTS_VERSION`, the descriptor types, `EnterpriseLoadError`, the `CAPABILITIES` constant, the ESLint enterprise boundary and the core no-op audit transport. The interfaces and DI tokens in `@nexuspuppet/contracts` stay, because they keep these testable.
@@ -59,6 +69,8 @@ grep -E '^(LDAP_|OIDC_|AUDIT_EXPORT_)' .env
 **Anything that expected `501` from role or forwarding writes now gets the real answer.**
 
 **Consumers of `GET /system/status` lose `auditForwarding.available`.** It was only ever `false` on a core image.
+
+`docker compose up -d` creates the `api-logs` volume, already owned by the API's uid. Nothing to configure. If you replace it with a bind mount, the host directory must be writable by uid 100 (DEPLOYMENT.md, "Support bundles").
 
 ## [1.9.0] — 2026-09-07
 
