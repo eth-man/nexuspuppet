@@ -9,8 +9,9 @@ License at
 
     http://www.apache.org/licenses/LICENSE-2.0
 
-The NexusPuppet enterprise layer is a separate work, distributed under a
-commercial licence, and is not included in this repository.
+Every part of NexusPuppet, including the directory authentication (LDAP/AD),
+single sign-on (OIDC) and audit forwarding integrations, is included in this
+repository and distributed under the same licence.
 
 "Puppet" and "PuppetDB" are trademarks of Perforce Software, Inc. This project
 is not affiliated with or endorsed by Perforce Software, Inc.

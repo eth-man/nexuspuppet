@@ -111,7 +111,7 @@ it is wrong. Read it when something does not fit, not to get started.
 
 ## 0. Before you touch the VM
 
-Collect these. Three of them cannot be generated on the box.
+Collect these. Two of them cannot be generated on the box.
 
 | Item | Where it comes from |
 |---|---|
@@ -120,7 +120,6 @@ Collect these. Three of them cannot be generated on the box.
 | Postgres password | You choose. Generate it, do not invent it |
 | `JWT_SECRET` | `openssl rand -base64 48` |
 | Bootstrap admin password | Generate it; it is discarded after first login |
-| Enterprise repo URL | Only for the enterprise edition — see [§2](#2-the-enterprise-layer-is-not-a-submodule) |
 
 **Decide up front how the ENC directory reaches puppetserver.** This is the one
 architectural decision the deployment cannot defer, and it is covered in
@@ -199,45 +198,31 @@ Pin a tag in production rather than tracking `main`.
 
 ---
 
-## 2. The enterprise layer is **not** a submodule
+## 2. One image, every feature
 
-This is worth stating plainly because the instruction to "initialise the
-submodule" will send you looking for something that deliberately does not exist.
-
-There is **no `.gitmodules`, and there must never be one.** A submodule would
-publish the private repository's URL inside the public repository and would
-break `npm install` for every external contributor who cannot clone it. CI fails
-the build if `.gitmodules` appears (ADR-0002). The private layer is fetched from
-an environment variable and discovered at runtime:
+There is nothing to fetch, no licence to install, and no build flag to choose.
+LDAP/AD, OIDC, custom roles and audit forwarding are all in this repository and
+all in every image `docker compose build` produces. Each one stays inert until
+you configure it — `LDAP_URL`, `OIDC_ISSUER`, or the console's settings screens.
 
 ```bash
-# Everything ships in this repository. There is no separate layer to fetch and
-# no licence to install -- LDAP/AD, OIDC, custom roles and audit forwarding are
-# all present after a plain checkout.
-#
-# The EDITION build argument still selects what goes into the image:
-#   EDITION=core         omits packages/enterprise (smaller image, no LDAP/OIDC)
-#   EDITION=enterprise   includes it -- the usual choice
-npm install
+# Everything ships in this repository, and one lockfile covers all of it.
+npm install        # a development checkout; the image runs `npm ci` itself
 ```
 
-> **`npm install` is now the same instruction everywhere.** It used to differ
-> between a deployment host and a development checkout, because installing with
-> the private layer present would write its dependencies into the public
-> lockfile and CI asserted that package did not exist. The layer is part of the
-> repository now, `ldapts` is an ordinary dependency of it, and one lockfile
-> covers everything.
+> **There is no `EDITION` any more.** Releases up to 1.9.0 had an `EDITION`
+> build argument that defaulted to `core` — an image *without* the directory
+> and audit integrations — and `scripts/deploy.sh` never set it. An install
+> that followed this guide therefore got the smaller image without being told.
+> The argument is gone; a leftover `EDITION=` line in `.env` is ignored.
 
-Older releases needed Node >= 22.12 on the host to fetch the private layer.
-That step is gone; this install needs nothing but Docker.
+There is also **no `.gitmodules`, and there must never be one.** Instructions
+elsewhere to "initialise the submodule" date from when part of the product
+lived in a separate private repository. It does not any more.
 
-The URL belongs in `.env` or your secret store — never in a committed file. The
-fetch script does not echo it, because CI logs get shared.
-
-**Verifying which edition you are running:** `GET /capabilities` lists what this
-deployment can do. Enterprise-only routes exist in the core build and return
-`501` with a `capability` field, never `404` — the feature exists, this
-deployment lacks it.
+**Verifying what you are running:** `GET /capabilities` lists which integrations
+this deployment has configured — `directory.ldap` once `LDAP_URL` is set, and so
+on.
 
 ### Provision your directory accounts BEFORE you set `LDAP_URL` or `OIDC_ISSUER`
 
@@ -1737,8 +1722,7 @@ SQL
 | A rule matches nothing | The fact is not in `PUPPETDB_PROJECTED_FACTS`. The rule editor warns about this |
 | All nodes get `default.yaml` | The ENC directory is not reaching puppetserver, or is at a different path. Run the script by hand (§6) |
 | Change saved, nodes unchanged | Expected until the node's next Puppet run. Check `EncMaterialization` confirmed it |
-| A route returns 501 | The image was built with `EDITION=core`, which omits `packages/enterprise`. Rebuild with `EDITION=enterprise` |
-| `npm install` fails on `packages/enterprise` | Stale `node_modules` or a partial checkout. `git checkout -- packages/enterprise && npm install` |
+| Role editing or audit forwarding returns 501 | The image was built by a release up to 1.9.0 with the old `EDITION=core` default. Rebuild it: `docker compose build api && docker compose up -d api` |
 
 ## Security checklist
 

@@ -74,8 +74,8 @@ describe('SettingsAuditTransport', () => {
       const transport = new SettingsAuditTransport(settings, ENV_WEBHOOK, 0);
 
       // `void` because the READ is the point: the getter kicks off the lazy
-    // refresh as a side effect, and the value it returns now is the stale one.
-    void transport.configured;
+      // refresh as a side effect, and the value it returns now is the stale one.
+      void transport.configured;
       await new Promise((resolve) => setImmediate(resolve));
 
       expect(transport.configured).toBe(false);

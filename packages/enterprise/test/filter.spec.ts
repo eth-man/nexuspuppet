@@ -43,9 +43,7 @@ describe('escapeFilterValue', () => {
 
 describe('buildFilter', () => {
   it('substitutes every occurrence of the placeholder', () => {
-    expect(buildFilter('(|(uid={{input}})(mail={{input}}))', 'bob')).toBe(
-      '(|(uid=bob)(mail=bob))',
-    );
+    expect(buildFilter('(|(uid={{input}})(mail={{input}}))', 'bob')).toBe('(|(uid=bob)(mail=bob))');
   });
 
   /**

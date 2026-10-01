@@ -1,9 +1,4 @@
-import {
-  AUDIT_SINK,
-  AUDIT_TRANSPORT,
-  AUTH_PROVIDER,
-  CAPABILITIES,
-} from '@nexuspuppet/contracts';
+import { AUDIT_SINK, AUDIT_TRANSPORT, AUTH_PROVIDER, CAPABILITIES } from '@nexuspuppet/contracts';
 import { register } from '../src/index';
 
 /**

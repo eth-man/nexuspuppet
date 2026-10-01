@@ -170,7 +170,6 @@ export class SettingsAuditTransportModule extends SettingsAuditTransport {
   }
 }
 
-
 export const entrypoint: EnterpriseEntrypoint = {
   register(): EnterpriseModuleDescriptor {
     const oidc = oidcConfigFromEnv();

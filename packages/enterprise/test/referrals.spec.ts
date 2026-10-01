@@ -124,8 +124,9 @@ describe('LDAP referrals', () => {
     const warnings: string[] = [];
 
     const { LdaptsDirectory } = await import('../src/ldap/ldap-client');
-    await new LdaptsDirectory(config, { warn: (m: string) => warnings.push(m) })
-      .findGroupsContaining('cn=Jane Doe,ou=people,dc=corp,dc=example,dc=com');
+    await new LdaptsDirectory(config, {
+      warn: (m: string) => warnings.push(m),
+    }).findGroupsContaining('cn=Jane Doe,ou=people,dc=corp,dc=example,dc=com');
 
     expect(warnings.join(' ')).toContain('nested group search');
   });

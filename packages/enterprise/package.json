@@ -26,11 +26,6 @@
   "peerDependencies": {
     "@nestjs/common": "^11.1.28"
   },
-  "peerDependenciesMeta": {
-    "ldapts": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.2",

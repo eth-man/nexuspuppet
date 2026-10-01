@@ -1,118 +1,30 @@
 # NexusPuppet API. Built from the monorepo root:
 #   docker build -f apps/api/Dockerfile .
-# EDITION selects what goes in the image: `core` (default) or `enterprise`.
+# The image is the whole product. LDAP/AD, OIDC, custom roles and audit
+# forwarding are always in it; each stays inert until it is configured.
 #
-# Declared before the first FROM so it can be interpolated into stage NAMES
-# below — which is how a Dockerfile does a conditional at all. It replaces four
-# hand edits that had to be made together; making three of them produced an
-# image that built, started, and silently ran core.
-#
-#   docker compose build api                      # core
-#   EDITION=enterprise docker compose build api   # enterprise
-#
-# The enterprise layer must already be fetched into packages/enterprise —
-# `npm run enterprise:fetch`, or a clone with a deploy key. Nothing else is
-# needed on the host: the enterprise install stage resolves its own tree, so a
-# clean checkout builds with the flag alone.
-ARG EDITION=core
+# There used to be an EDITION build argument selecting between a "core" image
+# and one that included packages/enterprise. It defaulted to core, and nothing
+# in scripts/deploy.sh set it — so an install that followed DEPLOYMENT.md
+# silently built an image without the directory and audit integrations. With
+# every package in this repository and one lockfile covering all of them, there
+# is nothing left to select, so the argument is gone.
 
 FROM node:22-alpine AS deps
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/tls-grant/package.json packages/tls-grant/
+COPY packages/enterprise/package.json packages/enterprise/
 COPY apps/api/package.json apps/api/
-# The enterprise layer is absent here by design (ADR-0002).
-#
-# A PRIVATE BUILD NEEDS FOUR EDITS, NOT ONE. This comment used to name only the
-# COPY below, and that is not enough: the build succeeds, the API starts, and
-# the loader reports "No enterprise layer installed — running core edition".
-# It fails SILENTLY INTO CORE, which is the worst available outcome — an
-# operator who paid for SSO gets a working console with local auth and no error
-# anywhere. Verified on a clean VM: `node_modules/@nexuspuppet/` in the runtime
-# image held only `api` and `contracts`.
-#
-#   1. COPY packages/enterprise packages/enterprise      (below, before npm ci)
-#   2. add --workspace @nexuspuppet/enterprise to the npm ci line, or the
-#      workspace is never linked into node_modules
-#   3. in the build stage, `npm run build --workspace @nexuspuppet/enterprise`
-#      after contracts and before api — package.json main is ./dist/index.js
-#   4. in the runtime stage, copy packages/enterprise/dist and its package.json,
-#      or the node_modules symlink copied from build points at nothing
-#
-# Fetching the layer is the only host step. The install stage below uses
-# `npm install` precisely so no lockfile surgery is needed — see the note there.
-#
-# For LDAP, also `npm install ldapts --workspace @nexuspuppet/enterprise`. It is
-# an optional peer dependency so an OIDC-only deployment does not pull an LDAP
-# client; without it the layer loads and every login fails at runtime.
-#
-# RE-RUN THAT ON EVERY REBUILD, not only the first install. It does not stick
-# the way a normal dependency does, and the reason is worth knowing:
-#
-#   - `npm install ldapts --workspace @nexuspuppet/enterprise` does NOT add it to
-#     that package's `dependencies`. ldapts is already declared as an optional
-#     PEER dependency, so npm treats the install as satisfying the peer and
-#     writes no dependency entry.
-#   - It survives in package-lock.json alone. Replace packages/enterprise — a
-#     fresh clone, a new tag, re-running enterprise:fetch — and the next
-#     `npm install` reconciles the tree, finds nothing that requires an optional
-#     peer, and removes it.
-#
-# So a rebuild that worked yesterday produces an image where the enterprise
-# layer loads, reports directory.ldap, and fails every LDAP login at runtime.
-# Found doing exactly that: rebuilding a working enterprise deployment from a
-# clean checkout of main.
-#
-# The failure is at least loud and self-explaining — the provider says "The
-# `ldapts` package is not installed" and names the fix — but it happens after
-# deploy rather than during build, which is the expensive place to find it.
-# --- edition selection: manifests -------------------------------------------
-FROM deps AS manifests-core
-# Nothing extra. Core is the absence of the layer, not a flag it reads.
+# `npm ci` against the committed lockfile, for every workspace the API needs.
+# The lockfile has described packages/enterprise since it moved into this
+# repository, so the `npm install` this stage once needed — and the manual
+# `ldapts` install that had to be repeated on every rebuild — are gone: ldapts
+# is an ordinary dependency now and `ci` installs it like any other.
+RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/enterprise --workspace @nexuspuppet/api --include-workspace-root
 
-FROM deps AS manifests-enterprise
-# The whole package, not just its manifest: every later stage descends from
-# this one, so the source arrives with the decision instead of needing a
-# second conditional that could disagree with it.
-COPY packages/enterprise packages/enterprise
-
-FROM manifests-${EDITION} AS manifests
-
-# --- edition selection: install ---------------------------------------------
-FROM manifests AS install-core
-RUN npm ci --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/api --include-workspace-root
-
-FROM manifests AS install-enterprise
-# `npm install`, not `npm ci`, and only in this stage.
-#
-# `npm ci` requires the lockfile to already describe every workspace, and the
-# committed lockfile cannot describe this one: @nexuspuppet/enterprise is
-# private and absent from every public clone, so an entry for it would break
-# `npm ci` for everyone who does not have the layer. The two requirements are
-# mutually exclusive, and `ci` is the one that has to give.
-#
-# This used to be `npm ci`, which meant the build only worked on a host whose
-# lockfile had been mutated by a prior `npm install` — an uncommittable local
-# change. It worked on the one machine that had it and failed on every clean
-# clone with "Missing: @nexuspuppet/enterprise@0.1.0 from lock file", which
-# makes `--build-arg EDITION=enterprise` alone insufficient and puts the
-# developer surgery back that the flag exists to remove.
-#
-# The reproducibility given up is smaller than it looks: core still resolves
-# through `npm ci` against the committed lockfile, and this stage installs the
-# same manifests pinned by the same version ranges.
-#
-# `ldapts` is an optional PEER dependency, so npm writes it to the lockfile and
-# to no package's `dependencies`. Installing it here means the image cannot be
-# built without it — which is the failure this used to have at runtime, on
-# every LDAP login, long after the build went green.
-RUN npm install --workspace @nexuspuppet/contracts --workspace @nexuspuppet/tls-grant --workspace @nexuspuppet/enterprise --workspace @nexuspuppet/api --include-workspace-root \
- && npm install ldapts --workspace @nexuspuppet/enterprise
-
-FROM install-${EDITION} AS installed
-
-FROM installed AS build
+FROM deps AS build
 # Prisma 7 resolves DATABASE_URL through prisma.config.ts even for `generate`,
 # which never contacts a database. A dummy value is correct at build time; the
 # real connection string is injected at runtime.
@@ -120,17 +32,15 @@ ENV DATABASE_URL=postgresql://build:build@localhost:5432/unused
 COPY tsconfig.base.json ./
 COPY packages/contracts packages/contracts
 COPY packages/tls-grant packages/tls-grant
+COPY packages/enterprise packages/enterprise
 COPY apps/api apps/api
 
-
-# The enterprise layer builds AFTER contracts and tls-grant and before the api:
+# packages/enterprise builds AFTER contracts and tls-grant and before the api:
 # it compiles against the contracts' emitted types, so building it first fails
-# with a tsc error about a package that is present and fine. A shell test
-# rather than another stage — the directory's existence already encodes the
-# edition, and a comment inside a line continuation is a parser hazard.
+# with a tsc error about a package that is present and fine.
 RUN npm run build --workspace @nexuspuppet/contracts \
  && npm run build --workspace @nexuspuppet/tls-grant \
- && (if [ -d packages/enterprise ]; then npm run build --workspace @nexuspuppet/enterprise; fi) \
+ && npm run build --workspace @nexuspuppet/enterprise \
  && npm run db:generate --workspace @nexuspuppet/api \
  && npm run build --workspace @nexuspuppet/api
 
@@ -173,7 +83,7 @@ RUN if [ -n "$BUILD_REF" ]; then \
       node -p "require('./package.json').version" > /repo/VERSION; \
     fi
 
-FROM node:22-alpine AS assembled
+FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # uid 100 / gid 101 PINNED, not inherited. DEPLOYMENT.md §3 tells operators to
@@ -207,17 +117,12 @@ COPY --from=build /repo/apps/api/package.json ./
 # Read at boot by app.module.ts. An absolute, Dockerfile-controlled path.
 COPY --from=build /repo/VERSION ./VERSION
 
-# --- edition selection: the built layer -------------------------------------
-FROM assembled AS runtime-core
-# Nothing. EnterpriseLoader finds no package and logs "running core edition".
-
-FROM assembled AS runtime-enterprise
 # Both, or neither works: node_modules holds a symlink into this path, and a
-# dist without its package.json is a link pointing at nothing.
+# dist without its package.json is a link pointing at nothing. The API loads
+# this package at boot (apps/api/src/enterprise/enterprise.loader.ts).
 COPY --from=build /repo/packages/enterprise/dist ./packages/enterprise/dist
 COPY --from=build /repo/packages/enterprise/package.json ./packages/enterprise/
 
-FROM runtime-${EDITION} AS final
 # The commissioning check, so it can run FROM the container:
 #   docker compose run --rm api node scripts/test-puppetdb.mjs
 # DEPLOYMENT.md recommends this check, but §0 asks only for Docker — on a
@@ -226,7 +131,7 @@ FROM runtime-${EDITION} AS final
 # uses rather than approximating them from the host.
 #
 # From the BUILD CONTEXT, not --from=build. The build stage only ever receives
-# tsconfig.base.json, packages/contracts and apps/api, so /repo/scripts does not
+# tsconfig.base.json, packages/* and apps/api, so /repo/scripts does not
 # exist in it and copying from there fails the whole image build. This file is
 # plain ESM that runs as-is; there is nothing for a build stage to do to it.
 COPY scripts/test-puppetdb.mjs ./scripts/

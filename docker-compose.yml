@@ -24,10 +24,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-      # One flag, in .env, instead of four hand edits to the Dockerfile.
-      #   EDITION=enterprise   docker compose build api
       args:
-        EDITION: ${EDITION:-core}
         # What this build actually IS, from `git describe` (see the Dockerfile).
         #
         # OPTIONAL, and empty by default on purpose: unset falls back to the

@@ -161,13 +161,9 @@ export function ldapConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LdapCon
   const raw = {
     url: env['LDAP_URL'],
     ...(env['LDAP_BIND_DN'] === undefined ? {} : { bindDn: env['LDAP_BIND_DN'] }),
-    ...(env['LDAP_BIND_PASSWORD'] === undefined
-      ? {}
-      : { bindPassword: env['LDAP_BIND_PASSWORD'] }),
+    ...(env['LDAP_BIND_PASSWORD'] === undefined ? {} : { bindPassword: env['LDAP_BIND_PASSWORD'] }),
     searchBase: env['LDAP_SEARCH_BASE'],
-    ...(env['LDAP_SEARCH_FILTER'] === undefined
-      ? {}
-      : { searchFilter: env['LDAP_SEARCH_FILTER'] }),
+    ...(env['LDAP_SEARCH_FILTER'] === undefined ? {} : { searchFilter: env['LDAP_SEARCH_FILTER'] }),
     ...(env['LDAP_ROLE_MAPPINGS'] === undefined
       ? {}
       : { roleMappings: parseRoleMappings(env['LDAP_ROLE_MAPPINGS']) }),
@@ -179,9 +175,7 @@ export function ldapConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LdapCon
       ? {}
       : { nestedGroups: env['LDAP_NESTED_GROUPS'] === 'true' }),
     ...(env['LDAP_CA_PATH'] === undefined ? {} : { caPath: env['LDAP_CA_PATH'] }),
-    ...(env['LDAP_TIMEOUT_MS'] === undefined
-      ? {}
-      : { timeoutMs: Number(env['LDAP_TIMEOUT_MS']) }),
+    ...(env['LDAP_TIMEOUT_MS'] === undefined ? {} : { timeoutMs: Number(env['LDAP_TIMEOUT_MS']) }),
     ...(env['LDAP_TLS_REJECT_UNAUTHORIZED'] === undefined
       ? {}
       : { tlsRejectUnauthorized: env['LDAP_TLS_REJECT_UNAUTHORIZED'] !== 'false' }),
