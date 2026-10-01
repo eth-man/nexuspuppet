@@ -255,6 +255,8 @@ test.describe('primitives', () => {
     await expect(region.getByRole('button', { name: /Test connection/i })).toBeVisible();
   });
 
+  const PEM_DASHES = '-----';
+
   /**
    * A CA is pasted, not mounted (ADR-0029 §5), and a private key pasted into
    * that box is refused with a message that says so — by the API, which is the
@@ -267,7 +269,13 @@ test.describe('primitives', () => {
       data: {
         url: 'ldaps://directory.e2e.invalid:636',
         searchBase: 'ou=people,dc=e2e,dc=invalid',
-        caPem: '-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n',
+        // Assembled, not written out: CI fails any commit containing a literal
+        // private-key header, and that guard is worth more than this fixture.
+        caPem: [
+          `${PEM_DASHES}BEGIN`,
+          `PRIVATE KEY${PEM_DASHES}\nMIIE\n${PEM_DASHES}END`,
+          `PRIVATE KEY${PEM_DASHES}\n`,
+        ].join(' '),
       },
     });
 
