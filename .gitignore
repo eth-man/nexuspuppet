@@ -86,3 +86,8 @@ deploy/caddy/certs/
 # tidy up. The bare `qa-report/` pattern left every one of those untracked and
 # showing in `git status`.
 qa-report*/
+
+# Support bundles downloaded into a checkout (ADR-0028). They hold deployment
+# detail and, with the opt-in, personal data: never commit one.
+nexuspuppet-support-*.tar.gz
+nexuspuppet-host-support-*.tar.gz
