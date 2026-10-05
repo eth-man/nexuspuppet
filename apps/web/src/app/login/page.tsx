@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 interface AuthSourceDescriptor {
   source: string;
   mode: 'credentials' | 'redirect';
-  /** What to call the identifier — 'Email' locally, 'Username' for AD. */
+  /** What to call the identifier — 'Email' for local and directory accounts alike. */
   identifierLabel: string;
 }
 
@@ -53,10 +53,10 @@ export default function LoginPage() {
    * choose between. Redirect sources each need their own button, because a
    * redirect begins before anybody has named an account to dispatch on.
    *
-   * The label comes from the first credentials source. Two credentials sources
-   * disagreeing about it — 'Email' locally and 'Username' for AD — is possible
-   * and has no good answer in one field; the directory's label is the one that
-   * matters, since a local admin already knows what to type.
+   * The label comes from the first credentials source. Built-in sources all say
+   * 'Email' — accounts are found by the address typed — but a provider may name
+   * its own; the directory's label wins, since a local admin already knows what
+   * to type.
    */
   const credentialSource =
     sources.find((entry) => entry.mode === 'credentials' && entry.source !== 'local') ??

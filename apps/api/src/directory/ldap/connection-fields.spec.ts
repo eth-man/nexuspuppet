@@ -223,7 +223,7 @@ describe('a stored row from before ADR-0030', () => {
       bindDn: 'cn=svc,dc=example,dc=com',
       bindPassword: 'svc-secret',
       dialect: 'ad',
-      identifierLabel: 'Username',
+      identifierLabel: 'Email',
     });
     // The AD filter it always had, because the dialect is what it chose.
     expect(config.searchFilter).toContain('sAMAccountName');

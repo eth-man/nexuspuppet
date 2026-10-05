@@ -291,7 +291,7 @@ describe('LdapAuthProvider with no environment baseline', () => {
     state.row = { ...stored, dialect: 'ad' };
     await p.isConfigured();
 
-    expect(p.identifierLabel).toBe('Username');
+    expect(p.identifierLabel).toBe('Email');
   });
 
   it('counts an unreadable store as configured, so the login fails loudly instead', async () => {
@@ -881,9 +881,11 @@ describe('AD dialect defaults', () => {
     ).toContain('objectCategory=person');
   });
 
-  it('labels the login field Username for AD and Email for OpenLDAP', () => {
+  it('labels the login field Email for AD as well as OpenLDAP', () => {
+    // Accounts are found by the email typed, so "Username" invited `jdoe`, which
+    // can never match and was refused as if the password were wrong.
     const base = { url: 'ldaps://dc.corp:636', searchBase: 'dc=corp' };
-    expect(ldapConfigSchema.parse({ ...base, dialect: 'ad' }).identifierLabel).toBe('Username');
+    expect(ldapConfigSchema.parse({ ...base, dialect: 'ad' }).identifierLabel).toBe('Email');
     expect(ldapConfigSchema.parse(base).identifierLabel).toBe('Email');
   });
 

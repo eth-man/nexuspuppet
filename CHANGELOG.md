@@ -28,6 +28,10 @@ Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepac
 
 Rows saved by 1.11/1.12 (`url`, `dialect`, `bindDn`) are read as they are and open in the new fields: `ldaps://h:p` as LDAPS, the chosen dialect as the detected one, a bind DN with a stored password as Regular (without one, as the anonymous search it always was). A row with unencrypted `ldap://` keeps signing people in exactly as before and is shown as *Unencrypted (legacy)*; saving any change requires choosing LDAPS or STARTTLS. `LDAP_URL` is read unchanged.
 
+### Fixed
+
+**The login field said "Username" for Active Directory, but only an email works.** NexusPuppet finds the account by the address typed before it asks the directory, so `jdoe` was refused exactly like a wrong password. The field is now labelled **Email** for every directory; AD users type their UPN, as they already had to.
+
 ### Upgrading
 
 Re-run `sudo ./scripts/deploy.sh`. Nothing to reconfigure.

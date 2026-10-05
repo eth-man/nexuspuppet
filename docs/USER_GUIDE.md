@@ -40,7 +40,7 @@ If you only remember one thing: **eventual consistency is deliberate here, and i
 
 ![Sign in](images/login.png)
 
-Sign in with your account and password. **The first field is labelled for the deployment** — `Email` where accounts are local (as above), `Username` where an Active Directory supplies them — so it asks for whatever you actually type rather than a name that only fits one setup.
+Sign in with your **email address** and password. Directory accounts sign in the same way: for Active Directory that is the user's UPN (`jdoe@corp.example.com`), not the bare username, because NexusPuppet finds the account by the address typed before it asks the directory.
 
 The first administrator is seeded from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` the first time the API starts against an empty database; those variables do nothing afterwards and should be removed from the environment.
 
