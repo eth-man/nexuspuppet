@@ -2,15 +2,25 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.0] — 2026-10-05
+
+**A lost admin password is recoverable from the server, and the documentation is a short website.** `sudo ./scripts/deploy.sh --reset-admin <email>` sets a new password for a local account, unlocks it and records it in the audit log. The guide is now five plain pages at <https://eth-man.github.io/nexuspuppet/>. **No migration.**
 
 ### Added
+
+**A documentation site** at <https://eth-man.github.io/nexuspuppet/>: Home, Install & upgrade, Using the console, Sign-in & users, Troubleshooting & support — written for operators, built from `docs/guide/` with MkDocs Material and published by GitHub Actions on every merge. The reference documents (DEPLOYMENT.md, the user guide, the ADRs) stay in the repository and are brought up to date with 1.11, with every screenshot regenerated. (#273)
 
 **`scripts/deploy.sh --reset-admin <email>` recovers a lost local password.** An operator lost the only administrator's password, and nothing supported could get them back in: `BOOTSTRAP_ADMIN_*` only seeds an empty users table, and the console's reset needs an administrator who can sign in. The command prompts twice without echo (or reads one line from a non-terminal stdin), applies the console's password rule, and in one transaction sets the password, clears the lockout, reactivates the account, revokes its refresh tokens and writes a `user.password.reset` audit record with actor `cli:deploy.sh@<host>` — forwarded like any other record when audit forwarding is configured. It starts only the database and runs in a one-off container, so it works with the API stopped or crash-looping. The password reaches the container on stdin only, never argv, the environment or a file. Directory accounts are refused (exit 3), an unknown email exits 2. Access tokens already issued stay valid until `ACCESS_TOKEN_TTL`. See DEPLOYMENT.md §5, *Lost the admin password*.
 
 ### Fixed
 
+**`--reset-admin` on an image built before it existed said nothing useful.** The command lives in the API image; a checkout updated without re-running the upgrade asked for the password and then failed with a `MODULE_NOT_FOUND` stack trace. It now checks the image first and, before any prompt, says to run the upgrade once. (#275)
+
 **`scripts/deploy.sh --help` shows every option.** It printed a fixed range of lines that stopped mid-way through `--check` and never reached `--tls` or `--skip-preflight`.
+
+### Upgrading
+
+Re-run `sudo ./scripts/deploy.sh`. `--reset-admin` ships inside the rebuilt API image, so it exists only after that upgrade, not merely after updating the checkout.
 
 ## [1.11.0] — 2026-10-01
 
