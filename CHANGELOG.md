@@ -2,6 +2,16 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+**`scripts/deploy.sh --reset-admin <email>` recovers a lost local password.** An operator lost the only administrator's password, and nothing supported could get them back in: `BOOTSTRAP_ADMIN_*` only seeds an empty users table, and the console's reset needs an administrator who can sign in. The command prompts twice without echo (or reads one line from a non-terminal stdin), applies the console's password rule, and in one transaction sets the password, clears the lockout, reactivates the account, revokes its refresh tokens and writes a `user.password.reset` audit record with actor `cli:deploy.sh@<host>` — forwarded like any other record when audit forwarding is configured. It starts only the database and runs in a one-off container, so it works with the API stopped or crash-looping. The password reaches the container on stdin only, never argv, the environment or a file. Directory accounts are refused (exit 3), an unknown email exits 2. Access tokens already issued stay valid until `ACCESS_TOKEN_TTL`. See DEPLOYMENT.md §5, *Lost the admin password*.
+
+### Fixed
+
+**`scripts/deploy.sh --help` shows every option.** It printed a fixed range of lines that stopped mid-way through `--check` and never reached `--tls` or `--skip-preflight`.
+
 ## [1.11.0] — 2026-10-01
 
 **A directory is enabled from the console** ([ADR-0029](docs/architecture/adr/0029-directory-from-the-console.md)). An install upgraded from core showed LDAP and SSO as *Not enabled — set LDAP_URL and restart the API*. Both directories are now configurable and enable-able entirely from **Settings → Directory / Auth**, effective at the next sign-in, with no `.env` edit and no restart. Local accounts are never affected. **No migration.**

@@ -63,6 +63,17 @@ export class SettingsAuditTransport implements IAuditTransport {
     return this.effective(this.cachedState) !== null;
   }
 
+  /**
+   * `configured`, resolved FRESH rather than from the cache.
+   *
+   * For a process that writes one audit record and exits (cli/admin-reset.ts):
+   * it has no earlier tick to have warmed the cache, so the getter would answer
+   * from the environment alone and ignore a transport chosen in the console.
+   */
+  async isConfigured(): Promise<boolean> {
+    return this.effective(await this.resolve()) !== null;
+  }
+
   async deliver(entries: readonly AuditDeliveryEntry[]): Promise<void> {
     const state = await this.resolve();
     const effective = this.effective(state);
