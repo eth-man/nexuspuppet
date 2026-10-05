@@ -22,6 +22,9 @@ export default tseslint.config(
       '**/.next/**',
       '**/coverage/**',
       '**/node_modules/**',
+      // Gitignored output: the documentation site and its Python venv
+      // (CONTRIBUTING.md, "Previewing the documentation site").
+      'build/**',
       '**/*.config.mjs',
       '**/.prisma/**',
       'apps/api/src/generated/**',

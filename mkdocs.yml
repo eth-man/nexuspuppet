@@ -1,0 +1,92 @@
+# The documentation site: https://eth-man.github.io/nexuspuppet/
+#
+# Built from docs/guide/ only -- a few short pages for the people who install
+# and use NexusPuppet. The long reference documents (DEPLOYMENT.md, the user
+# guide, the architecture and its decisions) stay in the repository, and the
+# guide links to them on GitHub. Every page here must still read correctly on
+# github.com, so the sources use plain GitHub Markdown: no admonitions, no
+# attribute lists, no snippets. scripts/docs/hooks.py turns repository links
+# into site or GitHub links at build time.
+#
+# Preview: see CONTRIBUTING.md, "Previewing the documentation site".
+
+site_name: NexusPuppet
+site_description: A web console and node classifier for Puppet and OpenVox.
+site_url: https://eth-man.github.io/nexuspuppet/
+repo_url: https://github.com/eth-man/nexuspuppet
+repo_name: eth-man/nexuspuppet
+edit_uri: edit/main/docs/guide/
+copyright: Apache-2.0
+
+docs_dir: docs/guide
+site_dir: build/site
+
+hooks:
+  - scripts/docs/hooks.py
+
+strict: true
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
+
+nav:
+  - Home: index.md
+  - Install & upgrade: install.md
+  - Using the console: using.md
+  - Sign-in & users: sign-in.md
+  - Troubleshooting & support: troubleshooting.md
+  - Release notes: https://github.com/eth-man/nexuspuppet/releases
+  - For developers: https://github.com/eth-man/nexuspuppet#documentation
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.footer
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: blue grey
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: blue grey
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+      # GitHub's anchor style, so a #fragment works on both github.com and
+      # the site.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tasklist
