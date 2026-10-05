@@ -69,11 +69,11 @@ const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
   },
   ad: {
     /*
-     * Accepts either form a person might type. AD users are told their
-     * "username" (sAMAccountName, `jdoe`) by IT, but the UPN
-     * (`jdoe@corp.example.com`) looks like an email and is what many will try
-     * first. Refusing one of them produces a login screen that works for some
-     * colleagues and not others.
+     * Matches either form, but in practice only the UPN arrives here: sign-in
+     * finds the NexusPuppet account by the EMAIL typed before any directory is
+     * asked (ADR-0015), so a bare `jdoe` is refused before this filter runs.
+     * The sAMAccountName arm is kept because it is harmless and a stored or
+     * environment filter may rely on the same shape.
      *
      * objectCategory=person alongside objectClass=user excludes computer
      * accounts, which are also objectClass=user in AD — without it, a machine
@@ -82,7 +82,9 @@ const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
     searchFilter:
       '(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})))',
     attributes: { email: 'mail', displayName: 'displayName', memberOf: 'memberOf' },
-    identifierLabel: 'Username',
+    // 'Email', not 'Username': accounts are found by the address typed, so
+    // inviting `jdoe` produced a refusal that read as a wrong password.
+    identifierLabel: 'Email',
     supportsNestedGroups: true,
   },
 };

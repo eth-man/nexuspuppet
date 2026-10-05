@@ -182,7 +182,8 @@ export class LdapAuthProvider implements IAuthProvider {
   }
 
   /**
-   * 'Username' for AD, 'Email' otherwise — see the dialect defaults.
+   * 'Email' for every dialect — accounts are found by the address typed — see
+   * the dialect defaults.
    *
    * Follows the configuration in force, so a save that detects Active
    * Directory (or chooses Simple bind) relabels the login form at the next

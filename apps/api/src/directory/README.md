@@ -67,13 +67,14 @@ Split on the **last** `=` in each pair, because DNs contain `=` themselves.
 | | OpenLDAP | Active Directory |
 |---|---|---|
 | Search filter | `(&(objectClass=person)(mail={{input}}))` | `(&(objectClass=user)(objectCategory=person)(\|(sAMAccountName={{input}})(userPrincipalName={{input}})))` |
-| Login label | Email | Username |
+| Login label | Email | Email |
 | Nested groups | unavailable | available, off by default |
 
-**Users sign in with `sAMAccountName` or UPN.** IT tells people their "username"
-(`jdoe`); the UPN (`jdoe@corp.example.com`) looks like an email and is what many
-try first. The default filter accepts either, because refusing one produces a
-login screen that works for some colleagues and not others.
+**Users sign in with their email address — for AD, the UPN.** The NexusPuppet
+account is found by the address typed before any directory is asked (ADR-0015),
+so a bare `sAMAccountName` (`jdoe`) is refused before the search runs, and the
+login field is labelled *Email* for that reason. The default filter still
+accepts either form; only the UPN reaches it in practice.
 
 **`objectCategory=person` is not decoration.** Computer accounts are
 `objectClass=user` in AD; without it a machine account could match the search
