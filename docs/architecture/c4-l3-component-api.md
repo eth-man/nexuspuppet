@@ -91,7 +91,7 @@ graph TB
 | `EncYamlRenderer` | **Pure function** | `(EncDocument) → string`. Deterministic key ordering so identical input always yields byte-identical output — this is what makes content-hash change detection work. |
 | `EncFileWriter` | I/O, isolated | The only component that touches the ENC volume. Writes `<name>.yaml.tmp` then `rename()`. |
 | `MaterializerWorker` | Orchestration | Holds a Postgres advisory lock. Drains `EncMaterializationJob`. Idempotent: re-running a job is always safe. |
-| `AuthProviderResolver` | Orchestration | Dispatches a login by the account's `authSource`. `LocalAuthProvider` is always registered; LDAP and OIDC only when configured, and malformed configuration stops boot ([ADR-0015](./adr/0015-hybrid-authentication.md), [ADR-0027](./adr/0027-one-product.md)). |
+| `AuthProviderResolver` | Orchestration | Dispatches a login by the account's `authSource`. `LocalAuthProvider` is always registered first. LDAP and OIDC are registered on every deployment and resolve their configuration per sign-in — stored in the console, else the environment, else *dormant*: not offered on the login page, and their accounts refused like a wrong password. Malformed environment configuration stops boot ([ADR-0015](./adr/0015-hybrid-authentication.md), [ADR-0027](./adr/0027-one-product.md), [ADR-0029](./adr/0029-directory-from-the-console.md)). |
 | `ForwardingAuditSink` | I/O | Bound to `AUDIT_SINK` in every deployment. Delegates the transactional write to the Postgres sink, then enqueues for forwarding only when a transport is configured ([ADR-0016](./adr/0016-settings-store-and-audit-forwarding.md)). |
 
 ## The write path, precisely

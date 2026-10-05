@@ -29,6 +29,20 @@ it carries a password like any local account.
 _Avoid_: service account, bot user, agent account (an **agent** is a Puppet
 agent, never a program acting on the console)
 
+**Authentication source**:
+Which provider checks an account's credentials: `local`, `ldap` or `oidc`,
+stored on the account as `authSource`. Chosen when the account is created —
+there is no automatic account creation from a directory — and decides which
+provider handles every sign-in for that account.
+_Avoid_: login type, auth method, realm
+
+**Dormant directory**:
+A directory provider with no configuration in the console or the environment
+(ADR-0029). It is registered on every deployment but not offered on the login
+page, and its accounts are refused exactly like a wrong password until it is
+configured.
+_Avoid_: disabled directory (nothing was switched off), not enabled
+
 ### Classification delivery
 
 **ENC tree**:

@@ -44,6 +44,7 @@ graph TB
 | **api** | NestJS, TypeScript | All business logic, authorization, PuppetDB client, ENC materializer, audit, directory authentication (LDAP/AD, OIDC) and audit forwarding ([ADR-0027](./adr/0027-one-product.md)) | Stateless **except** the materializer — see below |
 | **db** | PostgreSQL 16 | Local state only ([ADR-0005](./adr/0005-postgres-prisma-local-state.md)) | Single instance in v1 |
 | **enc-volume** | Docker volume / bind mount | The handoff surface to Puppet | Must be shared between `api` and `puppetserver` |
+| **api-logs** | Docker volume | A bounded, rotated copy of the API's own log, read only by the support bundle ([ADR-0028](./adr/0028-support-bundle.md)). Stdout remains the log. | One set of files per `api` replica |
 
 ## Trust boundaries
 

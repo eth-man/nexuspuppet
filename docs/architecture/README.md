@@ -1,7 +1,7 @@
 # NexusPuppet — Master Architecture
 
 **Status:** Baseline. Supersedes nothing.
-**Source of truth for scope:** [`/INTAKE.md`](../../INTAKE.md).
+**Original scope:** [`/INTAKE.md`](../../INTAKE.md) (historical).
 **Binding decisions:** [`adr/`](./adr/). Where this document and an ADR disagree, the ADR wins.
 
 ---
@@ -101,6 +101,8 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 
 ## 10. Decision index
 
+Status as each ADR records it. ADRs are not edited once accepted (ADR-0000), so a later decision amends or supersedes an earlier one rather than rewriting it.
+
 | ADR | Title |
 |---|---|
 | [0000](./adr/0000-record-architecture-decisions.md) | Record architecture decisions |
@@ -109,7 +111,7 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0003](./adr/0003-enc-generate-dont-serve.md) | ENC generates files, does not serve requests |
 | [0004](./adr/0004-puppetdb-read-only-mtls.md) | PuppetDB is read-only over mTLS |
 | [0005](./adr/0005-postgres-prisma-local-state.md) | PostgreSQL + Prisma for local state only |
-| [0006](./adr/0006-auth-local-jwt-modular-sso.md) | Local JWT in core, modular SSO in enterprise — amended by 0027 |
+| [0006](./adr/0006-auth-local-jwt-modular-sso.md) | Local JWT auth, modular SSO — amended by 0027 |
 | [0007](./adr/0007-apache-2-0-for-public-core.md) | Apache-2.0 for the public core |
 | [0008](./adr/0008-nextjs-app-router-latest-stable.md) | Next.js App Router, latest stable |
 | [0009](./adr/0009-classification-merge-semantics.md) | Classification merge and conflict resolution |
@@ -118,11 +120,18 @@ PuppetDB  ──(read-only, mTLS, PQL)──▶  api  ──(projection)──�
 | [0012](./adr/0012-gitops-classification-mirror.md) | GitOps mode: classification mirrored to Git — **Deferred** |
 | [0013](./adr/0013-console-tls-private-ca.md) | TLS for the console, from a private CA |
 | [0014](./adr/0014-enterprise-licensing.md) | Enterprise licensing: signed offline claim, degrading to core — **Rejected**, never ratified; the product went fully open source |
-| [0015](./adr/0015-hybrid-authentication.md) | Hybrid authentication: local and directory accounts together — **Proposed** |
-| [0016](./adr/0016-settings-store-and-audit-forwarding.md) | Settings store, syslog forwarding, and audit retention — **Accepted** |
+| [0015](./adr/0015-hybrid-authentication.md) | Hybrid authentication: local and directory accounts together — **Accepted** |
+| [0016](./adr/0016-settings-store-and-audit-forwarding.md) | Settings store, syslog forwarding, and audit retention — **Accepted**; §4 amended by 0029 |
 | [0017](./adr/0017-console-certificate-management.md) | Installing a console certificate from the console — **Accepted** |
 | [0018](./adr/0018-custom-roles.md) | Custom roles with granular permissions — **Accepted** |
 | [0019](./adr/0019-enc-tree-replication.md) | Replicating the ENC tree to puppetserver — **Accepted** |
+| [0020](./adr/0020-automation-account.md) | How a program acts on Production — **Accepted** |
+| [0021](./adr/0021-operational-notifications.md) | Operational notifications — **Accepted** |
+| [0022](./adr/0022-compile-receipts.md) | Compile receipts — **Accepted** |
+| [0023](./adr/0023-several-authentication-sources.md) | Several authentication sources at once — **Proposed** (as recorded) |
+| [0024](./adr/0024-reading-the-class-list-from-puppetserver.md) | Reading the class list from puppetserver — **Proposed** (as recorded; shipped in 1.6.0) |
+| [0025](./adr/0025-estate-wide-resource-search.md) | Estate-wide resource search — **Accepted** |
+| [0026](./adr/0026-saved-queries.md) | Saved queries, and the first per-user object — **Accepted** |
 | [0027](./adr/0027-one-product.md) | One product: the enterprise seam is removed — **Accepted**; supersedes 0002 |
 | [0028](./adr/0028-support-bundle.md) | The support bundle, and the API's own log history — **Accepted** |
 | [0029](./adr/0029-directory-from-the-console.md) | A directory is enabled from the console — **Accepted**; amends 0016 §4 and 0027 §5 |

@@ -7,7 +7,7 @@
   PKI teams issue wildcards with the key bundled. D cannot accept one, so it
   cannot be the design. See *Why not D*.
 - **Deciders:** Architect
-- **Related:** [ADR-0013](./0013-console-tls-private-ca.md), [ADR-0004](./0004-puppetdb-read-only-pql.md), [ADR-0016](./0016-settings-store-and-audit-forwarding.md)
+- **Related:** [ADR-0013](./0013-console-tls-private-ca.md), [ADR-0004](./0004-puppetdb-read-only-mtls.md), [ADR-0016](./0016-settings-store-and-audit-forwarding.md)
 
 ## Context
 
