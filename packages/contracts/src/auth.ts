@@ -852,17 +852,297 @@ export const oidcSettingsSchema = z.object({
 
 export type OidcSettings = z.infer<typeof oidcSettingsSchema>;
 
-export const ldapSettingsSchema = z.object({
-  url: z
+/*
+ * ---------------------------------------------------------------------------
+ * LDAP connection vocabulary (ADR-0030).
+ *
+ * The console used to ask for one "Server URL" — `ldaps://host:port` — and a
+ * directory type. An operator configuring a real Active Directory asked for
+ * the fields every other LDAP client they own uses instead: a server name, a
+ * port, a protocol and a bind type. Those are the fields now, and the
+ * directory type is DETECTED from the server's RootDSE rather than chosen.
+ * ---------------------------------------------------------------------------
+ */
+
+/** How the connection is encrypted. There is no unencrypted choice to save. */
+export const LDAP_PROTOCOLS = ['ldaps', 'starttls'] as const;
+export type LdapProtocol = (typeof LDAP_PROTOCOLS)[number];
+
+/**
+ * What a STORED configuration may hold: the two above, or `ldap` —
+ * unencrypted, which only a row saved before ADR-0030 (or an `ldap://`
+ * `LDAP_URL`) can carry. It keeps working exactly as it did, is shown as
+ * legacy, and can never be saved again.
+ */
+export type LdapStoredProtocol = LdapProtocol | 'ldap';
+
+/** The port each protocol uses unless the operator types another. */
+export const LDAP_DEFAULT_PORTS: Readonly<Record<LdapStoredProtocol, number>> = {
+  ldaps: 636,
+  starttls: 389,
+  ldap: 389,
+};
+
+/**
+ * How the console authenticates to the directory (ADR-0030 §3).
+ *
+ * - `regular` — bind as a service account (User DN + Password), search for the
+ *   person, then bind as them.
+ * - `anonymous` — search anonymously, then bind as the person.
+ * - `simple` — no service account: bind straight as the person, using a User
+ *   DN pattern, then read their own entry as them.
+ */
+export const LDAP_BIND_TYPES = ['regular', 'simple', 'anonymous'] as const;
+export type LdapBindType = (typeof LDAP_BIND_TYPES)[number];
+
+/** The directory families the provider has defaults for. Detected, not chosen. */
+export const LDAP_DIALECTS = ['openldap', 'ad'] as const;
+export type LdapDialectName = (typeof LDAP_DIALECTS)[number];
+
+/**
+ * The placeholders a Simple-bind User DN pattern may contain — exactly one of
+ * them, once (ADR-0030 §3).
+ *
+ * People always sign in with their account's EMAIL: the resolver finds the
+ * account by it before any directory is asked. So what reaches the pattern is
+ * an address, and the two placeholders are two parts of it:
+ *
+ * - `{email}` — the whole address as typed, normalised exactly as the account
+ *   lookup normalises it (trimmed, lower-cased). On Active Directory this is
+ *   the UPN, so the pattern is just `{email}`.
+ * - `{username}` — the part before the LAST `@`. For a DN such as
+ *   `uid={username},ou=people,dc=example,dc=com`, or a UPN in another domain:
+ *   `{username}@corp.example`.
+ */
+export const LDAP_USERNAME_PLACEHOLDER = '{username}';
+export const LDAP_EMAIL_PLACEHOLDER = '{email}';
+
+/**
+ * The URL the LDAP client is opened with. STARTTLS starts on `ldap://` and
+ * upgrades before anything else is sent; IPv6 literals are bracketed.
+ */
+export function ldapUrlOf(target: {
+  host: string;
+  port: number;
+  protocol: LdapStoredProtocol;
+}): string {
+  const scheme = target.protocol === 'ldaps' ? 'ldaps' : 'ldap';
+  const host = target.host.includes(':') ? `[${target.host}]` : target.host;
+  return `${scheme}://${host}:${target.port}`;
+}
+
+/**
+ * Split a legacy `ldap://` / `ldaps://` URL into host, port and protocol.
+ * Null when it is not one — a scheme other than those two, a path, a query or
+ * credentials in the authority are all refused rather than half-read.
+ */
+export function parseLegacyLdapUrl(
+  url: string,
+): { host: string; port: number; protocol: LdapStoredProtocol } | null {
+  const match = /^(ldaps?):\/\/([^/?#]*)\/?$/i.exec(url.trim());
+  if (match === null) return null;
+  const scheme = match[1]!.toLowerCase();
+  const authority = match[2]!;
+  if (authority === '' || authority.includes('@')) return null;
+
+  let host: string;
+  let portText: string | undefined;
+  const bracketed = /^\[([0-9a-fA-F:.]+)\](?::(\d+))?$/.exec(authority);
+  if (bracketed !== null) {
+    host = bracketed[1]!;
+    portText = bracketed[2];
+  } else {
+    const parts = authority.split(':');
+    if (parts.length > 2) return null;
+    host = parts[0]!;
+    portText = parts[1];
+  }
+
+  const protocol: LdapStoredProtocol = scheme === 'ldaps' ? 'ldaps' : 'ldap';
+  const port =
+    portText === undefined || portText === '' ? LDAP_DEFAULT_PORTS[protocol] : Number(portText);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  if (ldapHostProblem(host) !== null) return null;
+  return { host, port, protocol };
+}
+
+/**
+ * What is wrong with a "Server name or IP" value, or null.
+ *
+ * The messages name the field the stray part belongs in, because the usual
+ * mistake is pasting the old URL into the new box.
+ */
+export function ldapHostProblem(host: string): string | null {
+  if (host === '') return 'Enter the server name or IP address.';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(host)) {
+    return 'Enter the server name only — choose LDAPS or STARTTLS under Protocol instead of typing ldaps://.';
+  }
+  if (host.startsWith('[')) return 'Enter an IPv6 address without the brackets.';
+  if (/[\s/\\@?#]/.test(host)) {
+    return 'Enter a server name or IP address only, with no path, user or spaces.';
+  }
+  // An IPv6 literal is the only legal place for a colon.
+  if (host.includes(':')) {
+    return /^[0-9a-f:.]+$/i.test(host) && host.split(':').length >= 3
+      ? null
+      : 'Put the port in the Port field, not after the server name.';
+  }
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.?$/i.test(host)) {
+    return 'Not a valid server name or IP address.';
+  }
+  return null;
+}
+
+/**
+ * What is wrong with a Simple-bind User DN pattern, or null (ADR-0030 §3).
+ *
+ * Two shapes, and nothing else:
+ *
+ * - a **DN** — it contains `=` — where `{username}` or `{email}` is an
+ *   attribute value: `uid={username},ou=people,dc=example,dc=com`. The value is
+ *   escaped for DN context (RFC 4514) before it is substituted.
+ * - a **UPN** — exactly `{email}`, or `{username}@<domain>` — Active
+ *   Directory's user@domain form. The substituted value is not a DN, so
+ *   instead of escaping it, anything that could change which account is named
+ *   is refused.
+ *
+ * Shared with the browser so the form says what is wrong before Save.
+ */
+export function userDnPatternProblem(pattern: string): string | null {
+  const count =
+    pattern.split(LDAP_USERNAME_PLACEHOLDER).length -
+    1 +
+    (pattern.split(LDAP_EMAIL_PLACEHOLDER).length - 1);
+  if (count !== 1) {
+    return 'Must contain exactly one of {email} or {username}, where the sign-in address goes.';
+  }
+  if (hasControlCharacter(pattern)) return 'Contains a control character.';
+
+  if (pattern.includes('=')) {
+    // The placeholder must be a whole attribute VALUE: right after `=`, and
+    // followed by the end, `,` or `+`. Anywhere else it would be splicing the
+    // sign-in name into an attribute TYPE or across RDNs.
+    if (!/=\{(?:username|email)\}(?:$|[,+])/.test(pattern)) {
+      return 'Put {username} or {email} as a whole attribute value, as in uid={username},ou=people,dc=example,dc=com.';
+    }
+    return null;
+  }
+
+  if (pattern === LDAP_EMAIL_PLACEHOLDER) return null;
+  if (!/^\{username\}@[^\s@{}\\,;=+<>"]+$/.test(pattern)) {
+    return (
+      'Use {email} for Active Directory (the address people sign in with), a DN such as ' +
+      'uid={username},ou=people,dc=example,dc=com, or a UPN such as {username}@corp.example.'
+    );
+  }
+  return null;
+}
+
+/** C0 controls and DEL: no legitimate place in a sign-in name or a DN pattern. */
+export function hasControlCharacter(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/**
+ * Bring a configuration saved before ADR-0030 into today's shape.
+ *
+ * v1.11 and v1.12 stored `url` (+ `dialect`, optional `bindDn`). Rows like
+ * that are READ for ever — nobody should have to re-save a working directory
+ * to upgrade — so this runs before every parse of a stored row, and of a
+ * request body, which lets an older API client keep sending `url`.
+ *
+ * - `url` → host, port, protocol. `ldap://` becomes protocol `ldap`: legacy
+ *   unencrypted, which keeps working and cannot be saved again.
+ * - `dialect` → `detectedDialect`, since it was the operator's own statement
+ *   of what the directory is.
+ * - no `bindType` → inferred: a bind DN WITH a password is `regular`;
+ *   anything else is `anonymous`. A bind DN without a password searched
+ *   anonymously before (the client only bound when it had both), so that is
+ *   what it is called now.
+ * - no `port` → the protocol's default.
+ *
+ * `host` wins over `url` when both are present: `url` is only ever legacy.
+ *
+ * @param options.passwordHeld whether a bind password is stored, for a caller
+ *   holding a REDACTED row, which never carries the password itself.
+ */
+export function upgradeLegacyLdapSettings(
+  raw: unknown,
+  options: { passwordHeld?: boolean } = {},
+): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const input: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+
+  if (input['host'] === undefined && typeof input['url'] === 'string') {
+    const parsed = parseLegacyLdapUrl(input['url']);
+    if (parsed !== null) {
+      input['host'] = parsed.host;
+      input['port'] ??= parsed.port;
+      input['protocol'] ??= parsed.protocol;
+    }
+  }
+  delete input['url'];
+
+  if (input['detectedDialect'] === undefined && typeof input['dialect'] === 'string') {
+    input['detectedDialect'] = input['dialect'];
+  }
+
+  if (input['bindType'] === undefined) {
+    const hasDn = typeof input['bindDn'] === 'string' && input['bindDn'] !== '';
+    const hasPassword =
+      options.passwordHeld ??
+      (typeof input['bindPassword'] === 'string' && input['bindPassword'] !== '');
+    input['bindType'] = hasDn && hasPassword ? 'regular' : 'anonymous';
+  }
+
+  const protocol = input['protocol'];
+  if (
+    input['port'] === undefined &&
+    typeof protocol === 'string' &&
+    protocol in LDAP_DEFAULT_PORTS
+  ) {
+    input['port'] = LDAP_DEFAULT_PORTS[protocol as LdapStoredProtocol];
+  }
+
+  return input;
+}
+
+const ldapSettingsObject = z.object({
+  /** "Server name or IP" — the name on the directory's certificate, ideally. */
+  host: z
     .string()
-    .min(1)
-    .refine((value) => /^ldaps?:\/\//i.test(value), {
-      message: 'Must use the ldap:// or ldaps:// scheme',
+    .trim()
+    .max(253)
+    .superRefine((value, context) => {
+      const problem = ldapHostProblem(value);
+      if (problem !== null) context.addIssue({ code: 'custom', message: problem });
     }),
+  port: z.number().int().min(1).max(65535),
+  protocol: z.enum(['ldaps', 'starttls', 'ldap']),
+  bindType: z.enum(LDAP_BIND_TYPES),
+  /** "User DN": the service account a Regular bind searches as. */
   bindDn: z.string().min(1).optional(),
   /** Omit to keep the stored one. Never returned by a read. */
   bindPassword: z.string().min(1).optional(),
-  dialect: z.enum(['openldap', 'ad']).default('openldap'),
+  /** Simple bind only: where the sign-in name goes, e.g. `{username}@corp.example`. */
+  userDnPattern: z
+    .string()
+    .trim()
+    .min(1)
+    .superRefine((value, context) => {
+      const problem = userDnPatternProblem(value);
+      if (problem !== null) context.addIssue({ code: 'custom', message: problem });
+    })
+    .optional(),
+  /**
+   * What the server said it is, read from its RootDSE at Test and at Save.
+   * Set by the API; a value in a request body is ignored.
+   */
+  detectedDialect: z.enum(LDAP_DIALECTS).optional(),
   searchBase: z.string().min(1),
   groupSearchBase: z.string().min(1).optional(),
   searchFilter: z.string().min(1).optional(),
@@ -887,8 +1167,8 @@ export const ldapSettingsSchema = z.object({
   timeoutMs: z.number().int().positive().max(60_000).default(10_000),
   /**
    * Turning this off accepts any certificate the directory presents, which
-   * removes the point of ldaps://. Allowed because test directories exist;
-   * surfaced in the UI as the warning it is.
+   * removes the point of LDAPS and STARTTLS. Allowed because test directories
+   * exist; surfaced in the UI as the warning it is.
    */
   tlsRejectUnauthorized: z.boolean().default(true),
   /**
@@ -926,7 +1206,81 @@ export const ldapSettingsSchema = z.object({
     .optional(),
 });
 
-export type LdapSettings = z.infer<typeof ldapSettingsSchema>;
+/**
+ * Each bind type's own fields are required, and the others are DROPPED.
+ *
+ * Dropped rather than refused because the form keeps what was typed while an
+ * operator flips between bind types, and an API client upgrading from `url`
+ * may still send a `bindDn` beside `bindType: 'simple'`. Dropping is what
+ * keeps a Simple configuration from quietly carrying a service account it
+ * never uses — the API also discards a stored password when the bind type no
+ * longer needs one.
+ */
+const ldapSettingsChecked = ldapSettingsObject
+  .superRefine((value, context) => {
+    if (value.bindType === 'regular' && value.bindDn === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['bindDn'],
+        message: 'Regular bind needs a User DN — the service account that searches the directory.',
+      });
+    }
+    if (value.bindType === 'simple' && value.userDnPattern === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['userDnPattern'],
+        message: 'Simple bind needs a User DN pattern containing {email} or {username}.',
+      });
+    }
+  })
+  .transform((value) => {
+    const out = { ...value };
+    if (out.bindType !== 'regular') {
+      delete out.bindDn;
+      delete out.bindPassword;
+    }
+    if (out.bindType !== 'simple') delete out.userDnPattern;
+    return out;
+  });
+
+/**
+ * A configuration as READ: stored, or reported by the environment. Accepts the
+ * legacy `ldap` protocol so a v1.12 row still opens in the form.
+ */
+export const ldapStoredSettingsSchema = z.preprocess(
+  (raw) => upgradeLegacyLdapSettings(raw),
+  ldapSettingsChecked,
+);
+
+/**
+ * LDAP configuration as the console sends it, to Save or to Test (ADR-0016,
+ * ADR-0030). The stored shape, minus unencrypted LDAP: saving requires
+ * choosing LDAPS or STARTTLS.
+ */
+export const ldapSettingsSchema = ldapStoredSettingsSchema.superRefine((value, context) => {
+  if (value.protocol === 'ldap') {
+    context.addIssue({
+      code: 'custom',
+      path: ['protocol'],
+      message:
+        'Unencrypted LDAP can no longer be saved — it sends every password in clear text. ' +
+        'Choose LDAPS (port 636) or STARTTLS (port 389).',
+    });
+  }
+});
+
+export type LdapSettings = z.output<typeof ldapStoredSettingsSchema>;
+
+/** What Test connection answers for LDAP: the verdict, plus what was detected. */
+export interface LdapVerification extends ProviderVerification {
+  /**
+   * The directory type read from the server's RootDSE: `ad` when it advertises
+   * LDAP_CAP_ACTIVE_DIRECTORY_OID, `openldap` otherwise. Null when the RootDSE
+   * could not be read — the configuration is then treated as OpenLDAP, and the
+   * message says so.
+   */
+  detectedDialect?: LdapDialectName | null;
+}
 
 /** What a read of stored settings returns. Never carries a secret value. */
 export interface SettingsView<T> {

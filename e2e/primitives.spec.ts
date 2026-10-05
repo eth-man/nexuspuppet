@@ -72,7 +72,7 @@ test.describe('primitives', () => {
     await withStoredDirectory(page, async () => {
       await page.goto('/settings/auth');
 
-      const url = ldap(page).getByRole('textbox', { name: /^Server URL/ });
+      const url = ldap(page).getByRole('textbox', { name: /^Server name or IP/ });
       await expect(url).toBeVisible();
       await expect(url).not.toBeEditable();
     });
@@ -90,7 +90,9 @@ test.describe('primitives', () => {
   async function withStoredDirectory(page: Page, run: () => Promise<void>): Promise<void> {
     const saved = await page.request.put('/api/settings/auth/ldap', {
       data: {
-        url: 'ldaps://directory.e2e.invalid:636',
+        host: 'directory.e2e.invalid',
+        protocol: 'ldaps',
+        bindType: 'anonymous',
         searchBase: 'ou=people,dc=e2e,dc=invalid',
         roleMappings: [],
       },
@@ -126,7 +128,7 @@ test.describe('primitives', () => {
 
     const region = ldap(page);
     const cta = region.getByRole('button', { name: 'Configure directory' });
-    const url = region.getByRole('textbox', { name: /^Server URL/ });
+    const url = region.getByRole('textbox', { name: /^Server name or IP/ });
     await expect(cta.or(url).first()).toBeVisible();
     if ((await cta.count()) > 0) await cta.click();
     await expect(url).toBeVisible();
@@ -147,7 +149,7 @@ test.describe('primitives', () => {
 
     const region = ldap(page);
     const cta = region.getByRole('button', { name: 'Configure directory' });
-    const url = region.getByRole('textbox', { name: /^Server URL/ });
+    const url = region.getByRole('textbox', { name: /^Server name or IP/ });
     await expect(cta.or(url).first()).toBeVisible();
 
     if ((await cta.count()) > 0) {
@@ -166,8 +168,8 @@ test.describe('primitives', () => {
    * Every labelled field must actually be labelled.
    *
    * By ROLE and accessible name, not getByLabel: that is a case-insensitive
-   * substring match over label text AND aria-label, so "Server URL" also
-   * matches the hint button beside it, labelled "About the server URL".
+   * substring match over label text AND aria-label, so "Server name or IP" also
+   * matches the hint button beside it, labelled "About the server name".
    * Resolving through the accessibility tree fails exactly when the
    * association is broken, whatever the markup looks like.
    */
@@ -176,8 +178,9 @@ test.describe('primitives', () => {
     await openDirectoryForm(page, { editing: true });
 
     for (const label of [
-      'Server URL',
-      'Bind DN',
+      'Server name or IP',
+      'Port',
+      'User DN',
       'Search base',
       'Group search base',
       'CA certificate',
@@ -220,9 +223,94 @@ test.describe('primitives', () => {
     await login(page);
     await openDirectoryForm(page, { editing: true });
 
-    await ldap(page).getByRole('button', { name: 'About the server URL' }).focus();
-    await expect(page.getByRole('tooltip')).toContainText('ldaps://');
+    await ldap(page).getByRole('button', { name: 'About the server name' }).focus();
+    await expect(page.getByRole('tooltip')).toContainText('certificate');
     await page.keyboard.press('Escape');
+  });
+
+  /**
+   * ADR-0030: the fields an operator recognises from every other LDAP client.
+   * Server name, port and protocol in place of a URL; the port follows the
+   * protocol until somebody types their own; the bind type decides which
+   * credentials are asked for; the directory type is shown, not chosen.
+   */
+  test('the port follows the protocol until an operator types their own', async ({ page }) => {
+    await login(page);
+    await openDirectoryForm(page, { editing: true });
+
+    const region = ldap(page);
+    const port = region.getByRole('textbox', { name: /^Port/ });
+    const protocol = region.getByRole('combobox', { name: 'Protocol' });
+
+    await protocol.selectOption('ldaps');
+    await expect(port).toHaveValue('636');
+    await protocol.selectOption('starttls');
+    await expect(port).toHaveValue('389');
+
+    // Somebody's Global Catalog: theirs now, whatever the protocol does next.
+    await port.fill('3268');
+    await protocol.selectOption('ldaps');
+    await expect(port).toHaveValue('3268');
+
+    // There is no unencrypted choice to make.
+    await expect(protocol.locator('option')).toHaveText(['LDAPS', 'STARTTLS']);
+  });
+
+  test('the bind type decides which credentials are asked for', async ({ page }) => {
+    await login(page);
+    await openDirectoryForm(page, { editing: true });
+
+    const region = ldap(page);
+    const bindType = region.getByRole('combobox', { name: 'Bind type' });
+    const userDn = region.getByRole('textbox', { name: /^User DN\b(?! pattern)/ });
+    const pattern = region.getByRole('textbox', { name: /^User DN pattern/ });
+    const password = region.locator('input[type="password"]');
+
+    await bindType.selectOption('regular');
+    await expect(userDn).toBeVisible();
+    await expect(password).toBeVisible();
+    await expect(pattern).toHaveCount(0);
+
+    await bindType.selectOption('simple');
+    await expect(pattern).toBeVisible();
+    await expect(userDn).toHaveCount(0);
+    await expect(password).toHaveCount(0);
+
+    await pattern.fill('{username}');
+    await expect(region.getByText(/UPN such as \{username\}@corp\.example/)).toBeVisible();
+    // A bare {username} is not an identity; the message points at {email}.
+    await expect(region.getByText(/Use \{email\} for Active Directory/)).toBeVisible();
+    await pattern.fill('{username}@corp.example');
+    await expect(region.getByText(/UPN such as \{username\}@corp\.example/)).toHaveCount(0);
+    // The Active Directory pattern: the address people sign in with.
+    await pattern.fill('{email}');
+    await expect(region.getByText(/Use \{email\} for Active Directory/)).toHaveCount(0);
+
+    await bindType.selectOption('anonymous');
+    await expect(pattern).toHaveCount(0);
+    await expect(userDn).toHaveCount(0);
+    await expect(password).toHaveCount(0);
+  });
+
+  test('the directory type is shown, not chosen', async ({ page }) => {
+    await login(page);
+    await openDirectoryForm(page, { editing: true });
+
+    const region = ldap(page);
+    await expect(region.getByRole('combobox', { name: 'Directory type' })).toHaveCount(0);
+    await expect(region.getByRole('status', { name: 'Directory type' })).toBeVisible();
+  });
+
+  test('a scheme pasted into the server name says where it belongs', async ({ page }) => {
+    await login(page);
+    await openDirectoryForm(page, { editing: true });
+
+    const region = ldap(page);
+    await region
+      .getByRole('textbox', { name: /^Server name or IP/ })
+      .fill('ldaps://dc01.example.com:636');
+    await expect(region.getByText(/choose LDAPS or STARTTLS under Protocol/)).toBeVisible();
+    await expect(region.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   test('TLS verification is a switch, not a bare checkbox', async ({ page }) => {
@@ -267,7 +355,9 @@ test.describe('primitives', () => {
 
     const refused = await page.request.put('/api/settings/auth/ldap', {
       data: {
-        url: 'ldaps://directory.e2e.invalid:636',
+        host: 'directory.e2e.invalid',
+        protocol: 'ldaps',
+        bindType: 'anonymous',
         searchBase: 'ou=people,dc=e2e,dc=invalid',
         // Assembled, not written out: CI fails any commit containing a literal
         // private-key header, and that guard is worth more than this fixture.
@@ -280,6 +370,7 @@ test.describe('primitives', () => {
     });
 
     expect(refused.status()).toBe(400);
+    expect(await refused.text()).not.toContain('MIIE');
     expect(await refused.text()).toMatch(/private key/i);
   });
 });

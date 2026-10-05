@@ -1,12 +1,13 @@
 # Test directory tree for validating LdapAuthProvider.
 #
 # Deliberately shaped to exercise the decisions that matter, not just a happy
-# path. Four accounts:
+# path. Five accounts:
 #
 #   alice   in ops              -> OPERATOR
 #   bob     in viewers          -> VIEWER
 #   dave    in ops AND admins   -> ADMIN   (highest role wins, not first match)
 #   carol   in no mapped group  -> REFUSED (no default role)
+#   erin    in viewers          -> VIEWER  (her DN is cn=<her email>, for {email} patterns)
 #
 # Passwords are the plaintext below; slapd hashes them on write. They are known
 # test values in a throwaway container bound to loopback.
@@ -68,6 +69,18 @@ displayName: Dave Okafor
 mail: dave@nexuspuppet.test
 userPassword: dave-password
 
+# Named by her EMAIL, as some directories name people: the RDN is
+# cn=erin@nexuspuppet.test. This is what a Simple bind pattern using {email}
+# as a DN value — cn={email},ou=people,… — binds to (ADR-0030).
+dn: cn=erin@nexuspuppet.test,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: erin
+cn: erin@nexuspuppet.test
+sn: Varga
+displayName: Erin Varga
+mail: erin@nexuspuppet.test
+userPassword: erin-password
+
 # --- groups ----------------------------------------------------------------
 # groupOfNames requires at least one member, which is why each lists its people
 # inline rather than being created empty and populated later.
@@ -84,6 +97,7 @@ objectClass: groupOfNames
 cn: viewers
 description: Read-only access
 member: uid=bob,ou=people,dc=nexuspuppet,dc=test
+member: cn=erin@nexuspuppet.test,ou=people,dc=nexuspuppet,dc=test
 
 dn: cn=puppet-admins,ou=groups,dc=nexuspuppet,dc=test
 objectClass: groupOfNames

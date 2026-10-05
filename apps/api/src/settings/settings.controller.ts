@@ -14,6 +14,7 @@ import {
   type DirectorySettingsView,
   type LdapSettings,
   type LdapSettingsView,
+  type LdapVerification,
   type OidcSettings,
   type ProviderVerification,
   ldapSettingsSchema,
@@ -155,7 +156,7 @@ export class SettingsController {
   @HttpCode(HttpStatus.OK)
   async testLdap(
     @Body(new ZodValidationPipe(ldapSettingsSchema)) body: LdapSettings,
-  ): Promise<ProviderVerification> {
+  ): Promise<LdapVerification> {
     return this.settings.verifyLdap(body, this.resolver);
   }
 }

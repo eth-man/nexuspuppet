@@ -49,6 +49,8 @@ const BASE_DIRECTORY: LdapDirectory = {
   findEntry: async () => ENTRY,
   verifyCredentials: async () => true,
   findGroupsContaining: async () => [],
+  bindAndRead: async () => ({ bound: true, entry: ENTRY, nestedGroups: null }),
+  detectDialect: async () => ({ dialect: 'openldap', readAs: 'anonymous' }),
 };
 
 function directory(overrides: Partial<LdapDirectory> = {}): LdapDirectory {
@@ -109,7 +111,7 @@ describe('LdapAuthProvider with a settings reader', () => {
   });
 
   it('binds against the STORED directory once one is saved', async () => {
-    const stored = { ...config(), url: 'ldaps://stored.example.test:636' };
+    const stored = { ...config(), host: 'stored.example.test' };
     const seen: string[] = [];
 
     const result = await provider({
@@ -125,7 +127,7 @@ describe('LdapAuthProvider with a settings reader', () => {
   });
 
   it('rebuilds the client only when the configuration actually changes', async () => {
-    let stored = { ...config(), url: 'ldaps://one.example.test:636' };
+    let stored = { ...config(), host: 'one.example.test' };
     const built = jest.fn(() => directory());
     const p = provider({ settings: { resolve: async () => stored }, directoryFor: built });
 
@@ -133,7 +135,7 @@ describe('LdapAuthProvider with a settings reader', () => {
     await p.authenticate(CREDS);
     expect(built).toHaveBeenCalledTimes(1);
 
-    stored = { ...stored, url: 'ldaps://two.example.test:636' };
+    stored = { ...stored, host: 'two.example.test' };
     await p.authenticate(CREDS);
     expect(built).toHaveBeenCalledTimes(2);
   });
@@ -176,7 +178,7 @@ describe('LdapAuthProvider with a settings reader', () => {
 
     await provider({
       config: { ...config(), caPath: '/etc/nexuspuppet/certs/ad-ca.pem' },
-      settings: { resolve: async () => ({ ...config(), url: 'ldaps://stored.example.test:636' }) },
+      settings: { resolve: async () => ({ ...config(), host: 'stored.example.test' }) },
       directoryFor: (c) => {
         seen.push(c.caPath);
         return directory();
@@ -198,7 +200,7 @@ const CREDS = { email: 'Alice@Example.com', password: 'correct-horse' };
  * instance, and discarding that configuration puts it back.
  */
 describe('LdapAuthProvider with no environment baseline', () => {
-  const stored = { ...config(), url: 'ldaps://saved-in-console.example.test:636' };
+  const stored = { ...config(), host: 'saved-in-console.example.test' };
 
   /** A settings reader whose stored row can be written and discarded mid-test. */
   const store = () => {
@@ -913,17 +915,31 @@ describe('LdapAuthProvider.currentConfiguration', () => {
       config: config({
         url: 'ldaps://dc.corp.example:636',
         bindDn: 'cn=svc-puppet,ou=service,dc=corp,dc=example',
+        bindPassword: 'svc-secret',
         searchBase: 'ou=staff,dc=corp,dc=example',
         dialect: 'ad',
       }),
     }).currentConfiguration();
 
+    // In the console's shape (ADR-0030): host, port and protocol, not a URL.
     expect(reported).toMatchObject({
-      url: 'ldaps://dc.corp.example:636',
+      host: 'dc.corp.example',
+      port: 636,
+      protocol: 'ldaps',
+      bindType: 'regular',
       bindDn: 'cn=svc-puppet,ou=service,dc=corp,dc=example',
       searchBase: 'ou=staff,dc=corp,dc=example',
-      dialect: 'ad',
+      detectedDialect: 'ad',
     });
+    expect(reported).not.toHaveProperty('url');
+  });
+
+  it('reports an ldap:// environment with LDAP_STARTTLS as STARTTLS, not as legacy', () => {
+    const reported = provider({
+      config: config({ url: 'ldap://dc.corp.example', protocol: 'starttls' }),
+    }).currentConfiguration();
+
+    expect(reported).toMatchObject({ host: 'dc.corp.example', port: 389, protocol: 'starttls' });
   });
 
   it('reports the role mappings in the settings shape, not the describe() shape', () => {
@@ -1147,9 +1163,12 @@ describe('LdapAuthProvider.verifyConfiguration', () => {
     expect(result.ok).toBe(false);
     expect(result.message).toContain('unable to verify the first certificate');
     // Details still carry what was attempted, so the operator can see which
-    // URL and bind account produced that.
+    // server and bind account produced that.
     expect(result.details).toEqual(
-      expect.arrayContaining([{ label: 'Directory', value: 'ldaps://candidate.example.com:636' }]),
+      expect.arrayContaining([
+        { label: 'Server', value: 'candidate.example.com:636' },
+        { label: 'Protocol', value: 'LDAPS' },
+      ]),
     );
   });
 

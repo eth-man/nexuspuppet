@@ -201,6 +201,13 @@ export class SettingsStore {
     secretFields: readonly string[],
     updatedByEmail: string,
     tx?: SettingsWriteClient,
+    /**
+     * Stored secrets to DISCARD rather than carry forward. An absent secret
+     * otherwise means "keep it"; this is for a change that makes one
+     * meaningless — an LDAP bind type that no longer uses a service account
+     * must not keep its password sealed in the row (ADR-0030).
+     */
+    drop: readonly string[] = [],
   ): Promise<void> {
     const db = tx ?? this.prisma;
     const secrets: Record<string, unknown> = {};
@@ -227,7 +234,9 @@ export class SettingsStore {
     }
 
     const existing = await db.providerSetting.findUnique({ where: { kind } });
-    const carriedForward = existing === null ? {} : this.openSecrets(kind, existing.secrets);
+    const carriedForward: Record<string, unknown> =
+      existing === null ? {} : this.openSecrets(kind, existing.secrets);
+    for (const name of drop) delete carriedForward[name];
     const merged = { ...carriedForward, ...secrets };
 
     const sealed =

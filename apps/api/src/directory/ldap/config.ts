@@ -1,4 +1,13 @@
 import { existsSync } from 'node:fs';
+import {
+  LDAP_BIND_TYPES,
+  LDAP_DIALECTS,
+  ldapHostProblem,
+  ldapUrlOf,
+  parseLegacyLdapUrl,
+  upgradeLegacyLdapSettings,
+  userDnPatternProblem,
+} from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { CaPemError, parseCaPem } from './ca-pem';
 import { dialectDefaults } from './dialect';
@@ -11,30 +20,67 @@ import { dialectDefaults } from './dialect';
  * from here is fatal at boot (config/integrations.ts wraps it in an
  * IntegrationConfigError), which is exactly the behaviour wanted — a deployment
  * that believes it has a directory must never silently run without one.
+ *
+ * The same schema parses a configuration saved in the console, including one
+ * saved before ADR-0030 in the `url` + `dialect` shape: the contracts'
+ * `upgradeLegacyLdapSettings` brings that into today's shape first, so a v1.12
+ * row keeps working without being saved again.
  */
 const baseLdapConfigSchema = z.object({
-  /** ldaps://directory.example.com:636 — see `tlsRejectUnauthorized` below. */
-  url: z
+  /**
+   * The server's name or IP, as on its certificate (ADR-0030). The client
+   * verifies the certificate against it, and STARTTLS sends it as SNI.
+   */
+  host: z
     .string()
-    .url()
-    .refine((u) => u.startsWith('ldap://') || u.startsWith('ldaps://'), {
-      message: 'LDAP_URL must use the ldap:// or ldaps:// scheme',
+    .trim()
+    .superRefine((value, context) => {
+      const problem = ldapHostProblem(value);
+      if (problem !== null) context.addIssue({ code: 'custom', message: problem });
     }),
+  port: z.number().int().min(1).max(65535),
 
   /**
-   * Service account used to SEARCH for the user's DN. Not used to authenticate
-   * them — that is a second bind as the user themselves.
-   *
-   * Optional: some directories permit anonymous search.
+   * `ldaps` (TLS from the first byte) or `starttls` (upgraded before anything
+   * else is sent — see LdaptsDirectory). `ldap` is unencrypted: only a legacy
+   * row, or an `ldap://` LDAP_URL without LDAP_STARTTLS, can hold it. It keeps
+   * working exactly as it did, and is warned about.
+   */
+  protocol: z.enum(['ldaps', 'starttls', 'ldap']),
+
+  /** How the directory is bound to — see LDAP_BIND_TYPES in contracts. */
+  bindType: z.enum(LDAP_BIND_TYPES),
+
+  /**
+   * Service account used to SEARCH for the user's DN (Regular bind only). Not
+   * used to authenticate them — that is a second bind as the user themselves.
    */
   bindDn: z.string().min(1).optional(),
   bindPassword: z.string().min(1).optional(),
 
+  /** Simple bind only: `uid={username},ou=people,…` or `{username}@corp.example`. */
+  userDnPattern: z
+    .string()
+    .trim()
+    .superRefine((value, context) => {
+      const problem = userDnPatternProblem(value);
+      if (problem !== null) context.addIssue({ code: 'custom', message: problem });
+    })
+    .optional(),
+
   /**
    * Which directory this is. Supplies defaults for the search filter, the
    * identifier label, and whether nested groups can be resolved at all.
+   *
+   * Resolved before parsing (see `prepare`): `LDAP_DIALECT` for the
+   * environment, what the console DETECTED from the server's RootDSE for a
+   * saved configuration (or, for one saved before ADR-0030, what the operator
+   * chose), else OpenLDAP.
    */
-  dialect: z.enum(['openldap', 'ad']).default('openldap'),
+  dialect: z.enum(LDAP_DIALECTS).default('openldap'),
+
+  /** What the console detected, kept so it can be reported back as such. */
+  detectedDialect: z.enum(LDAP_DIALECTS).optional(),
 
   searchBase: z.string().min(1),
 
@@ -99,9 +145,9 @@ const baseLdapConfigSchema = z.object({
    *
    * On-prem directories are almost always signed by an internal CA that is not
    * in the system trust store. Without this, the only way to reach such a
-   * server over ldaps:// is to disable verification entirely — which turns
-   * every password submitted to this console into something the network can
-   * read. This exists so that is never the answer.
+   * server over TLS is to disable verification entirely — which turns every
+   * password submitted to this console into something the network can read.
+   * This exists so that is never the answer.
    *
    * A path to a MOUNTED FILE, never inline PEM: the same rule the PuppetDB
    * client follows. Certificate material in an environment variable
@@ -151,6 +197,61 @@ const baseLdapConfigSchema = z.object({
 });
 
 /**
+ * Bring any accepted input into the shape above.
+ *
+ * - The legacy `url` / `dialect` shape is upgraded by the same function the
+ *   settings view uses, so the two cannot disagree about what a row means.
+ * - The dialect in force is the explicit one (LDAP_DIALECT, or a legacy row's
+ *   choice), else the detected one, else the default.
+ */
+function prepare(raw: unknown): unknown {
+  const upgraded = upgradeLegacyLdapSettings(raw);
+  if (upgraded === null || typeof upgraded !== 'object') return upgraded;
+  const input = upgraded as Record<string, unknown>;
+  if (input['dialect'] === undefined && input['detectedDialect'] !== undefined) {
+    input['dialect'] = input['detectedDialect'];
+  }
+  return input;
+}
+
+/**
+ * Each bind type's credentials must be complete, because each is used as-is.
+ *
+ * A Regular bind with no password used to fall through to an anonymous
+ * search; with the bind type explicit, that is now a configuration that says
+ * one thing and does another, so it is refused. (A row saved before ADR-0030
+ * with a bind DN and no password never gets here: it upgrades to Anonymous,
+ * which is what it always did.)
+ */
+const checkedLdapConfigSchema = baseLdapConfigSchema.superRefine((value, context) => {
+  if (value.bindType === 'regular') {
+    if (value.bindDn === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['bindDn'],
+        message: 'Regular bind needs a User DN (the service account).',
+      });
+    }
+    if (value.bindPassword === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['bindPassword'],
+        message:
+          'Regular bind needs the User DN’s password. A bind DN with an empty password is an ' +
+          'unauthenticated bind, which many directories accept while granting nothing.',
+      });
+    }
+  }
+  if (value.bindType === 'simple' && value.userDnPattern === undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['userDnPattern'],
+      message: 'Simple bind needs a User DN pattern containing {email} or {username}.',
+    });
+  }
+});
+
+/**
  * Fill anything the operator left unset from the dialect's defaults.
  *
  * Done here rather than at each use so the rest of the package sees one
@@ -158,23 +259,37 @@ const baseLdapConfigSchema = z.object({
  * where a missed fallback would silently read the wrong attribute and refuse
  * every login.
  */
-export const ldapConfigSchema = baseLdapConfigSchema.transform((input) => {
-  const defaults = dialectDefaults(input.dialect);
-  return {
-    ...input,
-    searchFilter: input.searchFilter ?? defaults.searchFilter,
-    identifierLabel: defaults.identifierLabel,
-    supportsNestedGroups: defaults.supportsNestedGroups,
-    groupSearchBase: input.groupSearchBase ?? input.searchBase,
-    attributes: {
-      email: input.attributes.email ?? defaults.attributes.email,
-      displayName: input.attributes.displayName ?? defaults.attributes.displayName,
-      memberOf: input.attributes.memberOf ?? defaults.attributes.memberOf,
-    },
-  };
-});
+export const ldapConfigSchema = z
+  .preprocess(prepare, checkedLdapConfigSchema)
+  .transform((input) => {
+    const defaults = dialectDefaults(input.dialect);
+    const config = {
+      ...input,
+      /** Derived, for the client and for display. Never stored. */
+      url: ldapUrlOf(input),
+      searchFilter: input.searchFilter ?? defaults.searchFilter,
+      // Simple bind substitutes the account's EMAIL — what the resolver looks
+      // the account up by — into the pattern, whatever the directory is.
+      identifierLabel: input.bindType === 'simple' ? 'Email' : defaults.identifierLabel,
+      supportsNestedGroups: defaults.supportsNestedGroups,
+      groupSearchBase: input.groupSearchBase ?? input.searchBase,
+      attributes: {
+        email: input.attributes.email ?? defaults.attributes.email,
+        displayName: input.attributes.displayName ?? defaults.attributes.displayName,
+        memberOf: input.attributes.memberOf ?? defaults.attributes.memberOf,
+      },
+    };
+    // Credentials a bind type does not use are not carried, so nothing can use
+    // them by accident.
+    if (config.bindType !== 'regular') {
+      delete config.bindDn;
+      delete config.bindPassword;
+    }
+    if (config.bindType !== 'simple') delete config.userDnPattern;
+    return config;
+  });
 
-export type LdapConfig = z.infer<typeof ldapConfigSchema>;
+export type LdapConfig = z.output<typeof ldapConfigSchema>;
 
 /**
  * Read configuration from the environment.
@@ -186,12 +301,75 @@ export type LdapConfig = z.infer<typeof ldapConfigSchema>;
  *   LDAP_ROLE_MAPPINGS="cn=puppet-admins,ou=groups,dc=x=ADMIN;cn=ops,ou=groups,dc=x=OPERATOR"
  *
  * The DN itself contains `=`, so the split is on the LAST `=` in each pair.
+ *
+ * The environment keeps its URL (ADR-0030 §6): `LDAP_URL` is read exactly as
+ * before, `LDAP_STARTTLS=true` upgrades an `ldap://` one, and `LDAP_BIND_TYPE`
+ * / `LDAP_USER_DN_PATTERN` give it the console's bind types. The directory
+ * type is NOT detected here — that would need the network at boot — so
+ * `LDAP_DIALECT` (default openldap) still decides it, as it always has.
  */
 export function ldapConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LdapConfig {
+  const problems: string[] = [];
+
+  const url = env['LDAP_URL'];
+  const target = url === undefined ? null : parseLegacyLdapUrl(url);
+  if (target === null) {
+    problems.push(
+      url === undefined
+        ? '  url: LDAP_URL is required'
+        : '  url: LDAP_URL must be ldap://host[:port] or ldaps://host[:port] — the ldap:// or ldaps:// scheme, a server name, an optional port, and nothing else',
+    );
+  }
+
+  const startTls = env['LDAP_STARTTLS'];
+  if (startTls !== undefined && startTls !== 'true' && startTls !== 'false') {
+    problems.push(`  LDAP_STARTTLS: must be true or false, not "${startTls}"`);
+  }
+  if (startTls === 'true' && target?.protocol === 'ldaps') {
+    problems.push(
+      '  LDAP_STARTTLS: STARTTLS upgrades an ldap:// connection. With ldaps:// the connection is ' +
+        'already TLS — use LDAP_URL=ldap://host:389 with LDAP_STARTTLS=true, or drop LDAP_STARTTLS.',
+    );
+  }
+
+  const bindType = env['LDAP_BIND_TYPE'];
+  if (bindType !== undefined && !(LDAP_BIND_TYPES as readonly string[]).includes(bindType)) {
+    problems.push(
+      `  LDAP_BIND_TYPE: must be one of ${LDAP_BIND_TYPES.join(', ')}, not "${bindType}"`,
+    );
+  }
+  if (env['LDAP_USER_DN_PATTERN'] !== undefined && bindType !== 'simple') {
+    problems.push('  LDAP_USER_DN_PATTERN: only used with LDAP_BIND_TYPE=simple');
+  }
+  if (bindType === 'simple' && env['LDAP_BIND_DN'] !== undefined) {
+    problems.push(
+      '  LDAP_BIND_DN: Simple bind has no service account — it binds as each user directly. ' +
+        'Unset LDAP_BIND_DN, or use LDAP_BIND_TYPE=regular.',
+    );
+  }
+  if (bindType === 'anonymous' && env['LDAP_BIND_DN'] !== undefined) {
+    problems.push(
+      '  LDAP_BIND_DN: set alongside LDAP_BIND_TYPE=anonymous, which would ignore it. ' +
+        'Unset one of them.',
+    );
+  }
+
   const raw = {
-    url: env['LDAP_URL'],
+    ...(target === null
+      ? {}
+      : {
+          host: target.host,
+          port: target.port,
+          protocol:
+            target.protocol === 'ldap' && startTls === 'true' ? 'starttls' : target.protocol,
+        }),
+    // Inferred exactly as before when unset: a bind DN means a service account.
+    bindType: bindType ?? (env['LDAP_BIND_DN'] === undefined ? 'anonymous' : 'regular'),
     ...(env['LDAP_BIND_DN'] === undefined ? {} : { bindDn: env['LDAP_BIND_DN'] }),
     ...(env['LDAP_BIND_PASSWORD'] === undefined ? {} : { bindPassword: env['LDAP_BIND_PASSWORD'] }),
+    ...(env['LDAP_USER_DN_PATTERN'] === undefined
+      ? {}
+      : { userDnPattern: env['LDAP_USER_DN_PATTERN'] }),
     searchBase: env['LDAP_SEARCH_BASE'],
     ...(env['LDAP_SEARCH_FILTER'] === undefined ? {} : { searchFilter: env['LDAP_SEARCH_FILTER'] }),
     ...(env['LDAP_ROLE_MAPPINGS'] === undefined
@@ -211,23 +389,30 @@ export function ldapConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LdapCon
       : { tlsRejectUnauthorized: env['LDAP_TLS_REJECT_UNAUTHORIZED'] !== 'false' }),
   };
 
-  const parsed = ldapConfigSchema.safeParse(raw);
-  if (!parsed.success) {
-    const detail = parsed.error.issues
-      .map((issue) => `  ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('\n');
-    throw new Error(`Invalid LDAP configuration:\n${detail}`);
-  }
-
   // A bind DN with no password is an "unauthenticated bind" — see the note in
-  // ldap-auth.provider.ts. Catch the misconfiguration here rather than letting
-  // the search silently run with no privileges.
-  if (parsed.data.bindDn !== undefined && parsed.data.bindPassword === undefined) {
-    throw new Error(
-      'LDAP_BIND_DN is set but LDAP_BIND_PASSWORD is not. A bind DN with an empty ' +
+  // ldap-auth.provider.ts. Caught here, by name, rather than as the schema's
+  // generic complaint about a missing field.
+  if (env['LDAP_BIND_DN'] !== undefined && env['LDAP_BIND_PASSWORD'] === undefined) {
+    problems.push(
+      '  LDAP_BIND_DN is set but LDAP_BIND_PASSWORD is not. A bind DN with an empty ' +
         'password is an unauthenticated bind, which many directories accept while ' +
         'granting nothing — searches would silently return no results.',
     );
+  }
+
+  const parsed = ldapConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      const path = issue.path.join('.') || '(root)';
+      // The URL's parts were reported above, in the variable's own name.
+      if (target === null && ['host', 'port', 'protocol'].includes(path)) continue;
+      // Already said, by name, above.
+      if (path === 'bindPassword' && env['LDAP_BIND_DN'] !== undefined) continue;
+      problems.push(`  ${path}: ${issue.message}`);
+    }
+  }
+  if (problems.length > 0 || !parsed.success) {
+    throw new Error(`Invalid LDAP configuration:\n${problems.join('\n')}`);
   }
 
   // LDAP_MATCHING_RULE_IN_CHAIN is an Active Directory extension. OpenLDAP

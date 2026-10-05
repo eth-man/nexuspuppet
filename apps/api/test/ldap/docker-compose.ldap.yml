@@ -14,7 +14,9 @@
 services:
   openldap:
     image: osixia/openldap:1.5.0
-    container_name: nexuspuppet-test-ldap
+    # Overridable, so a stale container of the same name left by an older
+    # checkout never has to be removed to run this one.
+    container_name: ${LDAP_TEST_CONTAINER:-nexuspuppet-test-ldap}
     # osixia generates the TLS certificate for the container's hostname, and it
     # is the only name in the SAN. Left to default it would be the container ID,
     # so verifying ldaps://localhost:6360 would fail on the HOSTNAME rather than
@@ -49,6 +51,10 @@ services:
     ports:
       # Loopback only. This directory contains test accounts with known
       # passwords and must never be reachable from the network.
+      #
+      # 3890 is plain LDAP, and ALSO offers STARTTLS: slapd answers the
+      # extended operation on any listener once it has a certificate. 6360 is
+      # LDAPS. The suite exercises both (ADR-0030).
       - '127.0.0.1:3890:389'
       - '127.0.0.1:6360:636'
     healthcheck:
@@ -72,3 +78,21 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
+
+  # A directory with NO TLS at all, so it refuses STARTTLS. The suite points a
+  # STARTTLS configuration at it, through a proxy that records every byte the
+  # client sends, to prove the client stops at the refusal: no bind, no
+  # password, nothing after the request to upgrade (ADR-0030 §2).
+  openldap-plain:
+    image: osixia/openldap:1.5.0
+    container_name: ${LDAP_TEST_CONTAINER:-nexuspuppet-test-ldap}-plain
+    hostname: localhost
+    environment:
+      LDAP_ORGANISATION: NexusPuppet Test
+      LDAP_DOMAIN: nexuspuppet.test
+      LDAP_BASE_DN: dc=nexuspuppet,dc=test
+      LDAP_ADMIN_PASSWORD: test-admin-password
+      LDAP_CONFIG_PASSWORD: test-config-password
+      LDAP_TLS: 'false'
+    ports:
+      - '127.0.0.1:3892:389'

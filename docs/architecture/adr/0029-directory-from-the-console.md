@@ -4,6 +4,16 @@
 - **Deciders:** Project owner, architect
 - **Related:** [ADR-0015](./0015-hybrid-authentication.md), [ADR-0016](./0016-settings-store-and-audit-forwarding.md), [ADR-0023](./0023-several-authentication-sources.md), [ADR-0027](./0027-one-product.md)
 
+> **Amended 2026-10-05 ([ADR-0030](./0030-ldap-connection-fields.md)).** The
+> decisions here stand. What changed is the LDAP form §7 describes: the
+> *Server URL* field is replaced by **Server name or IP**, **Port** and
+> **Protocol** (LDAPS | STARTTLS — STARTTLS is new, unencrypted LDAP can no
+> longer be saved), the *Directory type* select is gone because the type is
+> detected from the server's RootDSE, and **Bind type** (Regular | Simple |
+> Anonymous) decides which credentials are asked for. Read "URL" below as
+> "server, port and protocol". Configurations saved under this ADR are read
+> unchanged.
+
 ## Context
 
 An operator upgraded an old core install to 1.10.1. Settings → Directory / Auth showed LDAP and SSO as *NOT ENABLED — Set LDAP_URL and restart the API*. To them the product "still behaves like core": every feature is in the image (ADR-0027), and the one they came for could only be switched on by editing `.env` on the host and restarting.

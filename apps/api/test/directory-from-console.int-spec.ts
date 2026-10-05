@@ -48,16 +48,21 @@ const LDAP_EMAIL = 'alice@corp.test';
 const LDAP_PASSWORD = 'alice-directory-password';
 
 const SETTINGS: LdapSettings = {
-  url: 'ldaps://dc.corp.test:636',
+  host: 'dc.corp.test',
+  port: 636,
+  protocol: 'ldaps',
+  bindType: 'regular',
   bindDn: 'cn=svc,dc=corp,dc=test',
   bindPassword: 'svc-secret',
-  dialect: 'openldap',
   searchBase: 'ou=people,dc=corp,dc=test',
   nestedGroups: false,
   roleMappings: [{ groupDn: 'cn=ops,ou=groups,dc=corp,dc=test', role: 'OPERATOR' }],
   timeoutMs: 10_000,
   tlsRejectUnauthorized: true,
 };
+
+/** Every Simple bind the fake directory was asked for, in order. */
+const simpleBinds: Array<{ identity: string; lookup: unknown }> = [];
 
 /** A directory that knows one person, and records every directory it was built for. */
 function fakeDirectory(config: LdapConfig, contacted: string[]): LdapDirectory {
@@ -71,6 +76,23 @@ function fakeDirectory(config: LdapConfig, contacted: string[]): LdapDirectory {
     }),
     verifyCredentials: async (_dn, password) => password === LDAP_PASSWORD,
     findGroupsContaining: async () => [],
+    // Simple bind: records the identity bound, accepts alice's password.
+    bindAndRead: async (identity, password, lookup) => {
+      simpleBinds.push({ identity, lookup });
+      return password === LDAP_PASSWORD
+        ? {
+            bound: true,
+            entry: {
+              dn: 'CN=Alice,OU=People,DC=corp,DC=test',
+              email: LDAP_EMAIL,
+              displayName: 'Alice',
+              groupDns: ['cn=ops,ou=groups,dc=corp,dc=test'],
+            },
+            nestedGroups: null,
+          }
+        : { bound: false };
+    },
+    detectDialect: async () => ({ dialect: 'openldap', readAs: 'anonymous' }),
   };
 }
 
@@ -207,7 +229,9 @@ describe('enabling a directory from the console (integration)', () => {
     const result = await settings.verifyLdap(SETTINGS, resolver);
 
     expect(result.ok).toBe(true);
-    expect(contacted).toEqual(['ldaps://dc.corp.test:636']);
+    // The RootDSE read and the probe search (ADR-0030 §4) — both at the
+    // candidate, and nowhere else.
+    expect([...new Set(contacted)]).toEqual(['ldaps://dc.corp.test:636']);
     expect(await prisma.providerSetting.count()).toBe(0);
   });
 
@@ -257,6 +281,146 @@ describe('enabling a directory from the console (integration)', () => {
     ).resolves.toMatchObject({ ok: true, principal: { authSource: 'local' } });
 
     expect(await prisma.auditLog.count({ where: { action: 'settings.auth.ldap.clear' } })).toBe(1);
+  });
+
+  /**
+   * ADR-0030 §6: a row saved by v1.12 — `url`, `dialect`, a sealed bind
+   * password — keeps signing people in after the upgrade, against the same
+   * directory, without anybody saving it again. No migration.
+   */
+  it('signs in through a row saved before ADR-0030, unchanged', async () => {
+    await provisionAlice();
+    await new SettingsStore(prisma, KEY, 'db').save(
+      'auth.ldap',
+      {
+        url: 'ldaps://dc.corp.test:636',
+        dialect: 'openldap',
+        bindDn: 'cn=svc,dc=corp,dc=test',
+        bindPassword: 'svc-secret',
+        searchBase: 'ou=people,dc=corp,dc=test',
+        roleMappings: [{ groupDn: 'cn=ops,ou=groups,dc=corp,dc=test', role: 'OPERATOR' }],
+      },
+      ['bindPassword'],
+      'v1.12@example.com',
+    );
+
+    await expect(
+      resolver.authenticate({ email: LDAP_EMAIL, password: LDAP_PASSWORD }),
+    ).resolves.toMatchObject({ ok: true, principal: { role: 'OPERATOR' } });
+    expect(contacted).toEqual(['ldaps://dc.corp.test:636']);
+  });
+
+  it('keeps an unencrypted v1.12 row working exactly as before', async () => {
+    await provisionAlice();
+    await new SettingsStore(prisma, KEY, 'db').save(
+      'auth.ldap',
+      {
+        url: 'ldap://dc.corp.test',
+        bindDn: 'cn=svc,dc=corp,dc=test',
+        bindPassword: 'svc-secret',
+        searchBase: 'ou=people,dc=corp,dc=test',
+        roleMappings: [{ groupDn: 'cn=ops,ou=groups,dc=corp,dc=test', role: 'OPERATOR' }],
+      },
+      ['bindPassword'],
+      'v1.12@example.com',
+    );
+
+    await expect(
+      resolver.authenticate({ email: LDAP_EMAIL, password: LDAP_PASSWORD }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(contacted).toEqual(['ldap://dc.corp.test:389']);
+  });
+
+  /**
+   * Simple bind with the patterns Active Directory needs, through the real
+   * resolver. The staging run against AD found that a pattern sees what the
+   * resolver looked the account up by — the address typed — so these sign in
+   * exactly as alice would: with her email, in whatever case she types it.
+   */
+  describe('Simple bind through the resolver', () => {
+    const simple = (userDnPattern: string): LdapSettings => {
+      const { bindDn: _d, bindPassword: _p, ...rest } = SETTINGS;
+      return { ...rest, bindType: 'simple', userDnPattern };
+    };
+
+    beforeEach(() => {
+      simpleBinds.length = 0;
+    });
+
+    it('{email}: binds as the address signed in with — the AD UPN', async () => {
+      await provisionAlice();
+      await settings.saveLdap(simple('{email}'), request());
+
+      await expect(
+        resolver.authenticate({ email: ' Alice@Corp.Test ', password: LDAP_PASSWORD }),
+      ).resolves.toMatchObject({ ok: true, principal: { email: LDAP_EMAIL, role: 'OPERATOR' } });
+      expect(simpleBinds).toEqual([
+        {
+          identity: 'alice@corp.test',
+          lookup: { filter: '(userPrincipalName=alice@corp.test)' },
+        },
+      ]);
+    });
+
+    it('{username}@domain: binds as the part before the @, in the configured domain', async () => {
+      await provisionAlice();
+      await settings.saveLdap(simple('{username}@corp.example'), request());
+
+      await expect(
+        resolver.authenticate({ email: LDAP_EMAIL, password: LDAP_PASSWORD }),
+      ).resolves.toMatchObject({ ok: true });
+      expect(simpleBinds.map((bind) => bind.identity)).toEqual(['alice@corp.example']);
+    });
+
+    it('uid={username},…: binds as a DN built from the part before the @', async () => {
+      await provisionAlice();
+      await settings.saveLdap(simple('uid={username},ou=people,dc=corp,dc=test'), request());
+
+      await expect(
+        resolver.authenticate({ email: LDAP_EMAIL, password: LDAP_PASSWORD }),
+      ).resolves.toMatchObject({ ok: true });
+      expect(simpleBinds).toEqual([
+        {
+          identity: 'uid=alice,ou=people,dc=corp,dc=test',
+          lookup: { dn: 'uid=alice,ou=people,dc=corp,dc=test' },
+        },
+      ]);
+    });
+
+    it('a wrong password is refused like any other, within the floor', async () => {
+      await provisionAlice();
+      await settings.saveLdap(simple('{email}'), request());
+
+      const startedAt = Date.now();
+      await expect(
+        resolver.authenticate({ email: LDAP_EMAIL, password: 'wrong' }),
+      ).resolves.toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(FLOOR_MS - 20);
+    });
+
+    it('an empty password never reaches the directory', async () => {
+      await provisionAlice();
+      await settings.saveLdap(simple('{email}'), request());
+
+      await expect(resolver.authenticate({ email: LDAP_EMAIL, password: '' })).resolves.toEqual({
+        ok: false,
+        reason: 'INVALID_CREDENTIALS',
+      });
+      expect(simpleBinds).toEqual([]);
+    });
+  });
+
+  it('refuses an empty password through the resolver, within the floor, without a bind', async () => {
+    await provisionAlice();
+    await settings.saveLdap(SETTINGS, request());
+    contacted.length = 0;
+
+    const startedAt = Date.now();
+    await expect(resolver.authenticate({ email: LDAP_EMAIL, password: '' })).resolves.toEqual({
+      ok: false,
+      reason: 'INVALID_CREDENTIALS',
+    });
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(FLOOR_MS - 20);
   });
 
   it('refuses a stored configuration that no longer parses LOUDLY, not as dormant', async () => {
