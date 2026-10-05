@@ -244,6 +244,14 @@ export class AppModule {
             () => ldapEnvBaseline(resolver),
             // Same route, same reason, for OIDC_*.
             () => oidcEnvBaseline(resolver),
+            // The directory type is read from the server at Save (ADR-0030 §4),
+            // by the provider that will bind to it.
+            async (candidate) => {
+              const provider = resolver.forSource('ldap');
+              return provider instanceof LdapAuthProvider
+                ? provider.detectDialect(candidate)
+                : null;
+            },
           ),
       },
       {

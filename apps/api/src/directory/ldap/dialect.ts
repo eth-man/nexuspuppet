@@ -34,6 +34,32 @@ export interface DialectDefaults {
  */
 export const AD_MATCHING_RULE_IN_CHAIN = '1.2.840.113556.1.4.1941';
 
+/**
+ * LDAP_CAP_ACTIVE_DIRECTORY_OID: what an Active Directory domain controller
+ * (and Samba AD, which implements the same protocol surface) lists in its
+ * RootDSE's `supportedCapabilities`. Its presence is how the directory type is
+ * DETECTED rather than chosen (ADR-0030 §4). AD LDS advertises a different
+ * OID and is deliberately not matched: it has no sAMAccountName to search.
+ */
+export const AD_CAPABILITY_OID = '1.2.840.113556.1.4.800';
+
+/**
+ * The directory type a RootDSE describes, or null when it describes nothing.
+ *
+ * `supportedCapabilities` carrying the AD OID means AD. A RootDSE that was
+ * readable — it answered with any of the attributes every LDAPv3 server
+ * publishes — but did not carry it means an OpenLDAP-compatible server. An
+ * empty answer is not evidence of anything: a server that hides its RootDSE
+ * from an anonymous reader returns exactly that.
+ */
+export function dialectFromRootDse(attributes: Record<string, string[]>): LdapDialect | null {
+  const capabilities = attributes['supportedCapabilities'] ?? [];
+  if (capabilities.includes(AD_CAPABILITY_OID)) return 'ad';
+
+  const answered = Object.values(attributes).some((values) => values.length > 0);
+  return answered ? 'openldap' : null;
+}
+
 const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
   openldap: {
     searchFilter: '(&(objectClass=person)(mail={{input}}))',

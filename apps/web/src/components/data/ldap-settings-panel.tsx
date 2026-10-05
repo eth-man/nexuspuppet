@@ -12,7 +12,15 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import type { LdapSettings, LdapSettingsView, ProviderVerification } from '@nexuspuppet/contracts';
+import {
+  LDAP_DEFAULT_PORTS,
+  ldapHostProblem,
+  userDnPatternProblem,
+  type LdapDialectName,
+  type LdapSettings,
+  type LdapSettingsView,
+  type LdapVerification,
+} from '@nexuspuppet/contracts';
 import { useLdapSettings, useRoles } from '@/lib/queries';
 import { useClearLdapSettings, useSaveLdapSettings, useTestLdapSettings } from '@/lib/mutations';
 import { ApiError } from '@/lib/client';
@@ -40,8 +48,10 @@ import { LoadingRows, QueryError } from '@/components/states';
 
 /** An empty form, for a deployment that has never configured a directory. */
 const BLANK: LdapSettings = {
-  url: '',
-  dialect: 'openldap',
+  host: '',
+  port: LDAP_DEFAULT_PORTS.ldaps,
+  protocol: 'ldaps',
+  bindType: 'regular',
   searchBase: '',
   nestedGroups: false,
   roleMappings: [],
@@ -90,7 +100,14 @@ export function LdapSettingsPanel() {
 
   const [form, setForm] = useState<LdapSettings>(BLANK);
   const [password, setPassword] = useState('');
-  const [result, setResult] = useState<ProviderVerification | null>(null);
+  /**
+   * Whether the operator typed their own port. Until they do, the port follows
+   * the protocol — 636 for LDAPS, 389 for STARTTLS — so switching protocol
+   * does not leave LDAPS pointed at 389. Once they do, it is theirs: a Global
+   * Catalog on 3269 must not be reset by a change of mind about the protocol.
+   */
+  const [portTouched, setPortTouched] = useState(false);
+  const [result, setResult] = useState<LdapVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Set by the empty state's CTA. */
   const [revealed, setRevealed] = useState(false);
@@ -110,7 +127,10 @@ export function LdapSettingsPanel() {
   useEffect(() => {
     // Load the server's copy once it arrives. The password is deliberately not
     // part of this — there is nothing to load, by design.
-    if (view?.config !== null && view?.config !== undefined) setForm({ ...BLANK, ...view.config });
+    if (view?.config !== null && view?.config !== undefined) {
+      setForm({ ...BLANK, ...view.config });
+      setPortTouched(view.config.port !== LDAP_DEFAULT_PORTS[view.config.protocol]);
+    }
   }, [view?.config]);
 
   if (!manages) return null;
@@ -141,8 +161,34 @@ export function LdapSettingsPanel() {
     setResult(null);
   };
 
-  const submission = (): LdapSettings =>
-    password === '' ? form : { ...form, bindPassword: password };
+  /**
+   * Only what the chosen bind type uses is sent. The form keeps a typed User
+   * DN while somebody flips to Simple and back; the body never carries it to a
+   * configuration that has no service account. `detectedDialect` is the
+   * server's to decide, so it is not sent at all.
+   */
+  const submission = (): LdapSettings => {
+    const { detectedDialect: _detected, ...body } = form;
+    void _detected;
+    if (body.bindType === 'regular') {
+      if (password !== '') body.bindPassword = password;
+    } else {
+      delete body.bindDn;
+      delete body.bindPassword;
+    }
+    if (body.bindType !== 'simple') delete body.userDnPattern;
+    return body;
+  };
+
+  /** Switching protocol moves the port with it, unless somebody typed one. */
+  const setProtocol = (protocol: LdapSettings['protocol']) => {
+    setForm((current) => ({
+      ...current,
+      protocol,
+      port: portTouched ? current.port : LDAP_DEFAULT_PORTS[protocol],
+    }));
+    setResult(null);
+  };
 
   const fail = (caught: unknown) =>
     setError(caught instanceof ApiError ? caught.message : String(caught));
@@ -174,10 +220,14 @@ export function LdapSettingsPanel() {
    * refuses with no stated reason is its own confusion.
    */
   const needsPasswordToAdopt =
+    form.bindType === 'regular' &&
     view?.source === 'environment' &&
     (view.config?.bindDn ?? '') !== '' &&
     !holdsPassword &&
     password === '';
+
+  /** Regular bind with no password typed and none stored: the API refuses it. */
+  const missingPassword = form.bindType === 'regular' && password === '' && !holdsPassword;
 
   /*
    * Nothing stored, nothing in the environment: the provider is dormant
@@ -196,7 +246,34 @@ export function LdapSettingsPanel() {
     );
   }
 
-  const blocked = form.url === '' || form.searchBase === '' || needsPasswordToAdopt;
+  /*
+   * What is wrong with the connection fields, in the words the API would use —
+   * the same functions, from contracts — shown beside the field rather than as
+   * a refused save.
+   */
+  const hostProblem = form.host === '' ? null : ldapHostProblem(form.host.trim());
+  const portProblem =
+    Number.isInteger(form.port) && form.port >= 1 && form.port <= 65535
+      ? null
+      : 'A port from 1 to 65535.';
+  const legacyProtocol = form.protocol === 'ldap';
+  const patternProblem =
+    form.bindType === 'simple' && (form.userDnPattern ?? '') !== ''
+      ? userDnPatternProblem(form.userDnPattern ?? '')
+      : null;
+
+  const blocked =
+    form.host.trim() === '' ||
+    hostProblem !== null ||
+    portProblem !== null ||
+    legacyProtocol ||
+    form.searchBase === '' ||
+    (form.bindType === 'regular' && ((form.bindDn ?? '') === '' || missingPassword)) ||
+    (form.bindType === 'simple' && ((form.userDnPattern ?? '') === '' || patternProblem !== null));
+
+  /** What the server is, from the last test if there was one, else as stored. */
+  const dialect: LdapDialectName | null | undefined =
+    result?.detectedDialect !== undefined ? result.detectedDialect : form.detectedDialect;
 
   /*
    * What Save is about to change, against what is stored.
@@ -208,7 +285,7 @@ export function LdapSettingsPanel() {
    * one somebody is accountable for.
    */
   const before = view?.config ?? null;
-  const changes = describeChanges(before, form, password !== '');
+  const changes = describeChanges(before, submission(), password !== '');
 
   return frame(
     /*
@@ -219,7 +296,11 @@ export function LdapSettingsPanel() {
      */
     <div className="space-y-4">
       <fieldset disabled={!editing} className="min-w-0 space-y-4">
-        <StatusNotices source={view?.source} cannotStoreSecrets={cannotStoreSecrets} />
+        <StatusNotices
+          source={view?.source}
+          cannotStoreSecrets={cannotStoreSecrets && form.bindType === 'regular'}
+          legacyUnencrypted={view?.config?.protocol === 'ldap'}
+        />
 
         {error !== null && (
           <div
@@ -246,39 +327,84 @@ export function LdapSettingsPanel() {
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {/*
+              Server, port, protocol: the three fields every other LDAP client
+              an operator owns asks for (ADR-0030), in place of one URL they had
+              to assemble. There is no unencrypted choice; a configuration
+              saved with one before shows it as legacy, and cannot be saved
+              again until LDAPS or STARTTLS is chosen.
+            */}
             <FieldRow>
               <Field
                 className="min-w-64 flex-[3]"
                 required
-                label="Server URL"
+                label="Server name or IP"
+                error={hostProblem}
                 tooltip={
                   <InfoHint
-                    label="About the server URL"
-                    text="ldaps:// is strongly preferred. ldap:// sends the bind password across the network in clear text, where anything on the path can read it."
+                    label="About the server name"
+                    text="The directory server's DNS name, exactly as it appears on its TLS certificate — the certificate is checked against it. An IP address works only if the certificate lists that IP."
                   />
                 }
               >
                 {(id) => (
                   <Input
                     id={id}
-                    value={form.url}
-                    onChange={(e) => field('url', e.target.value)}
-                    placeholder="ldaps://directory.example.com:636"
-                    aria-invalid={form.url !== '' && !/^ldaps?:\/\//i.test(form.url)}
+                    value={form.host}
+                    onChange={(e) => field('host', e.target.value)}
+                    placeholder="dc01.example.com"
+                    aria-invalid={hostProblem !== null}
+                    autoComplete="off"
+                    spellCheck={false}
                     className="font-mono text-2xs"
                   />
                 )}
               </Field>
 
-              <Field className="w-44" label="Directory type">
+              <Field className="w-24" required label="Port" error={portProblem}>
+                {(id) => (
+                  <Input
+                    id={id}
+                    inputMode="numeric"
+                    value={form.port === 0 ? '' : String(form.port)}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 5);
+                      setPortTouched(true);
+                      field('port', digits === '' ? 0 : Number(digits));
+                    }}
+                    aria-invalid={portProblem !== null}
+                    className="font-mono text-2xs"
+                  />
+                )}
+              </Field>
+
+              <Field
+                className="w-40"
+                label="Protocol"
+                error={
+                  legacyProtocol ? 'Unencrypted (legacy) — choose LDAPS or STARTTLS to save.' : null
+                }
+                tooltip={
+                  <InfoHint
+                    label="About the protocol"
+                    text="LDAPS is TLS from the first byte, usually on port 636. STARTTLS connects on the plain LDAP port, usually 389, and switches to TLS before anything else is sent. Both encrypt every password; if STARTTLS cannot be negotiated, nothing is sent."
+                  />
+                }
+              >
                 {(id) => (
                   <Select
                     id={id}
-                    value={form.dialect}
-                    onChange={(e) => field('dialect', e.target.value as LdapSettings['dialect'])}
+                    value={form.protocol}
+                    onChange={(e) => setProtocol(e.target.value as LdapSettings['protocol'])}
+                    aria-invalid={legacyProtocol}
                   >
-                    <option value="openldap">OpenLDAP</option>
-                    <option value="ad">Active Directory</option>
+                    <option value="ldaps">LDAPS</option>
+                    <option value="starttls">STARTTLS</option>
+                    {legacyProtocol && (
+                      <option value="ldap" disabled>
+                        Unencrypted (legacy)
+                      </option>
+                    )}
                   </Select>
                 )}
               </Field>
@@ -286,68 +412,159 @@ export function LdapSettingsPanel() {
 
             <FieldRow>
               <Field
-                className="min-w-64 flex-1"
-                label="Bind DN"
+                className="w-44"
+                label="Bind type"
                 tooltip={
                   <InfoHint
-                    label="About the bind DN"
-                    text="The service account that searches the directory. It needs read access to the user and group subtrees — nothing more."
+                    label="About the bind type"
+                    text="Regular: a service account (User DN and Password) finds each person, who then signs in as themselves. Simple: no service account — each person binds directly, using the User DN pattern. Anonymous: people are found without signing in, then sign in as themselves."
+                  />
+                }
+              >
+                {(id) => (
+                  <Select
+                    id={id}
+                    value={form.bindType}
+                    onChange={(e) => field('bindType', e.target.value as LdapSettings['bindType'])}
+                  >
+                    <option value="regular">Regular</option>
+                    <option value="simple">Simple</option>
+                    <option value="anonymous">Anonymous</option>
+                  </Select>
+                )}
+              </Field>
+
+              {/*
+                Detected, not chosen (ADR-0030 §4): read from the server's
+                RootDSE at Test and at Save. An <output>, which a <label> can
+                name, so it reads as "Directory type: Active Directory" and is
+                plainly not something to edit.
+              */}
+              <Field
+                className="w-80"
+                label="Directory type"
+                hint={
+                  view?.source === 'environment'
+                    ? 'Set by LDAP_DIALECT in the environment.'
+                    : 'Read from the server when you test or save.'
+                }
+              >
+                {(id) => (
+                  <output
+                    id={id}
+                    className="flex h-8 items-center rounded border border-dashed border-line-soft px-2.5 text-xs text-ink-muted"
+                  >
+                    {describeDialect(dialect, view?.source)}
+                  </output>
+                )}
+              </Field>
+            </FieldRow>
+
+            {form.bindType === 'simple' && (
+              <Field
+                required
+                label="User DN pattern"
+                error={patternProblem}
+                hint="{username} is replaced by what people type at sign-in. A {username}@domain pattern works with Active Directory; a DN works with any directory."
+                tooltip={
+                  <InfoHint
+                    label="About the User DN pattern"
+                    text="Each person binds as this, with {username} replaced by what they type — escaped, so a username cannot change which account it names. Their own entry is then read, as them, for their email, name and groups, so they must be allowed to read it."
                   />
                 }
               >
                 {(id) => (
                   <Input
                     id={id}
-                    value={form.bindDn ?? ''}
-                    onChange={(e) => field('bindDn', e.target.value)}
-                    placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
+                    value={form.userDnPattern ?? ''}
+                    onChange={(e) => field('userDnPattern', e.target.value)}
+                    placeholder="{username}@corp.example.com  or  uid={username},ou=people,dc=example,dc=com"
+                    aria-invalid={patternProblem !== null}
+                    autoComplete="off"
+                    spellCheck={false}
                     className="font-mono text-2xs"
                   />
                 )}
               </Field>
+            )}
 
-              <Field
-                className="min-w-64 flex-1"
-                hint={
-                  cannotStoreSecrets
-                    ? 'Cannot be stored until CONFIG_ENCRYPTION_KEY is set — see above.'
-                    : holdsPassword
-                      ? 'A password is stored. Leave blank to keep it.'
-                      : needsPasswordToAdopt
-                        ? 'The environment supplies this account but not its password, so adopting these settings into the database will require it.'
-                        : undefined
-                }
-                error={
-                  editing && needsPasswordToAdopt
-                    ? 'Required: the environment supplied this account but not its password, which cannot be carried forward.'
-                    : null
-                }
-                label="Bind password"
-                tooltip={
-                  <InfoHint
-                    label="About the bind password"
-                    text="Never sent back to the browser, so this field is empty even when one is stored. Leaving it blank keeps the existing value; typing replaces it."
-                  />
-                }
-              >
-                {(id) => (
-                  <Input
-                    id={id}
-                    type="password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      setResult(null);
-                    }}
-                    placeholder={holdsPassword ? '•••••••• (unchanged)' : ''}
-                    aria-invalid={editing && needsPasswordToAdopt}
-                    // Not a security control — the API refuses the save — but
-                    // a field that cannot be saved should not invite typing.
-                    disabled={cannotStoreSecrets}
-                  />
-                )}
-              </Field>
-            </FieldRow>
+            {form.bindType === 'anonymous' && (
+              <p className="flex items-start gap-1.5 text-2xs text-ink-muted">
+                <Info className="mt-px size-3 shrink-0 text-ink-faint" aria-hidden />
+                {'People are found without a service account, then sign in as themselves. The '}
+                {'directory must allow anonymous search of the search base below.'}
+              </p>
+            )}
+
+            {form.bindType === 'regular' && (
+              <FieldRow>
+                <Field
+                  className="min-w-64 flex-1"
+                  required
+                  label="User DN"
+                  tooltip={
+                    <InfoHint
+                      label="About the User DN"
+                      text="The service account that searches the directory for the person signing in. It needs read access to the user and group subtrees — nothing more."
+                    />
+                  }
+                >
+                  {(id) => (
+                    <Input
+                      id={id}
+                      value={form.bindDn ?? ''}
+                      onChange={(e) => field('bindDn', e.target.value)}
+                      placeholder="cn=svc-nexuspuppet,dc=example,dc=com"
+                      className="font-mono text-2xs"
+                    />
+                  )}
+                </Field>
+
+                <Field
+                  className="min-w-64 flex-1"
+                  required={!holdsPassword}
+                  hint={
+                    cannotStoreSecrets
+                      ? 'Cannot be stored until CONFIG_ENCRYPTION_KEY is set — see above.'
+                      : holdsPassword
+                        ? 'A password is stored. Leave blank to keep it.'
+                        : needsPasswordToAdopt
+                          ? 'The environment supplies this account but not its password, so adopting these settings into the database will require it.'
+                          : undefined
+                  }
+                  error={
+                    editing && needsPasswordToAdopt
+                      ? 'Required: the environment supplied this account but not its password, which cannot be carried forward.'
+                      : null
+                  }
+                  label="Password"
+                  tooltip={
+                    <InfoHint
+                      label="About the password"
+                      text="Never sent back to the browser, so this field is empty even when one is stored. Leaving it blank keeps the existing value; typing replaces it."
+                    />
+                  }
+                >
+                  {(id) => (
+                    <Input
+                      id={id}
+                      type="password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        setResult(null);
+                      }}
+                      placeholder={holdsPassword ? '•••••••• (unchanged)' : ''}
+                      aria-invalid={editing && needsPasswordToAdopt}
+                      // Not a security control — the API refuses the save — but
+                      // a field that cannot be saved should not invite typing.
+                      disabled={cannotStoreSecrets}
+                      autoComplete="new-password"
+                    />
+                  )}
+                </Field>
+              </FieldRow>
+            )}
 
             <div className="space-y-2 border-t border-line-soft pt-3">
               <Switch
@@ -549,11 +766,12 @@ export function LdapSettingsPanel() {
             onCancel={() => {
               // Back to what is stored, not to what was typed. Cancel has to mean
               // "forget this", or it is just a slower Save.
-              setForm(
+              const restored =
                 view?.config === null || view?.config === undefined
                   ? BLANK
-                  : { ...BLANK, ...view.config },
-              );
+                  : { ...BLANK, ...view.config };
+              setForm(restored);
+              setPortTouched(restored.port !== LDAP_DEFAULT_PORTS[restored.protocol]);
               setPassword('');
               setResult(null);
               setError(null);
@@ -646,14 +864,25 @@ function NotConfigured({ onConfigure }: { onConfigure: () => void }) {
 function StatusNotices({
   source,
   cannotStoreSecrets,
+  legacyUnencrypted,
 }: {
   source: 'database' | 'environment' | 'unset' | undefined;
   cannotStoreSecrets: boolean;
+  /** In force over unencrypted ldap://, from before ADR-0030. Still works. */
+  legacyUnencrypted: boolean;
 }) {
   if (source === undefined) return null;
 
   return (
     <>
+      {legacyUnencrypted && (
+        <Notice tone="warn">
+          {'This directory is reached over unencrypted LDAP, so every password crosses the '}
+          {'network in clear text. It keeps working as it is; to change anything, choose LDAPS '}
+          {'or STARTTLS under Protocol.'}
+        </Notice>
+      )}
+
       {source === 'environment' && (
         <Notice tone="info">
           {'Configured from the environment. Saving here stores a configuration in the database, '}
@@ -827,7 +1056,7 @@ function Notice({ tone, children }: { tone: 'info' | 'warn'; children: React.Rea
  * Rendered verbatim from the provider. Core does not know what LDAP is, and the
  * provider decides what is safe to show (ADR-0002).
  */
-function TestResult({ result }: { result: ProviderVerification }) {
+function TestResult({ result }: { result: LdapVerification }) {
   return (
     <div
       role="status"
@@ -1037,6 +1266,30 @@ function RoleMappings({
  * typo and a repointed role mapping both lock people out; a changed timeout
  * does not, and listing it would dilute the ones that matter.
  */
+const PROTOCOL_NAMES: Record<LdapSettings['protocol'], string> = {
+  ldaps: 'LDAPS',
+  starttls: 'STARTTLS',
+  ldap: 'Unencrypted (legacy)',
+};
+
+const BIND_TYPE_NAMES: Record<LdapSettings['bindType'], string> = {
+  regular: 'Regular',
+  simple: 'Simple',
+  anonymous: 'Anonymous',
+};
+
+/** The read-only Directory type, in words. */
+function describeDialect(
+  dialect: LdapDialectName | null | undefined,
+  source: LdapSettingsView['source'] | undefined,
+): string {
+  const name = (d: LdapDialectName) => (d === 'ad' ? 'Active Directory' : 'OpenLDAP');
+  if (source === 'environment') return name(dialect ?? 'openldap');
+  if (dialect === null) return 'Unknown — the server hid its RootDSE; treated as OpenLDAP';
+  if (dialect === undefined) return 'Not detected yet';
+  return `Detected: ${name(dialect)}`;
+}
+
 function describeChanges(
   before: LdapSettings | null,
   after: LdapSettings,
@@ -1049,9 +1302,12 @@ function describeChanges(
     if ((a ?? '') !== (b ?? '')) lines.push(`${label}: ${a || '(none)'} → ${b || '(none)'}`);
   };
 
-  field('Server URL', before.url, after.url);
-  field('Directory type', before.dialect, after.dialect);
-  field('Bind DN', before.bindDn, after.bindDn);
+  field('Server', before.host, after.host);
+  field('Port', String(before.port), String(after.port));
+  field('Protocol', PROTOCOL_NAMES[before.protocol], PROTOCOL_NAMES[after.protocol]);
+  field('Bind type', BIND_TYPE_NAMES[before.bindType], BIND_TYPE_NAMES[after.bindType]);
+  field('User DN', before.bindDn, after.bindDn);
+  field('User DN pattern', before.userDnPattern, after.userDnPattern);
   field('Search base', before.searchBase, after.searchBase);
   field('Group search base', before.groupSearchBase, after.groupSearchBase);
 
@@ -1073,7 +1329,7 @@ function describeChanges(
     );
   }
 
-  if (passwordTyped) lines.push('Bind password: replaced');
+  if (passwordTyped && after.bindType === 'regular') lines.push('Password: replaced');
 
   // Mappings compared as a SET of "group=role": reordering is not a change, and
   // presenting it as one would bury the additions among noise.

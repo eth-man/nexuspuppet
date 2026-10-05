@@ -17,12 +17,19 @@ with it.
 
 ## LDAP provider
 
-Standard two-bind flow:
+Regular and Anonymous bind types use the standard two-bind flow:
 
-1. bind as the service account (or anonymously) and **search** for the user, to
+1. bind as the service account (or not at all) and **search** for the user, to
    discover their DN — a DN cannot be reliably constructed from an email;
 2. bind **as that DN** with the supplied password. A successful bind *is* the
    authentication. This code never compares a password.
+
+Simple bind (ADR-0030) has no service account: the DN (or AD UPN) is built from
+`LDAP_USER_DN_PATTERN`, with the username escaped for DN context (RFC 4514) or,
+for a UPN, refused if it holds anything that could name another account. The
+person binds as it and their own entry is read, as them, on the same
+connection. With STARTTLS, every connection is upgraded before its first bind,
+and a refused or failed upgrade ends the operation with nothing sent.
 
 Then group membership decides the role, and the account is looked up in
 NexusPuppet to obtain a stable `userId`.
@@ -31,10 +38,13 @@ NexusPuppet to obtain a stable `userId`.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `LDAP_DIALECT` | no | `openldap` (default) or `ad`. Sets the defaults below |
-| `LDAP_URL` | yes | `ldaps://…`. `ldap://` warns — binds are cleartext |
+| `LDAP_DIALECT` | no | `openldap` (default) or `ad`. Sets the defaults below. The console *detects* this from the RootDSE; the environment does not, so set it for AD |
+| `LDAP_URL` | yes | `ldaps://host[:port]`, or `ldap://host[:port]` with `LDAP_STARTTLS=true`. Plain `ldap://` alone still works and warns — binds are cleartext |
+| `LDAP_STARTTLS` | no | `true` upgrades an `ldap://` URL with STARTTLS before any bind; refused with `ldaps://` (ADR-0030) |
+| `LDAP_BIND_TYPE` | no | `regular`, `simple` or `anonymous`. Default: `regular` with `LDAP_BIND_DN`, else `anonymous` |
+| `LDAP_USER_DN_PATTERN` | with `simple` | Contains `{username}` once: `{username}@corp.example` (AD) or `uid={username},ou=people,dc=…` |
 | `LDAP_SEARCH_BASE` | yes | e.g. `ou=people,dc=example,dc=com` |
-| `LDAP_BIND_DN` | no | Service account for the search. Anonymous if unset |
+| `LDAP_BIND_DN` | no | Service account for the search (Regular). Anonymous if unset |
 | `LDAP_BIND_PASSWORD` | with `LDAP_BIND_DN` | Set together or not at all |
 | `LDAP_SEARCH_FILTER` | no | Must contain `{{input}}`. Default matches `mail` |
 | `LDAP_ROLE_MAPPINGS` | effectively yes | `<groupDn>=<ROLE>;…`. No mappings ⇒ every login refused |
@@ -82,8 +92,8 @@ domain with "ask that server instead". Chasing it means binding to a host the
 *directory* nominated — with the service account's credentials — so a
 compromised or misconfigured DC could name any host and be handed them. They are
 logged instead, because ignoring one silently makes a user in a referred domain
-look simply absent. For a multi-domain forest, point `LDAP_URL` at a Global
-Catalog (port 3268) and search the whole forest from one server.
+look simply absent. For a multi-domain forest, point the console at a Global
+Catalog (3269 for LDAPS, 3268 for STARTTLS) and search the whole forest from one server.
 
 ### Decisions that look like bugs until you know why
 

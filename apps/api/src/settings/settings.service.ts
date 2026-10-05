@@ -3,10 +3,14 @@ import {
   AUDIT_SINK,
   type DirectorySettingsView,
   type IAuditSink,
+  type LdapDialectName,
   type LdapSettings,
   type LdapSettingsView,
+  type LdapVerification,
   type OidcSettings,
   type ProviderVerification,
+  ldapStoredSettingsSchema,
+  upgradeLegacyLdapSettings,
 } from '@nexuspuppet/contracts';
 import type { AuthProviderResolver } from '../auth/auth-provider.resolver';
 import type { AuthenticatedRequest } from '../auth/auth.guard';
@@ -60,14 +64,22 @@ export class SettingsService {
     private readonly ldapFromEnv: () => LdapSettings | null,
     /** The OIDC baseline, by the same route and for the same reason as LDAP's. */
     private readonly oidcFromEnv: () => OidcSettings | null,
+    /**
+     * Read the directory type from a candidate's RootDSE at Save (ADR-0030 §4).
+     * Null when it cannot tell. Absent — in tests that are not about it — the
+     * save keeps whatever was known before.
+     */
+    private readonly detectLdapDialect?: (
+      candidate: LdapSettings,
+    ) => Promise<LdapDialectName | null>,
   ) {}
 
   async describeLdap(): Promise<LdapSettingsView> {
-    const resolved = await this.store.describe<LdapSettings>('auth.ldap', this.ldapFromEnv);
+    const resolved = await this.store.describe<unknown>('auth.ldap', this.ldapFromEnv);
 
     return {
       source: resolved.source,
-      config: resolved.config,
+      config: resolved.config === null ? null : asLdapView(resolved.config, resolved.secretsHeld),
       disabled: resolved.disabled,
       secretsHeld: resolved.secretsHeld,
       updatedAt: resolved.updatedAt?.toISOString() ?? null,
@@ -76,7 +88,9 @@ export class SettingsService {
       // configured, so a save reaches the next login (ADR-0029).
       liveReload: true,
       secretsStorable: this.store.canStoreSecrets,
-      caCertificates: summariseCaPem(resolved.config?.caPem),
+      caCertificates: summariseCaPem(
+        (resolved.config as { caPem?: string } | null)?.caPem ?? undefined,
+      ),
     };
   }
 
@@ -169,10 +183,83 @@ export class SettingsService {
    * including on a deployment that never set LDAP_URL (ADR-0029).
    */
   async saveLdap(config: LdapSettings, request: AuthenticatedRequest): Promise<LdapSettingsView> {
+    // The controller's schema already refuses this; a direct caller is held to
+    // the same rule (ADR-0030 §1).
+    if (config.protocol === 'ldap') {
+      throw new BadRequestException({
+        error: 'UNENCRYPTED_LDAP',
+        message:
+          'Unencrypted LDAP can no longer be saved. Choose LDAPS (port 636) or STARTTLS (port 389).',
+      });
+    }
     this.validateCa(config);
-    this.requireKeyFor(config.bindPassword, 'a bind password');
-    await this.saveAudited('auth.ldap', config, LDAP_SECRET_FIELDS, this.ldapFromEnv, request);
+
+    // The server decides this, never the body.
+    const { detectedDialect: _ignored, ...submitted } = config;
+    void _ignored;
+
+    if (submitted.bindType === 'regular') {
+      this.requireKeyFor(submitted.bindPassword, 'a bind password');
+      await this.requireBindPassword(submitted);
+    }
+
+    const detectedDialect = await this.dialectFor(submitted);
+    const toStore: LdapSettings = {
+      ...submitted,
+      ...(detectedDialect === null ? {} : { detectedDialect }),
+    };
+
+    // A bind type without a service account must not keep one's password
+    // sealed in the row, where "a password is stored" would go on being true.
+    const drop = submitted.bindType === 'regular' ? [] : LDAP_SECRET_FIELDS;
+    await this.saveAudited(
+      'auth.ldap',
+      toStore,
+      LDAP_SECRET_FIELDS,
+      this.ldapFromEnv,
+      request,
+      drop,
+    );
     return this.describeLdap();
+  }
+
+  /**
+   * Regular bind with no password anywhere is a service account that cannot
+   * bind. Refused here, by name, rather than stored and refused at every login.
+   */
+  private async requireBindPassword(config: LdapSettings): Promise<void> {
+    if (config.bindPassword !== undefined) return;
+    const stored = await this.store.describe<unknown>('auth.ldap', this.ldapFromEnv);
+    if (stored.source === 'database' && stored.secretsHeld.includes('bindPassword')) return;
+    throw new BadRequestException({
+      error: 'BIND_PASSWORD_REQUIRED',
+      message:
+        'Regular bind needs the password for the User DN. Enter it, or choose Anonymous or ' +
+        'Simple bind.',
+    });
+  }
+
+  /**
+   * The directory type to store with this configuration (ADR-0030 §4).
+   *
+   * Read from the server's RootDSE now. When it cannot be read — the directory
+   * is down at the moment of saving, or hides its RootDSE — what was detected
+   * before is kept if this is still the same server, because an outage must
+   * not quietly turn an Active Directory into an OpenLDAP. Otherwise nothing
+   * is stored, which means OpenLDAP, and the form says it was not detected.
+   */
+  private async dialectFor(candidate: LdapSettings): Promise<LdapDialectName | null> {
+    const withSecret = await this.fillSecrets(candidate);
+    const detected =
+      this.detectLdapDialect === undefined ? null : await this.detectLdapDialect(withSecret);
+    if (detected !== null) return detected;
+
+    const stored = await this.store.describe<unknown>('auth.ldap', () => null);
+    if (stored.source !== 'database' || stored.config === null) return null;
+    const before = asLdapView(stored.config, stored.secretsHeld);
+    return before.host === candidate.host && before.port === candidate.port
+      ? (before.detectedDialect ?? null)
+      : null;
   }
 
   /**
@@ -197,7 +284,7 @@ export class SettingsService {
   async verifyLdap(
     candidate: LdapSettings,
     resolver: AuthProviderResolver,
-  ): Promise<ProviderVerification> {
+  ): Promise<LdapVerification> {
     const provider = resolver.forSource(LDAP_SOURCE);
 
     if (provider === null) {
@@ -219,7 +306,10 @@ export class SettingsService {
     // A candidate arriving without a bind password should be tested with the
     // STORED one — otherwise "Test" fails for an operator who is only changing
     // a search base, and they learn nothing about the change they actually made.
-    const withStoredSecrets = await this.fillSecrets(candidate);
+    // What was detected is the provider's to say, not the body's.
+    const { detectedDialect: _ignored, ...submitted } = candidate;
+    void _ignored;
+    const withStoredSecrets = await this.fillSecrets(submitted);
 
     try {
       return await provider.verifyConfiguration(withStoredSecrets);
@@ -254,6 +344,8 @@ export class SettingsService {
     secretFields: readonly string[],
     fromEnv: () => T | null,
     request: AuthenticatedRequest,
+    /** Stored secrets to discard rather than keep (see SettingsStore.save). */
+    drop: readonly string[] = [],
   ): Promise<void> {
     const actor = request.principal;
     const before = await this.store.describe<T>(kind, fromEnv);
@@ -266,6 +358,7 @@ export class SettingsService {
         secretFields,
         actor?.email ?? 'unknown',
         tx,
+        drop,
       );
 
       await this.audit.record(
@@ -355,6 +448,8 @@ export class SettingsService {
   }
 
   private async fillSecrets(candidate: LdapSettings): Promise<LdapSettings> {
+    // Only a Regular bind has a service account whose password to fill in.
+    if (candidate.bindType !== 'regular') return candidate;
     if (candidate.bindPassword !== undefined) return candidate;
 
     const stored = await this.store.resolve<LdapSettings>('auth.ldap', this.ldapFromEnv);
@@ -362,6 +457,26 @@ export class SettingsService {
 
     return { ...candidate, bindPassword: stored.config.bindPassword };
   }
+}
+
+/**
+ * A stored or environment configuration in today's shape, for the form.
+ *
+ * A row saved before ADR-0030 holds `url` and `dialect`; it is shown as host,
+ * port and protocol — `ldap` for an unencrypted one, which the form presents
+ * as legacy. Its bind type is inferred by the rule the provider uses, told
+ * whether a password is held, since this redacted row never carries one.
+ *
+ * A row that no longer validates is still shown, upgraded as far as it goes,
+ * rather than hidden: the login path refuses it loudly, and the operator needs
+ * to see what is there to fix it.
+ */
+function asLdapView(raw: unknown, secretsHeld: readonly string[]): LdapSettings {
+  const upgraded = upgradeLegacyLdapSettings(raw, {
+    passwordHeld: secretsHeld.includes('bindPassword'),
+  });
+  const parsed = ldapStoredSettingsSchema.safeParse(upgraded);
+  return (parsed.success ? parsed.data : upgraded) as LdapSettings;
 }
 
 /** What is wrong with a configuration's pasted CA, or null when nothing is. */

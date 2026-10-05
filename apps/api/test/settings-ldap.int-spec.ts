@@ -1,5 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import type { IAuditSink, LdapSettings, ProviderVerification } from '@nexuspuppet/contracts';
+import type {
+  IAuditSink,
+  LdapDialectName,
+  LdapSettings,
+  ProviderVerification,
+} from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PrismaAuditSink } from '../src/auth/core-capabilities';
 import { SettingsService } from '../src/settings/settings.service';
@@ -26,10 +31,12 @@ jest.setTimeout(60_000);
 const KEY = randomBytes(32).toString('base64');
 
 const SETTINGS: LdapSettings = {
-  url: 'ldaps://directory.example.test:636',
+  host: 'directory.example.test',
+  port: 636,
+  protocol: 'ldaps',
+  bindType: 'regular',
   bindDn: 'cn=svc,dc=example,dc=test',
   bindPassword: 'a-bind-secret',
-  dialect: 'openldap',
   searchBase: 'ou=people,dc=example,dc=test',
   nestedGroups: false,
   roleMappings: [{ groupDn: 'cn=ops,dc=example,dc=test', role: 'OPERATOR' }],
@@ -68,7 +75,12 @@ describe('LDAP settings API (integration)', () => {
           : null,
     }) as unknown as AuthProviderResolver;
 
-  const service = (_resolver: AuthProviderResolver = resolverWith(), key: string | null = KEY) =>
+  const service = (
+    _resolver: AuthProviderResolver = resolverWith(),
+    key: string | null = KEY,
+    /** What the directory's RootDSE says at Save (ADR-0030 §4). */
+    detect?: (candidate: LdapSettings) => Promise<LdapDialectName | null>,
+  ) =>
     new SettingsService(
       new SettingsStore(prisma, key ?? undefined, 'db'),
       // A REAL PrismaService here, so the transaction that binds a settings
@@ -78,6 +90,7 @@ describe('LDAP settings API (integration)', () => {
       () => null,
       // No OIDC in these tests: this suite is about the LDAP kind.
       () => null,
+      detect,
     );
 
   beforeAll(async () => {
@@ -201,7 +214,11 @@ describe('LDAP settings API (integration)', () => {
       const entry = await prisma.auditLog.findFirst({
         where: { action: 'settings.auth.ldap.update' },
       });
-      expect(entry?.after).toMatchObject({ url: SETTINGS.url, searchBase: SETTINGS.searchBase });
+      expect(entry?.after).toMatchObject({
+        host: SETTINGS.host,
+        protocol: SETTINGS.protocol,
+        searchBase: SETTINGS.searchBase,
+      });
       expect(entry?.after).not.toHaveProperty('bindPassword');
       expect(await prisma.providerSetting.count()).toBe(1);
     });
@@ -219,9 +236,10 @@ describe('LDAP settings API (integration)', () => {
 
     it('stores a configuration without a password even with no key', async () => {
       // Anonymous search is legitimate; the key is only needed for a secret.
-      const { bindPassword: _p, bindDn: _d, ...anonymous } = SETTINGS;
+      const { bindPassword: _p, bindDn: _d, ...rest } = SETTINGS;
+      const anonymous: LdapSettings = { ...rest, bindType: 'anonymous' };
 
-      await service(resolverWith(), null).saveLdap(anonymous as LdapSettings, request());
+      await service(resolverWith(), null).saveLdap(anonymous, request());
 
       expect(await prisma.providerSetting.count()).toBe(1);
     });
@@ -234,6 +252,146 @@ describe('LDAP settings API (integration)', () => {
       expect(await prisma.auditLog.count({ where: { action: 'settings.auth.ldap.clear' } })).toBe(
         1,
       );
+    });
+  });
+
+  /** ADR-0030: the connection fields, against the real store. */
+  describe('connection fields', () => {
+    /** A row exactly as v1.12 saved it: url + dialect + bindDn, password sealed. */
+    async function saveLegacyRow(config: Record<string, unknown>, secret?: string): Promise<void> {
+      await new SettingsStore(prisma, KEY, 'db').save(
+        'auth.ldap',
+        { ...config, ...(secret === undefined ? {} : { bindPassword: secret }) },
+        ['bindPassword'],
+        'v1.12@example.com',
+      );
+    }
+
+    const LEGACY = {
+      url: 'ldaps://dc01.example.test:636',
+      dialect: 'ad',
+      bindDn: 'cn=svc,dc=example,dc=test',
+      searchBase: 'ou=people,dc=example,dc=test',
+      nestedGroups: false,
+      roleMappings: [{ groupDn: 'cn=ops,dc=example,dc=test', role: 'OPERATOR' }],
+      timeoutMs: 10_000,
+      tlsRejectUnauthorized: true,
+    };
+
+    it('shows a v1.12 row as host, port, protocol, Regular and its dialect — no migration', async () => {
+      await saveLegacyRow(LEGACY, 'legacy-secret');
+
+      const view = await service().describeLdap();
+
+      expect(view.config).toMatchObject({
+        host: 'dc01.example.test',
+        port: 636,
+        protocol: 'ldaps',
+        bindType: 'regular',
+        bindDn: 'cn=svc,dc=example,dc=test',
+        detectedDialect: 'ad',
+      });
+      expect(view.config).not.toHaveProperty('url');
+      expect(view.secretsHeld).toEqual(['bindPassword']);
+      expect(JSON.stringify(view)).not.toContain('legacy-secret');
+    });
+
+    it('shows a v1.12 unencrypted row as legacy, and refuses to save it unchanged', async () => {
+      await saveLegacyRow({ ...LEGACY, url: 'ldap://dc01.example.test' }, 'legacy-secret');
+
+      const view = await service().describeLdap();
+      expect(view.config).toMatchObject({ protocol: 'ldap', port: 389 });
+
+      await expect(service().saveLdap(view.config!, request())).rejects.toThrow(
+        /Unencrypted LDAP can no longer be saved/,
+      );
+    });
+
+    it('stores what the RootDSE said, never what the body claimed', async () => {
+      await service(resolverWith(), KEY, async () => 'ad').saveLdap(
+        { ...SETTINGS, detectedDialect: 'openldap' },
+        request(),
+      );
+
+      expect((await service().describeLdap()).config?.detectedDialect).toBe('ad');
+    });
+
+    it('keeps what it knew when the directory is unreachable at Save, for the same server', async () => {
+      await service(resolverWith(), KEY, async () => 'ad').saveLdap(SETTINGS, request());
+      await service(resolverWith(), KEY, async () => null).saveLdap(
+        { ...SETTINGS, searchBase: 'ou=staff,dc=example,dc=test' },
+        request(),
+      );
+
+      expect((await service().describeLdap()).config?.detectedDialect).toBe('ad');
+    });
+
+    it('forgets it when the server changed, rather than carrying AD to a new host', async () => {
+      await service(resolverWith(), KEY, async () => 'ad').saveLdap(SETTINGS, request());
+      await service(resolverWith(), KEY, async () => null).saveLdap(
+        { ...SETTINGS, host: 'other.example.test' },
+        request(),
+      );
+
+      expect((await service().describeLdap()).config).not.toHaveProperty('detectedDialect');
+    });
+
+    it('detects with the STORED password when the body omits it', async () => {
+      await service().saveLdap(SETTINGS, request());
+
+      let seen: LdapSettings | null = null;
+      const { bindPassword: _omitted, ...withoutPassword } = SETTINGS;
+      await service(resolverWith(), KEY, async (candidate) => {
+        seen = candidate;
+        return 'openldap';
+      }).saveLdap(withoutPassword, request());
+
+      expect((seen as unknown as LdapSettings).bindPassword).toBe('a-bind-secret');
+    });
+
+    it('discards the stored password when the bind type no longer uses one', async () => {
+      await service().saveLdap(SETTINGS, request());
+      expect((await service().describeLdap()).secretsHeld).toEqual(['bindPassword']);
+
+      const { bindPassword: _p, bindDn: _d, ...rest } = SETTINGS;
+      await service().saveLdap(
+        { ...rest, bindType: 'simple', userDnPattern: '{username}@corp.example' },
+        request(),
+      );
+
+      const view = await service().describeLdap();
+      expect(view.secretsHeld).toEqual([]);
+      expect(view.config).toMatchObject({
+        bindType: 'simple',
+        userDnPattern: '{username}@corp.example',
+      });
+      const resolved = await new SettingsStore(prisma, KEY, 'db').resolve<LdapSettings>(
+        'auth.ldap',
+        () => null,
+      );
+      expect(resolved.config).not.toHaveProperty('bindPassword');
+    });
+
+    it('refuses Regular with no password typed and none stored', async () => {
+      const { bindPassword: _omitted, ...withoutPassword } = SETTINGS;
+      await expect(service().saveLdap(withoutPassword, request())).rejects.toThrow(
+        /Regular bind needs the password for the User DN/,
+      );
+      expect(await prisma.providerSetting.count()).toBe(0);
+    });
+
+    it('saves STARTTLS and its port', async () => {
+      await service().saveLdap({ ...SETTINGS, protocol: 'starttls', port: 389 }, request());
+
+      expect((await service().describeLdap()).config).toMatchObject({
+        protocol: 'starttls',
+        port: 389,
+      });
+    });
+
+    it('never returns the password from Save', async () => {
+      const view = await service().saveLdap(SETTINGS, request());
+      expect(JSON.stringify(view)).not.toContain('a-bind-secret');
     });
   });
 

@@ -27,15 +27,42 @@ describe('ldapEnvBaseline', () => {
 
   it('returns the configuration the provider reports', () => {
     const baseline = ldapEnvBaseline(
-      reporting({ ...MINIMAL, bindDn: 'cn=svc,dc=example,dc=test', dialect: 'ad' }),
+      reporting({
+        host: 'dc.example.test',
+        port: 636,
+        protocol: 'ldaps',
+        bindType: 'regular',
+        searchBase: 'dc=example,dc=test',
+        bindDn: 'cn=svc,dc=example,dc=test',
+        detectedDialect: 'ad',
+      }),
     );
 
     expect(baseline).toMatchObject({
-      url: 'ldaps://dc.example.test:636',
+      host: 'dc.example.test',
+      port: 636,
+      protocol: 'ldaps',
+      bindType: 'regular',
       searchBase: 'dc=example,dc=test',
       bindDn: 'cn=svc,dc=example,dc=test',
-      dialect: 'ad',
+      detectedDialect: 'ad',
     });
+  });
+
+  it('reads a report in the pre-ADR-0030 url shape as host, port and protocol', () => {
+    expect(ldapEnvBaseline(reporting({ ...MINIMAL, dialect: 'ad' }))).toMatchObject({
+      host: 'dc.example.test',
+      port: 636,
+      protocol: 'ldaps',
+      bindType: 'anonymous',
+      detectedDialect: 'ad',
+    });
+  });
+
+  it('keeps an unencrypted ldap:// report, as legacy, so the form can show it', () => {
+    expect(
+      ldapEnvBaseline(reporting({ url: 'ldap://dc.example.test', searchBase: 'dc=example' })),
+    ).toMatchObject({ host: 'dc.example.test', port: 389, protocol: 'ldap' });
   });
 
   it('applies the schema defaults, so the form opens on the values actually in force', () => {
@@ -43,7 +70,8 @@ describe('ldapEnvBaseline', () => {
     // the rest. Showing those blank would invite an operator to save a form that
     // silently changes them.
     expect(ldapEnvBaseline(reporting(MINIMAL))).toMatchObject({
-      dialect: 'openldap',
+      port: 636,
+      bindType: 'anonymous',
       nestedGroups: false,
       timeoutMs: 10_000,
       tlsRejectUnauthorized: true,
@@ -54,7 +82,14 @@ describe('ldapEnvBaseline', () => {
   it('strips a bind password even though the contract forbids reporting one', () => {
     // The result is rendered in a browser. A provider that ignores the contract
     // must not be the reason a secret reaches it.
-    const baseline = ldapEnvBaseline(reporting({ ...MINIMAL, bindPassword: 'hunter2' }));
+    const baseline = ldapEnvBaseline(
+      reporting({
+        ...MINIMAL,
+        bindType: 'regular',
+        bindDn: 'cn=svc,dc=example,dc=test',
+        bindPassword: 'hunter2',
+      }),
+    );
 
     expect(baseline).not.toBeNull();
     expect(baseline).not.toHaveProperty('bindPassword');

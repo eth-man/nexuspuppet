@@ -6,13 +6,17 @@ import type {
   DirectoryUser,
   IAuthProvider,
   IAuthProviderSettings,
+  LdapDialectName,
+  LdapVerification,
   ProviderVerification,
 } from '@nexuspuppet/contracts';
 import { type LdapConfig, ldapConfigSchema } from './config';
-import { buildFilter } from './filter';
+import { InvalidUsernameError, buildBindIdentity, isDnPattern } from './dn';
+import { buildFilter, escapeFilterValue } from './filter';
 import {
   LdapUnavailableError,
   LdaptsDirectory,
+  type DialectDetection,
   type LdapDirectory,
   type LdapEntry,
 } from './ldap-client';
@@ -113,13 +117,18 @@ interface EffectiveDirectory {
  * nothing about JWTs, cookies, or refresh rotation — by design, so that
  * adding the provider cannot alter any of them.
  *
- * The flow is the standard two-bind pattern:
+ * For the Regular and Anonymous bind types the flow is the standard two-bind
+ * pattern:
  *
- *   1. bind as the service account (or anonymously) and SEARCH for the user,
+ *   1. bind as the service account (or not at all) and SEARCH for the user,
  *      to discover their DN — you cannot construct a DN reliably from an email;
  *   2. bind AS THAT DN with the supplied password. A successful bind is the
  *      authentication. The password is never compared by this code and never
  *      leaves the process except to the directory over TLS.
+ *
+ * Simple bind (ADR-0030 §3) has no service account: the DN is constructed
+ * from a pattern, with the username escaped for DN context, the person binds
+ * as it, and their own entry is read as them.
  */
 export class LdapAuthProvider implements IAuthProvider {
   readonly source = 'ldap';
@@ -166,8 +175,9 @@ export class LdapAuthProvider implements IAuthProvider {
   /**
    * 'Username' for AD, 'Email' otherwise — see the dialect defaults.
    *
-   * Follows the configuration in force, so switching the dialect to Active
-   * Directory from the console relabels the login form at the next page load.
+   * Follows the configuration in force, so a save that detects Active
+   * Directory (or chooses Simple bind) relabels the login form at the next
+   * page load.
    * The resolver asks `isConfigured()` first, which refreshes it.
    */
   get identifierLabel(): string {
@@ -231,9 +241,14 @@ export class LdapAuthProvider implements IAuthProvider {
     const config = this.config;
     if (config === null) return null;
     return {
-      url: config.url,
+      host: config.host,
+      port: config.port,
+      protocol: config.protocol,
+      bindType: config.bindType,
       bindDn: config.bindDn,
-      dialect: config.dialect,
+      userDnPattern: config.userDnPattern,
+      // The environment does not detect: this is LDAP_DIALECT, or the default.
+      detectedDialect: config.dialect,
       searchBase: config.searchBase,
       groupSearchBase: config.groupSearchBase,
       searchFilter: config.searchFilter,
@@ -264,7 +279,7 @@ export class LdapAuthProvider implements IAuthProvider {
    * Never throws. "I could not reach that directory" is an ordinary answer to
    * "does this work", and an operator needs the detail rather than a 500.
    */
-  async verifyConfiguration(candidate: unknown): Promise<ProviderVerification> {
+  async verifyConfiguration(candidate: unknown): Promise<LdapVerification> {
     const parsed = ldapConfigSchema.safeParse(candidate);
     if (!parsed.success) {
       const where = parsed.error.issues
@@ -300,19 +315,73 @@ export class LdapAuthProvider implements IAuthProvider {
      * environment baseline there is nothing to inherit either, and the test
      * runs against the system trust store, which is what a save would do.
      */
-    const bootCaPath = this.config?.caPath;
-    const inheritedCa =
-      parsed.data.caPem === undefined &&
-      parsed.data.caPath === undefined &&
-      bootCaPath !== undefined;
-    const config: LdapConfig = inheritedCa ? { ...parsed.data, caPath: bootCaPath } : parsed.data;
+    const { config: candidateConfig, inheritedCa } = this.withInheritedCa(parsed.data);
 
-    const details: ProviderVerification['details'] = [
-      { label: 'Directory', value: config.url },
-      { label: 'Bind account', value: config.bindDn ?? 'anonymous' },
-      { label: 'Search base', value: config.searchBase },
-      { label: 'TLS verification', value: describeTls(config, inheritedCa) },
+    const details: NonNullable<ProviderVerification['details']> = [
+      { label: 'Server', value: `${candidateConfig.host}:${candidateConfig.port}` },
+      { label: 'Protocol', value: describeProtocol(candidateConfig) },
+      { label: 'Bind type', value: describeBindType(candidateConfig) },
+      { label: 'Search base', value: candidateConfig.searchBase },
+      { label: 'TLS verification', value: describeTls(candidateConfig, inheritedCa) },
     ];
+
+    /*
+     * FIRST, WHAT IS THIS DIRECTORY (ADR-0030 §4).
+     *
+     * The RootDSE read is also the connection test: DNS, TCP, the STARTTLS
+     * upgrade, the certificate and its name all have to work before it can
+     * answer. A failure here is reported in those terms — and, for STARTTLS,
+     * with the assurance that no credential went out unencrypted.
+     */
+    let detection: DialectDetection;
+    try {
+      detection = await this.directoryFor(candidateConfig).detectDialect();
+    } catch (error) {
+      return { ok: false, message: describeError(error), details, detectedDialect: null };
+    }
+
+    const dialect: LdapDialectName = detection.dialect ?? 'openldap';
+    details.push({ label: 'Directory type', value: describeDetection(detection) });
+
+    // Re-parsed rather than patched: the dialect supplies the search filter
+    // and the attributes, so the probe below must use the DETECTED one's.
+    const reparsed = ldapConfigSchema.safeParse({
+      ...(candidate as Record<string, unknown>),
+      dialect,
+    });
+    const config = reparsed.success ? this.withInheritedCa(reparsed.data).config : candidateConfig;
+
+    const unknownNote =
+      detection.dialect === null
+        ? ' The server would not show its RootDSE, so the directory type is unknown and it is treated as OpenLDAP.'
+        : '';
+
+    if (config.bindType === 'simple') {
+      details.push({ label: 'Bind account', value: `each user, as ${config.userDnPattern ?? ''}` });
+      const pattern = config.userDnPattern ?? '';
+      if (!isDnPattern(pattern) && dialect !== 'ad') {
+        return {
+          ok: false,
+          message:
+            `A UPN pattern (${pattern}) only works against Active Directory, and this server is ` +
+            `not one. Use a DN pattern such as uid={username},ou=people,dc=example,dc=com.${unknownNote}`,
+          details,
+          detectedDialect: detection.dialect,
+        };
+      }
+      return {
+        ok: true,
+        message:
+          `Connected to ${config.host}:${config.port} over ${describeProtocol(config)} and read ` +
+          'its RootDSE. Simple bind has no service account, so the search base and the pattern ' +
+          `are first exercised when somebody signs in.${unknownNote}`,
+        details,
+        detectedDialect: detection.dialect,
+      };
+    }
+
+    const account = config.bindType === 'regular' ? (config.bindDn ?? '') : 'anonymous';
+    details.push({ label: 'Bind account', value: account });
 
     try {
       // An identifier no directory can hold. The point is to complete a bind
@@ -330,8 +399,11 @@ export class LdapAuthProvider implements IAuthProvider {
 
       return {
         ok: true,
-        message: `Connected to ${config.url}, bound as ${config.bindDn ?? 'anonymous'}, and searched ${config.searchBase}.`,
+        message:
+          `Connected to ${config.host}:${config.port} over ${describeProtocol(config)}, bound as ` +
+          `${account}, and searched ${config.searchBase}.${unknownNote}`,
         details,
+        detectedDialect: detection.dialect,
       };
     } catch (error) {
       return {
@@ -340,8 +412,42 @@ export class LdapAuthProvider implements IAuthProvider {
         // guess about the failure rather than the failure.
         message: describeError(error),
         details,
+        detectedDialect: detection.dialect,
       };
     }
+  }
+
+  /**
+   * Detect the directory type of a configuration about to be SAVED (ADR-0030 §4).
+   *
+   * Never throws, and never blocks a save: a directory unreachable at the
+   * moment of saving is an ordinary state, and the caller keeps what it knew
+   * before. Null means "could not tell".
+   */
+  async detectDialect(candidate: unknown): Promise<LdapDialectName | null> {
+    const parsed = ldapConfigSchema.safeParse(candidate);
+    if (!parsed.success) return null;
+    try {
+      const { config } = this.withInheritedCa(parsed.data);
+      return (await this.directoryFor(config).detectDialect()).dialect;
+    } catch (error) {
+      this.logger.warn(
+        `Could not detect the LDAP directory type while saving: ${describeError(error)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * THE CANDIDATE INHERITS THE DEPLOYMENT'S CA — see the note at the top of
+   * verifyConfiguration. Shared with detectDialect so a save detects through
+   * the same trust a test does.
+   */
+  private withInheritedCa(parsed: LdapConfig): { config: LdapConfig; inheritedCa: boolean } {
+    const bootCaPath = this.config?.caPath;
+    const inheritedCa =
+      parsed.caPem === undefined && parsed.caPath === undefined && bootCaPath !== undefined;
+    return { config: inheritedCa ? { ...parsed, caPath: bootCaPath } : parsed, inheritedCa };
   }
 
   describe(): AuthProviderDescription {
@@ -369,12 +475,21 @@ export class LdapAuthProvider implements IAuthProvider {
       refusesUnmappedUsers: true,
       details: [
         { label: 'Dialect', value: config.dialect },
-        { label: 'Directory', value: config.url },
+        { label: 'Server', value: `${config.host}:${config.port}` },
+        { label: 'Protocol', value: describeProtocol(config) },
+        { label: 'Bind type', value: describeBindType(config) },
         { label: 'Search base', value: config.searchBase },
-        { label: 'Search filter', value: config.searchFilter },
+        ...(config.bindType === 'simple'
+          ? [{ label: 'User DN pattern', value: config.userDnPattern ?? '' }]
+          : [{ label: 'Search filter', value: config.searchFilter }]),
         {
           label: 'Bind account',
-          value: config.bindDn ?? 'anonymous',
+          value:
+            config.bindType === 'regular'
+              ? (config.bindDn ?? '')
+              : config.bindType === 'simple'
+                ? 'each user'
+                : 'anonymous',
         },
         {
           label: 'TLS verification',
@@ -428,31 +543,21 @@ export class LdapAuthProvider implements IAuthProvider {
       }
       const { config, directory } = effective;
 
-      const filter = buildFilter(config.searchFilter, email);
-      const entry = await directory.findEntry(filter);
+      const found =
+        config.bindType === 'simple'
+          ? await this.bindDirectly(config, directory, email, credentials.password)
+          : await this.searchThenBind(config, directory, email, credentials.password);
 
-      // No such entry. Deliberately the same outcome as a wrong password: any
+      // No such entry, or the wrong password — deliberately one outcome: any
       // observable difference makes login a user-enumeration oracle against
       // the corporate directory, which is a considerably richer target than
       // this application's own user table.
-      if (entry === null || entry.dn === '') {
-        return { ok: false, reason: 'INVALID_CREDENTIALS' };
-      }
-
-      const bound = await directory.verifyCredentials(entry.dn, credentials.password);
-      if (!bound) {
+      if (found === null) {
         return { ok: false, reason: 'INVALID_CREDENTIALS' };
       }
 
       // --- Authenticated. Everything below is authorization. ---------------
-
-      // Direct membership from the entry, plus transitive membership when the
-      // directory can compute it. Resolved AFTER the bind: this is an extra
-      // query, and running it for someone who failed authentication would let
-      // an unauthenticated caller drive load against the directory.
-      const groupDns = config.nestedGroups
-        ? await this.resolveNestedGroups(entry, directory)
-        : entry.groupDns;
+      const { entry, groupDns } = found;
 
       const resolved = resolveRoles(groupDns, config);
       if (resolved === null) {
@@ -533,14 +638,94 @@ export class LdapAuthProvider implements IAuthProvider {
   }
 
   /**
-   * Direct groups plus every group that transitively contains the user.
-   *
-   * A failure here is NOT fatal. The direct memberships are still a valid
-   * answer, and refusing a login because an optional enrichment query failed
-   * would turn a slow group subtree into an outage. It is logged loudly,
-   * because the visible symptom otherwise is that someone who should be an
-   * administrator quietly is not.
+   * Regular and Anonymous: find the person (as the service account, or as
+   * nobody), then bind as the DN found. Null when either step says no.
    */
+  private async searchThenBind(
+    config: LdapConfig,
+    directory: LdapDirectory,
+    identifier: string,
+    password: string,
+  ): Promise<{ entry: LdapEntry; groupDns: string[] } | null> {
+    const filter = buildFilter(config.searchFilter, identifier);
+    const entry = await directory.findEntry(filter);
+    if (entry === null || entry.dn === '') return null;
+
+    const bound = await directory.verifyCredentials(entry.dn, password);
+    if (!bound) return null;
+
+    // Direct membership from the entry, plus transitive membership when the
+    // directory can compute it. Resolved AFTER the bind: this is an extra
+    // query, and running it for someone who failed authentication would let
+    // an unauthenticated caller drive load against the directory.
+    const groupDns = config.nestedGroups
+      ? await this.resolveNestedGroups(entry, directory)
+      : entry.groupDns;
+    return { entry, groupDns };
+  }
+
+  /**
+   * Simple bind (ADR-0030 §3): no service account, so the bind identity is
+   * BUILT from the pattern, the person binds as it, and their own entry is read
+   * as them — groups included.
+   *
+   * The same answer as a wrong password for everything a stranger could
+   * cause: an unusable username (refused before any network round trip, and
+   * covered by the resolver's timing floor like every other refusal), a
+   * rejected bind, or an entry the person may not read.
+   */
+  private async bindDirectly(
+    config: LdapConfig,
+    directory: LdapDirectory,
+    identifier: string,
+    password: string,
+  ): Promise<{ entry: LdapEntry; groupDns: string[] } | null> {
+    const pattern = config.userDnPattern ?? '';
+
+    let identity: string;
+    try {
+      identity = buildBindIdentity(pattern, identifier);
+    } catch (error) {
+      if (error instanceof InvalidUsernameError) return null;
+      throw error;
+    }
+
+    // A DN names exactly one entry. A UPN does not: it is found by searching
+    // for the ONE entry carrying exactly what was bound with — never by the
+    // typed name, which on AD may be somebody else's sAMAccountName.
+    const lookup = isDnPattern(pattern)
+      ? { dn: identity }
+      : { filter: `(userPrincipalName=${escapeFilterValue(identity)})` };
+
+    const result = await directory.bindAndRead(identity, password, lookup, {
+      nestedGroups: config.nestedGroups,
+    });
+    if (!result.bound) return null;
+
+    if (result.entry === null || result.entry.dn === '') {
+      this.logger.warn(
+        `LDAP login refused for ${identifier}: the directory accepted the password, but the ` +
+          'account could not read its own entry, so its groups are unknown. Grant users read ' +
+          'access to their own entry, or use Regular bind with a service account.',
+      );
+      return null;
+    }
+
+    if (result.nestedError !== undefined) {
+      this.logger.error(
+        `Nested group resolution failed for ${result.entry.dn}: ${result.nestedError}. ` +
+          'Falling back to direct membership only — a user whose role comes from a nested ' +
+          'group will be refused or under-privileged until this is fixed.',
+      );
+    }
+
+    const groupDns =
+      result.nestedGroups === null
+        ? result.entry.groupDns
+        : [...new Set([...result.entry.groupDns, ...result.nestedGroups])];
+    return { entry: result.entry, groupDns };
+  }
+
   /**
    * The configuration this login should use, and a client for it — or null
    * when there is none and the provider is DORMANT (ADR-0029).
@@ -608,6 +793,15 @@ export class LdapAuthProvider implements IAuthProvider {
     return this.effectiveCache.effective;
   }
 
+  /**
+   * Direct groups plus every group that transitively contains the user.
+   *
+   * A failure here is NOT fatal. The direct memberships are still a valid
+   * answer, and refusing a login because an optional enrichment query failed
+   * would turn a slow group subtree into an outage. It is logged loudly,
+   * because the visible symptom otherwise is that someone who should be an
+   * administrator quietly is not.
+   */
   private async resolveNestedGroups(entry: LdapEntry, directory: LdapDirectory): Promise<string[]> {
     try {
       const nested = await directory.findGroupsContaining(entry.dn);
@@ -666,7 +860,7 @@ export class LdapAuthProvider implements IAuthProvider {
  * here and the directory unreachable there.
  */
 function describeTls(config: LdapConfig, inherited = false): string {
-  if (!config.url.startsWith('ldaps://')) return 'not applicable (cleartext ldap://)';
+  if (config.protocol === 'ldap') return 'not applicable (cleartext ldap://)';
   if (!config.tlsRejectUnauthorized) return 'DISABLED';
   if (config.caPem !== undefined) return 'enforced (CA certificate saved in the console)';
   if (config.caPath === undefined) return 'enforced (system trust store)';
@@ -677,6 +871,28 @@ function describeTls(config: LdapConfig, inherited = false): string {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function describeProtocol(config: Pick<LdapConfig, 'protocol'>): string {
+  if (config.protocol === 'ldaps') return 'LDAPS';
+  if (config.protocol === 'starttls') return 'STARTTLS';
+  return 'unencrypted LDAP (legacy)';
+}
+
+function describeBindType(config: Pick<LdapConfig, 'bindType'>): string {
+  if (config.bindType === 'regular') return 'Regular (service account)';
+  if (config.bindType === 'simple') return 'Simple (each user binds directly)';
+  return 'Anonymous search';
+}
+
+function describeDetection(detection: DialectDetection): string {
+  if (detection.dialect === null) {
+    return 'unknown — the RootDSE could not be read, so it is treated as OpenLDAP';
+  }
+  const name = detection.dialect === 'ad' ? 'Active Directory' : 'OpenLDAP or compatible';
+  return detection.readAs === 'service account'
+    ? `${name} (detected from the RootDSE, read as the service account)`
+    : `${name} (detected from the RootDSE)`;
 }
 
 /**
@@ -691,8 +907,11 @@ function warnAbout(config: LdapConfig, logger: { warn(message: string): void }):
         'outside initial bootstrapping.',
     );
   }
-  if (config.url.startsWith('ldap://')) {
-    logger.warn('The LDAP URL uses ldap:// — binds send the password in cleartext. Use ldaps://.');
+  if (config.protocol === 'ldap') {
+    logger.warn(
+      'The LDAP connection is unencrypted (ldap:// without STARTTLS) — binds send the password ' +
+        'in cleartext. Choose LDAPS or STARTTLS.',
+    );
   }
   if (config.roleMappings.length === 0) {
     logger.warn(

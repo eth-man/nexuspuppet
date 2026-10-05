@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { Client } from 'ldapts';
 import { ldapConfigSchema, type LdapConfig } from '../../src/directory/ldap/config';
 import {
   LdapAuthProvider,
@@ -194,9 +195,19 @@ describe('LdapAuthProvider against a real OpenLDAP', () => {
     expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
 
     // Prove the premise: binding as alice with an empty password really does
-    // succeed at the protocol level, so the guard is load-bearing.
-    const raw = new LdaptsDirectory(config());
-    await expect(raw.verifyCredentials(`uid=alice,ou=people,${BASE_DN}`, '')).resolves.toBe(true);
+    // succeed at the protocol level, so the guard is load-bearing. With the
+    // library directly — our own client refuses to send one at all.
+    const raw = new Client({ url: LDAP_URL, timeout: 5000 });
+    try {
+      await expect(raw.bind(`uid=alice,ou=people,${BASE_DN}`, '')).resolves.toBeUndefined();
+    } finally {
+      await raw.unbind().catch(() => {});
+    }
+
+    // And the client refuses it below the provider too (ADR-0030 §7).
+    await expect(
+      new LdaptsDirectory(config()).verifyCredentials(`uid=alice,ou=people,${BASE_DN}`, ''),
+    ).resolves.toBe(false);
   });
 
   it('refuses a user who is in no mapped group', async () => {

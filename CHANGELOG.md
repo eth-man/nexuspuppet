@@ -2,6 +2,34 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**LDAP connection fields an operator recognises** ([ADR-0030](docs/architecture/adr/0030-ldap-connection-fields.md)). An operator configuring LDAPS against a real Active Directory asked for the form every other LDAP client has — server name, port, bind type, User DN, password, protocol — instead of typing `ldaps://url:port` and choosing a directory type. That is the form now, STARTTLS is new, and the directory type is detected. **No migration.**
+
+### Added
+
+**STARTTLS.** Choose **Protocol: STARTTLS** (port 389) or set `LDAP_STARTTLS=true` with an `ldap://` `LDAP_URL`. Every connection is upgraded before its first bind — service account, anonymous search or user — with the same CA, verification and SNI as LDAPS. It fails closed: a refused or failed upgrade ends the operation with nothing sent, and Test connection says *The server refused STARTTLS … No credentials were sent.* The client also refuses to reconnect a dropped STARTTLS session, because the library's transparent reconnect is plain TCP.
+
+**Bind types: Regular, Simple, Anonymous.** Regular (default) is a service account — **User DN** and **Password**. Anonymous searches without one. **Simple** binds each person directly through a **User DN pattern** with `{username}` — `{username}@corp.example` for AD or `uid={username},ou=people,…` — then reads their own entry, as them, for email, name and groups (nested groups via the AD matching rule when enabled). The username is escaped for DN context (RFC 4514) so it cannot change which DN is bound; for a UPN, anything that could name another account is refused. Environment: `LDAP_BIND_TYPE`, `LDAP_USER_DN_PATTERN`.
+
+**The directory type is detected.** Test connection and Save read the server's RootDSE; `1.2.840.113556.1.4.800` in `supportedCapabilities` means Active Directory, anything else readable means OpenLDAP. It is stored with the configuration and shown read-only (*Detected: Active Directory*). A RootDSE hidden from anonymous readers is retried as the service account; still unknown is treated as OpenLDAP and the Test result says so. A directory unreachable at Save keeps what was detected before for the same server. `LDAP_DIALECT` still decides it for the environment.
+
+### Changed
+
+**The LDAP form:** **Server name or IP**, **Port** (follows the protocol — 636/389 — until you type one), **Protocol** (LDAPS | STARTTLS, no unencrypted choice), **Bind type**, then **User DN** + **Password** (Regular) or **User DN pattern** (Simple). The **Server URL** field and the **Directory type** select are gone. Test results name the server, protocol, bind type and detected directory type, and explain certificate, name, port and protocol mistakes in those terms.
+
+**`PUT`/`POST …/settings/auth/ldap(/test)` take `host`, `port`, `protocol`, `bindType`, `userDnPattern`.** A body with the old `url` is still accepted for `ldaps://`. `detectedDialect` in a body is ignored. Regular bind with no password typed and none stored is refused (`BIND_PASSWORD_REQUIRED`) instead of being saved as a configuration that would search anonymously. Switching to Simple or Anonymous discards the stored service-account password.
+
+**An empty password is refused in the client as well as the provider**, for every bind type, without opening a connection.
+
+### Compatibility
+
+Rows saved by 1.11/1.12 (`url`, `dialect`, `bindDn`) are read as they are and open in the new fields: `ldaps://h:p` as LDAPS, the chosen dialect as the detected one, a bind DN with a stored password as Regular (without one, as the anonymous search it always was). A row with unencrypted `ldap://` keeps signing people in exactly as before and is shown as *Unencrypted (legacy)*; saving any change requires choosing LDAPS or STARTTLS. `LDAP_URL` is read unchanged.
+
+### Upgrading
+
+Re-run `sudo ./scripts/deploy.sh`. Nothing to reconfigure.
+
 ## [1.12.0] — 2026-10-05
 
 **A lost admin password is recoverable from the server, and the documentation is a short website.** `sudo ./scripts/deploy.sh --reset-admin <email>` sets a new password for a local account, unlocks it and records it in the audit log. The guide is now five plain pages at <https://eth-man.github.io/nexuspuppet/>. **No migration.**

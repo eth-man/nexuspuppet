@@ -6,7 +6,7 @@ import {
   type OidcSettings,
   type SyslogSettings,
   type WebhookSettings,
-  ldapSettingsSchema,
+  ldapStoredSettingsSchema,
   oidcSettingsSchema,
   syslogSettingsSchema,
   webhookSettingsSchema,
@@ -51,7 +51,7 @@ export function ldapEnvBaseline(resolver: AuthProviderResolver): LdapSettings | 
   }
   if (reported === null || reported === undefined) return null;
 
-  const parsed = ldapSettingsSchema.safeParse(reported);
+  const parsed = ldapStoredSettingsSchema.safeParse(reported);
   if (!parsed.success) {
     logger.warn(
       "The 'ldap' provider reported a configuration that does not match the settings schema " +

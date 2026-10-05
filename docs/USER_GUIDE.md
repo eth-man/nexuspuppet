@@ -337,6 +337,18 @@ LDAP, Active Directory and OIDC are configured from **Settings → Directory / A
 
 ![Directory / Auth, nothing configured yet](images/directory-not-configured.png)
 
+The LDAP form asks for what any LDAP client asks for ([ADR-0030](architecture/adr/0030-ldap-connection-fields.md)):
+
+| Field | What to enter |
+|---|---|
+| **Server name or IP** | The server's name as on its certificate, e.g. `dc01.example.com`. No scheme, no port. |
+| **Port** | Follows the protocol — 636 for LDAPS, 389 for STARTTLS — until you type another (3269/3268 for an AD Global Catalog). |
+| **Protocol** | **LDAPS** (TLS from the first byte) or **STARTTLS** (upgrades the plain port before anything is sent; if the upgrade fails, nothing is sent). There is no unencrypted option. |
+| **Bind type** | **Regular** (default): a service account — **User DN** and **Password** — finds each person. **Simple**: no service account; people bind directly through a **User DN pattern** containing `{username}`, such as `{username}@example.com` (AD) or `uid={username},ou=People,dc=example,dc=com`. **Anonymous**: people are found by an anonymous search. |
+| **Directory type** | Not chosen: read from the server's RootDSE (*Detected: Active Directory* / *OpenLDAP*) when you test or save. |
+
+A configuration saved before 1.13 as a URL opens in these fields unchanged. One saved as unencrypted `ldap://` keeps working and is shown as *Unencrypted (legacy)*; saving any change to it requires choosing LDAPS or STARTTLS.
+
 The points that catch people:
 
 - **Upgrade with `scripts/deploy.sh`.** The console needs `CONFIG_ENCRYPTION_KEY` to store a bind password, and `deploy.sh` appends one to `.env` when it is missing. Without it the form says *Saving a bind password needs CONFIG_ENCRYPTION_KEY*.

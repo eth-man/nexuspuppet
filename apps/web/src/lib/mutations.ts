@@ -14,6 +14,7 @@ import type {
   AuditTransportKind,
   ChangePassword,
   LdapSettings,
+  LdapVerification,
   OidcSettings,
   SyslogSettings,
   WebhookSettings,
@@ -321,13 +322,9 @@ function invalidateDirectory(
  * Deliberately does NOT invalidate anything: a test changes nothing, and
  * refetching after one would make it look as though it had.
  */
-export function useTestLdapSettings(): UseMutationResult<
-  ProviderVerification,
-  Error,
-  LdapSettings
-> {
+export function useTestLdapSettings(): UseMutationResult<LdapVerification, Error, LdapSettings> {
   return useMutation({
-    mutationFn: (input) => api.post<ProviderVerification>('/settings/auth/ldap/test', input),
+    mutationFn: (input) => api.post<LdapVerification>('/settings/auth/ldap/test', input),
   });
 }
 

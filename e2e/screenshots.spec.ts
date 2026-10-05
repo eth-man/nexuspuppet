@@ -438,12 +438,16 @@ test.describe('@screenshots', () => {
     await ldap.getByRole('button', { name: 'Configure directory' }).click();
     /*
      * By ROLE, not getByLabel: each field's info button is labelled "About the
-     * server URL" and so on, which getByLabel also matches.
+     * server name" and so on, which getByLabel also matches.
      */
     const box = (name: string | RegExp) => ldap.getByRole('textbox', { name });
-    await box(/^Server URL/).fill('ldaps://dc01.example.com:636');
-    await ldap.getByRole('combobox', { name: 'Directory type' }).selectOption('ad');
-    await box(/^Bind DN/).fill('cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com');
+    await box(/^Server name or IP/).fill('dc01.example.com');
+    // LDAPS on 636 and a Regular bind are the defaults; shown as they arrive.
+    await ldap.getByRole('combobox', { name: 'Protocol' }).selectOption('ldaps');
+    await ldap.getByRole('combobox', { name: 'Bind type' }).selectOption('regular');
+    await box(/^User DN\b(?! pattern)/).fill(
+      'cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com',
+    );
     // A password input has no textbox role.
     await ldap.locator('input[type="password"]').fill('example-only-password');
     await box(/^CA certificate/).fill(EXAMPLE_CA_PEM);

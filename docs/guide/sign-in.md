@@ -54,19 +54,28 @@ Everything happens in the console. There is no file to edit and nothing to resta
 1. **Be on 1.11 or later, installed with `scripts/deploy.sh`.** It adds the `CONFIG_ENCRYPTION_KEY` the console needs to store the bind password (see [Install & upgrade](install.md#upgrade)). If the page says *Saving a bind password needs CONFIG_ENCRYPTION_KEY*, re-run `./scripts/deploy.sh`.
 2. Open **Settings → Directory / Auth**. The **Directory (LDAP)** section says **Not configured**. Click **Configure directory**.
 3. Fill in the connection:
-    - **Server URL** — use the server's **name**, exactly as it appears on its certificate: `ldaps://dc01.example.com:636`. Not its IP address; domain controller certificates rarely include one.
-    - **Directory type** — *Active Directory* or *OpenLDAP*.
-    - **Bind DN** and **Bind password** — a service account that can search the directory, such as `cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com`.
+    - **Server name or IP** — use the server's **name**, exactly as it appears on its certificate: `dc01.example.com`. The certificate is checked against it, so an IP address only works if the certificate lists that IP — domain controller certificates rarely do. No `ldaps://`, no port.
+    - **Protocol** — how the connection is encrypted. There is no unencrypted option.
+        - **LDAPS**: TLS from the first byte. Usually port **636** (3269 for an AD Global Catalog).
+        - **STARTTLS**: connects on the plain LDAP port, usually **389** (3268 for a Global Catalog), and switches to TLS before anything else is sent. If the server will not switch, nothing is sent and the test says *The server refused STARTTLS*.
+    - **Port** — fills itself in from the protocol (636 or 389). Type your own and it stays.
+    - **Bind type** — how NexusPuppet finds people:
+        - **Regular** (default): a service account finds each person, who then signs in as themselves. Fill in **User DN** — the service account, such as `cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com` — and its **Password**.
+        - **Simple**: no service account; each person signs in directly. Fill in **User DN pattern**, with `{username}` where their sign-in name goes: `{username}@example.com` for Active Directory, or `uid={username},ou=People,dc=example,dc=com` for any directory. People must be allowed to read their own entry.
+        - **Anonymous**: people are found without signing in, then sign in as themselves. The directory must allow anonymous search.
+    - **Directory type** is not something you choose. It is read from the server (*Detected: Active Directory* or *OpenLDAP*) when you test or save.
     - Leave **Verify the directory's TLS certificate** on.
-    - **CA certificate (PEM)** — paste the certificate of the CA that signed the directory's certificate, from `-----BEGIN CERTIFICATE-----` to `-----END CERTIFICATE-----`. Include intermediates if there are any. It is public; never paste a private key. Not needed if the directory's certificate comes from a public CA.
+    - **CA certificate (PEM)** — paste the certificate of the CA that signed the directory's certificate, from `-----BEGIN CERTIFICATE-----` to `-----END CERTIFICATE-----`. Include intermediates if there are any. It is public; never paste a private key. Not needed if the directory's certificate comes from a public CA. It is used for LDAPS and STARTTLS alike.
 4. Fill in **Search base** — where your users are, such as `dc=example,dc=com`. **Group search base** is optional.
 5. Under **Role mappings**, map at least one directory group to a role, for example `cn=puppet-admins,ou=Groups,dc=example,dc=com` → `ADMIN`. **A user in none of the mapped groups is refused.** There is no default role for LDAP.
-6. Click **Test connection**. It binds and searches with what you typed, without saving. Fix anything it reports — see [When the test fails](troubleshooting.md#the-directory-test-fails).
-7. Click **Save**. It applies from the next sign-in; the badge changes to **Saved in the console**.
+6. Click **Test connection**. It connects, reads what kind of directory this is, and binds and searches with what you typed, without saving. (With **Simple** there is no service account to search with, so the test stops at connecting.) Fix anything it reports — see [When the test fails](troubleshooting.md#the-directory-test-fails).
+7. Click **Save**. It applies from the next sign-in; the badge changes to **Saved in the console**, and **Directory type** shows what was detected.
 8. **Create the accounts.** In **Settings → Users & Roles → New user**, enter each person's email — it must match their `mail` attribute in the directory — and set **Authentication** to `ldap`. No password. The role you pick is replaced at each sign-in by what their groups map to.
-9. **Sign in.** Active Directory users type their username (`jdoe`) or `jdoe@example.com`; OpenLDAP users type their email address.
+9. **Sign in.** Active Directory users type their username (`jdoe`) or `jdoe@example.com`; OpenLDAP users type their email address. With **Simple**, everyone types what goes in `{username}` — `jdoe` for `{username}@example.com`.
 
 ![The LDAP form, filled in with example values](../images/directory-ldap-form.png)
+
+**Configured before 1.13?** Your settings keep working unchanged and open in the new fields. One saved with an unencrypted `ldap://` URL shows **Protocol** as *Unencrypted (legacy)*; it still signs people in, but to save any change you must choose LDAPS or STARTTLS.
 
 You can create accounts before the directory is configured; the dialog marks the source *not configured yet*, and those people can sign in once you save. The login page only offers a directory once it is configured.
 

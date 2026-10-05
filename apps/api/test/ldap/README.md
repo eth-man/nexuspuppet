@@ -17,10 +17,23 @@ npm run ldap:down    # remove the container and its volume
 ```
 
 `ldap:up` runs `up.sh`, which needs whatever lets you run `docker` (sudo on a
-host whose user is not in the docker group). It serves `ldap://127.0.0.1:3890`
-and `ldaps://127.0.0.1:6360`, loopback only, and verifies before returning that
-`memberOf` is populated, that the service account can read, and that the
-`ldaps://` chain validates — so a suite failure means the code, not the fixture.
+host whose user is not in the docker group). It serves, loopback only:
+
+- `ldap://127.0.0.1:3890` — plain LDAP that also offers **STARTTLS**;
+- `ldaps://127.0.0.1:6360` — LDAPS;
+- `ldap://127.0.0.1:3892` — a second directory with **no TLS**, which refuses
+  STARTTLS. `connection-fields.spec.ts` points STARTTLS at it through a proxy
+  that records every byte the client sends, to prove nothing follows the
+  refused upgrade (ADR-0030).
+
+Before returning it verifies that `memberOf` is populated, that the service
+account and an anonymous reader can see people, that the chain validates over
+both LDAPS and STARTTLS, and that `:3892` refuses STARTTLS — so a suite failure
+means the code, not the fixture.
+
+A stale container of the default name (`nexuspuppet-test-ldap`) from an older
+checkout blocks the run; rather than removing it, pick another name:
+`LDAP_TEST_CONTAINER=my-ldap npm run ldap:up --workspace @nexuspuppet/api`.
 
 Why a script and not a bare `docker compose up`:
 
@@ -32,7 +45,10 @@ Why a script and not a bare `docker compose up`:
   certificate with it, so its chain cannot validate at all. Owning the CA also
   makes the `ldaps://` tests verify a real trust chain.
 - **It enables `bind_anon_dn`** deliberately, so the suite can show the server
-  accepting an empty password while the provider still refuses it.
+  accepting an empty password while the provider still refuses it — in every
+  bind type.
+- **It lets an anonymous reader search `ou=people`** (never `userPassword`), for
+  the Anonymous bind type. Simple bind relies on the image's own `by self read`.
 
 Override the endpoints with `TEST_LDAP_URL` / `TEST_LDAPS_URL`.
 

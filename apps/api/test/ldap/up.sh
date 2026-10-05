@@ -19,7 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 COMPOSE="docker compose -f docker-compose.ldap.yml"
-CONTAINER=nexuspuppet-test-ldap
+CONTAINER="${LDAP_TEST_CONTAINER:-nexuspuppet-test-ldap}"
 BASE_DN="dc=nexuspuppet,dc=test"
 ADMIN_DN="cn=admin,${BASE_DN}"
 ADMIN_PW="test-admin-password"
@@ -137,6 +137,18 @@ add: olcAccess
 olcAccess: {0}to * by dn.exact="cn=svc-nexuspuppet,${BASE_DN}" read by * break
 EOF
 
+echo "=== letting an anonymous reader search people (for the Anonymous bind type) ==="
+# The Anonymous bind type (ADR-0030) searches with no service account, so the
+# directory has to let nobody-in-particular find a person: their DN, mail,
+# display name and groups. Never userPassword — that rule comes later and still
+# says `by anonymous auth`. Inserted at {1}, after the service account's rule.
+docker exec -i "$CONTAINER" ldapmodify -c -Y EXTERNAL -H ldapi:/// <<EOF 2>&1 | sed 's/^/  /' || true
+dn: ${DB_DN}
+changetype: modify
+add: olcAccess
+olcAccess: {1}to dn.subtree="ou=people,${BASE_DN}" attrs=entry,objectClass,uid,cn,sn,mail,displayName,memberOf by anonymous read by * break
+EOF
+
 echo "=== allowing unauthenticated bind (to prove the guard is load-bearing) ==="
 # OpenLDAP REFUSES a bind with a DN and an empty password unless
 # `allow bind_anon_dn` is set, so on a default install the provider's guard
@@ -208,6 +220,42 @@ if ! printf '%s' "$verdict" | grep -q "Verify return code: 0 (ok)"; then
 fi
 echo "  chain validates against certs/ca.crt"
 
+echo "=== verifying STARTTLS on the plain port validates too ==="
+# The same certificate, reached the other way: connect on 3890 in clear, ask
+# to upgrade, then verify. The STARTTLS tests mean nothing if this fails.
+verdict=$(echo | openssl s_client -connect localhost:3890 -starttls ldap -CAfile certs/ca.crt 2>&1 || true)
+if ! printf '%s' "$verdict" | grep -q "Verify return code: 0 (ok)"; then
+  echo "::error:: STARTTLS on :3890 does not validate against our CA." >&2
+  printf '%s' "$verdict" | grep -iE "verify (error|return code)|error" | head -3 >&2
+  exit 1
+fi
+echo "  STARTTLS on :3890 validates against certs/ca.crt"
+
+echo "=== verifying an anonymous reader can find people ==="
+anonymous=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
+  -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
+  | grep -c '^dn:' || true)
+if [ "${anonymous:-0}" -lt 4 ]; then
+  echo "::error:: an anonymous search sees ${anonymous} of 4 people; the Anonymous bind tests would fail." >&2
+  exit 1
+fi
+echo "  anonymous search sees ${anonymous} people"
+
+echo "=== waiting for the TLS-less directory (refuses STARTTLS) ==="
+for _ in $(seq 40); do
+  if docker exec "${CONTAINER}-plain" ldapsearch -x -H ldap://localhost:389 -b '' -s base \
+      >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+if docker exec "${CONTAINER}-plain" ldapsearch -ZZ -x -H ldap://localhost:389 -b '' -s base \
+    >/dev/null 2>&1; then
+  echo "::error:: the TLS-less directory on :3892 accepted STARTTLS; the fail-closed test would prove nothing." >&2
+  exit 1
+fi
+echo "  :3892 answers, and refuses STARTTLS"
+
 echo
-echo "Ready. ldap://127.0.0.1:3890  ldaps://127.0.0.1:6360"
+echo "Ready. ldap://127.0.0.1:3890 (+STARTTLS)  ldaps://127.0.0.1:6360  ldap://127.0.0.1:3892 (no TLS)"
 echo "Run the suite with:  npm run test:ldap --workspace @nexuspuppet/api"

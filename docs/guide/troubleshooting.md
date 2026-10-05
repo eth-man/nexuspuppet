@@ -42,9 +42,14 @@ That is expected until each node's next Puppet run. On the node's page, the **Ma
 | Error mentions | Cause and fix |
 |---|---|
 | `EAI_AGAIN`, `ENOTFOUND`, or the name not resolving | The API container cannot look up your domain controller's name. Give it your DNS server: in `docker-compose.override.yml`, under `services: api:`, add `dns: [<your DNS server's IP>]`, then `docker compose up -d api`. An `extra_hosts` entry is **not** enough. |
-| the certificate's names, "altnames", or "does not match" | The **Server URL** does not use a name on the directory's certificate. Use the hostname, not the IP address. |
-| "unable to verify", "self-signed", or "local issuer" | NexusPuppet does not trust the CA that signed the directory's certificate. Paste that CA (and any intermediates) into **CA certificate (PEM)**. |
-| "invalid credentials" | The **Bind DN** or **Bind password** is wrong. |
+| *not valid for the name*, "altnames", or "does not match" | **Server name or IP** is not a name on the directory's certificate. Use the hostname exactly as on the certificate, not the IP address. |
+| *certificate is not trusted*, "self-signed", or "local issuer" | NexusPuppet does not trust the CA that signed the directory's certificate. Paste that CA (and any intermediates) into **CA certificate (PEM)**. |
+| *The server refused STARTTLS* | The server has no certificate for STARTTLS on that port, or expects LDAPS. Choose **LDAPS** and port 636. Nothing was sent unencrypted. |
+| *The TLS handshake … failed … choose STARTTLS* | You chose **LDAPS** on a port that speaks plain LDAP (usually 389). Choose **STARTTLS**, or LDAPS with port 636. |
+| *Nothing is accepting connections* | Wrong **Port**, or a firewall between the console and the directory. |
+| *refused the User DN and password* | The **User DN** or **Password** of the service account is wrong. |
+| *A UPN pattern … only works against Active Directory* | With **Simple** on OpenLDAP, use a DN pattern such as `uid={username},ou=people,dc=example,dc=com`. |
+| *the directory type is unknown* | The server hides what kind it is from anonymous readers. Everything still works if it is OpenLDAP; for Active Directory use **Regular** (the service account can read it) or set `LDAP_DIALECT=ad` in the environment. |
 
 If the page says *Saving a bind password needs CONFIG_ENCRYPTION_KEY*, run `./scripts/deploy.sh` once — it adds the key.
 

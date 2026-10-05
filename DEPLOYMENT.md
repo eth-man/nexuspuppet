@@ -576,8 +576,9 @@ Four things that look like something else when they are wrong. All measured
 against a live Windows Server 2025 DC.
 
 - **Use the hostname, not the IP.** A DC certificate carries
-  `SAN: DNS:dc01.example.com` and typically **no IP SAN**, so an `ldaps://<ip>`
-  URL fails strict verification — which is the entire point of trusting the
+  `SAN: DNS:dc01.example.com` and typically **no IP SAN**, so an IP in
+  **Server name or IP** (or an `ldaps://<ip>` `LDAP_URL`) fails strict
+  verification, over LDAPS and STARTTLS alike — which is the entire point of trusting the
   CA, whether pasted into **CA certificate (PEM)** in the console or mounted
   with `LDAP_CA_PATH`. Give the container a resolver that can answer for the
   domain.
@@ -592,6 +593,56 @@ against a live Windows Server 2025 DC.
   console, `provider_settings` holds a row, the database wins, and every
   directory value in `.env` goes inert (ADR-0015 §4). `GET /settings/auth/ldap`
   reports which source is live — check it before editing a file.
+
+### LDAP connection settings: console and environment
+
+The console asks for **Server name or IP**, **Port**, **Protocol**
+(LDAPS | STARTTLS) and **Bind type** (Regular | Simple | Anonymous), and reads
+the directory type from the server's RootDSE
+([ADR-0030](docs/architecture/adr/0030-ldap-connection-fields.md)). The
+environment keeps its URL and gains the same choices:
+
+| Console | Environment |
+|---|---|
+| Server name or IP, Port, Protocol LDAPS | `LDAP_URL=ldaps://dc01.example.com:636` |
+| Server name or IP, Port, Protocol STARTTLS | `LDAP_URL=ldap://dc01.example.com:389` + `LDAP_STARTTLS=true` |
+| *(legacy, shown as Unencrypted)* | `LDAP_URL=ldap://…` without `LDAP_STARTTLS` — still works, warns at boot |
+| Bind type Regular, User DN, Password | `LDAP_BIND_TYPE=regular` (default when `LDAP_BIND_DN` is set), `LDAP_BIND_DN`, `LDAP_BIND_PASSWORD` |
+| Bind type Simple, User DN pattern | `LDAP_BIND_TYPE=simple`, `LDAP_USER_DN_PATTERN={username}@corp.example` |
+| Bind type Anonymous | `LDAP_BIND_TYPE=anonymous` (default without `LDAP_BIND_DN`) |
+| Directory type (detected) | `LDAP_DIALECT=ad` or `openldap` (default) — the environment does not detect |
+
+A contradictory or malformed combination — `LDAP_STARTTLS=true` with `ldaps://`,
+Simple with a bind DN, a pattern without `{username}` — refuses to boot with a
+message naming the variable, as every other malformed `LDAP_*` value does.
+
+STARTTLS upgrades every connection before its first bind. If the server
+refuses or the handshake fails, the operation stops there: nothing, not even the
+service account's DN, is sent unencrypted. The CA (pasted, or `LDAP_CA_PATH`)
+and **Verify TLS** apply to STARTTLS exactly as to LDAPS.
+
+To exercise a real AD from the API, the body `PUT /api/settings/auth/ldap` takes
+is the form's:
+
+```json
+{
+  "host": "dc01.example.com",
+  "port": 636,
+  "protocol": "ldaps",
+  "bindType": "regular",
+  "bindDn": "cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com",
+  "bindPassword": "…",
+  "searchBase": "ou=People,dc=example,dc=com",
+  "roleMappings": [{ "groupDn": "cn=puppet-admins,ou=Groups,dc=example,dc=com", "role": "ADMIN" }],
+  "tlsRejectUnauthorized": true,
+  "caPem": "-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----\n"
+}
+```
+
+`POST /api/settings/auth/ldap/test` takes the same body and returns
+`detectedDialect` beside the verdict. A body carrying the pre-1.13 `url` is still
+accepted for `ldaps://`; `ldap://` is refused with a message to choose LDAPS or
+STARTTLS.
 
 ### Pointing at Entra ID (OIDC)
 
