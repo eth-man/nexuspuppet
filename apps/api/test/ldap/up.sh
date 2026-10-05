@@ -67,6 +67,30 @@ fi
 echo "=== starting OpenLDAP ==="
 $COMPOSE up -d
 
+# The image starts a BOOTSTRAP slapd, generates 2048-bit DH parameters for TLS
+# (about a minute), then stops it and starts the real one. Until then LDAPS
+# resets Node's handshake while openssl's succeeds, so a check with openssl
+# passes and the suite then fails every TLS test for a minute — it did. Wait
+# for the real server ("First start is done", then "slapd starting") before
+# configuring anything, so every step below lands on, and checks, the server
+# the suite will use.
+wait_for_final_start() {
+  local container="$1"
+  for _ in $(seq 120); do
+    if docker logs "$container" 2>&1 | sed -n '/First start is done/,$p' | grep -q 'slapd starting'; then
+      echo "  $container: final slapd is up"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "::error:: $container never finished its first start" >&2
+  docker logs --tail 20 "$container" >&2
+  exit 1
+}
+echo "=== waiting for the images' first start (TLS parameters take about a minute) ==="
+wait_for_final_start "$CONTAINER"
+wait_for_final_start "${CONTAINER}-plain"
+
 echo "=== waiting for it to answer queries ==="
 for _ in $(seq 40); do
   if docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
@@ -193,8 +217,8 @@ readable=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
   -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
   | grep -c '^dn:' || true)
 
-if [ "${readable:-0}" -lt 4 ]; then
-  echo "::error:: the service account sees ${readable} of 4 people. The ACL did not apply," >&2
+if [ "${readable:-0}" -lt 5 ]; then
+  echo "::error:: the service account sees ${readable} of 5 people. The ACL did not apply," >&2
   echo "          so every login would fail with PROVIDER_ERROR." >&2
   exit 1
 fi
@@ -235,8 +259,8 @@ echo "=== verifying an anonymous reader can find people ==="
 anonymous=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
   -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
   | grep -c '^dn:' || true)
-if [ "${anonymous:-0}" -lt 4 ]; then
-  echo "::error:: an anonymous search sees ${anonymous} of 4 people; the Anonymous bind tests would fail." >&2
+if [ "${anonymous:-0}" -lt 5 ]; then
+  echo "::error:: an anonymous search sees ${anonymous} of 5 people; the Anonymous bind tests would fail." >&2
   exit 1
 fi
 echo "  anonymous search sees ${anonymous} people"
@@ -255,6 +279,28 @@ if docker exec "${CONTAINER}-plain" ldapsearch -ZZ -x -H ldap://localhost:389 -b
   exit 1
 fi
 echo "  :3892 answers, and refuses STARTTLS"
+
+echo "=== making the TLS-less directory refuse unauthenticated access ==="
+# olcRequires: authc — the OpenLDAP way to say "no anonymous searches". It
+# answers an unbound search with unwillingToPerform, "authentication required",
+# which the suite expects to see turned into a plain sentence (ADR-0030). It
+# still refuses STARTTLS the same way, so the fail-closed tests are unchanged.
+docker exec -i "${CONTAINER}-plain" ldapmodify -c -Y EXTERNAL -H ldapi:/// <<EOF 2>&1 | sed 's/^/  /' || true
+dn: cn=config
+changetype: modify
+add: olcRequires
+olcRequires: authc
+EOF
+# Captured first: ldapsearch exits non-zero on the refusal, which under
+# pipefail would fail a pipeline into grep exactly when the check passes.
+refusal=$(docker exec "${CONTAINER}-plain" ldapsearch -x -H ldap://localhost:389 \
+  -b 'dc=nexuspuppet,dc=test' '(uid=x)' dn 2>&1 || true)
+if printf '%s' "$refusal" | grep -q 'authentication required'; then
+  echo "  :3892 refuses anonymous searches"
+else
+  echo "::error:: :3892 still serves anonymous searches; the anonymous-refusal test would prove nothing." >&2
+  exit 1
+fi
 
 echo
 echo "Ready. ldap://127.0.0.1:3890 (+STARTTLS)  ldaps://127.0.0.1:6360  ldap://127.0.0.1:3892 (no TLS)"

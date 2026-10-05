@@ -49,6 +49,8 @@ That is expected until each node's next Puppet run. On the node's page, the **Ma
 | *Nothing is accepting connections* | Wrong **Port**, or a firewall between the console and the directory. |
 | *refused the User DN and password* | The **User DN** or **Password** of the service account is wrong. |
 | *A UPN pattern … only works against Active Directory* | With **Simple** on OpenLDAP, use a DN pattern such as `uid={username},ou=people,dc=example,dc=com`. |
+| *This directory does not allow anonymous searches* | Normal for Active Directory and many OpenLDAP servers. Choose **Regular** and give a service account (**User DN** and **Password**). The directory's own words are on the line below the message. |
+| *The search base was not found — or this directory hides it from anonymous readers* | Either **Search base** is mistyped, or (OpenLDAP) anonymous readers may not see it. Check the base, or use **Regular**. |
 | *the directory type is unknown* | The server hides what kind it is from anonymous readers. Everything still works if it is OpenLDAP; for Active Directory use **Regular** (the service account can read it) or set `LDAP_DIALECT=ad` in the environment. |
 
 If the page says *Saving a bind password needs CONFIG_ENCRYPTION_KEY*, run `./scripts/deploy.sh` once — it adds the key.

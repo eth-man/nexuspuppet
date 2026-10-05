@@ -608,13 +608,26 @@ environment keeps its URL and gains the same choices:
 | Server name or IP, Port, Protocol STARTTLS | `LDAP_URL=ldap://dc01.example.com:389` + `LDAP_STARTTLS=true` |
 | *(legacy, shown as Unencrypted)* | `LDAP_URL=ldap://…` without `LDAP_STARTTLS` — still works, warns at boot |
 | Bind type Regular, User DN, Password | `LDAP_BIND_TYPE=regular` (default when `LDAP_BIND_DN` is set), `LDAP_BIND_DN`, `LDAP_BIND_PASSWORD` |
-| Bind type Simple, User DN pattern | `LDAP_BIND_TYPE=simple`, `LDAP_USER_DN_PATTERN={username}@corp.example` |
+| Bind type Simple, User DN pattern | `LDAP_BIND_TYPE=simple`, `LDAP_USER_DN_PATTERN={email}` (AD) or `uid={username},ou=people,dc=…` |
 | Bind type Anonymous | `LDAP_BIND_TYPE=anonymous` (default without `LDAP_BIND_DN`) |
 | Directory type (detected) | `LDAP_DIALECT=ad` or `openldap` (default) — the environment does not detect |
 
 A contradictory or malformed combination — `LDAP_STARTTLS=true` with `ldaps://`,
-Simple with a bind DN, a pattern without `{username}` — refuses to boot with a
-message naming the variable, as every other malformed `LDAP_*` value does.
+Simple with a bind DN, a pattern without exactly one `{email}` or `{username}` —
+refuses to boot with a message naming the variable, as every other malformed
+`LDAP_*` value does.
+
+**Simple bind patterns.** People always sign in with their account's email
+address — the console finds the account by it before any directory is asked —
+so a pattern is built from that address: `{email}` is the whole of it
+(normalised as the account lookup does: trimmed, lower-cased), `{username}` the
+part before the last `@`. Valid patterns are a DN with either one as a whole
+attribute value (`uid={username},ou=people,dc=example,dc=com`,
+`cn={email},ou=people,…`; the value is DN-escaped per RFC 4514), exactly
+`{email}`, or `{username}@<domain>`. On Active Directory use `{email}`: the
+address is the UPN. Because `{username}` drops the domain, an entry with a
+`mail` attribute must carry the address signed in with, or the sign-in is
+refused.
 
 STARTTLS upgrades every connection before its first bind. If the server
 refuses or the handshake fails, the operation stops there: nothing, not even the

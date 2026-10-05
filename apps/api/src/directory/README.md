@@ -42,7 +42,7 @@ NexusPuppet to obtain a stable `userId`.
 | `LDAP_URL` | yes | `ldaps://host[:port]`, or `ldap://host[:port]` with `LDAP_STARTTLS=true`. Plain `ldap://` alone still works and warns — binds are cleartext |
 | `LDAP_STARTTLS` | no | `true` upgrades an `ldap://` URL with STARTTLS before any bind; refused with `ldaps://` (ADR-0030) |
 | `LDAP_BIND_TYPE` | no | `regular`, `simple` or `anonymous`. Default: `regular` with `LDAP_BIND_DN`, else `anonymous` |
-| `LDAP_USER_DN_PATTERN` | with `simple` | Contains `{username}` once: `{username}@corp.example` (AD) or `uid={username},ou=people,dc=…` |
+| `LDAP_USER_DN_PATTERN` | with `simple` | One of `{email}` (the sign-in address) or `{username}` (before its `@`): `{email}` for AD, `uid={username},ou=people,dc=…` for OpenLDAP, or `{username}@corp.local` |
 | `LDAP_SEARCH_BASE` | yes | e.g. `ou=people,dc=example,dc=com` |
 | `LDAP_BIND_DN` | no | Service account for the search (Regular). Anonymous if unset |
 | `LDAP_BIND_PASSWORD` | with `LDAP_BIND_DN` | Set together or not at all |

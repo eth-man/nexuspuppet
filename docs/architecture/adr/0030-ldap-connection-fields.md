@@ -53,17 +53,28 @@ The proof is not a unit test alone. The OpenLDAP fixture gained a second directo
 |---|---|---|
 | **Regular** (default) | User DN, Password | Bind as the service account, search for the person, bind as the DN found. Unchanged. |
 | **Anonymous** | — | Search without binding, then bind as the DN found. What an empty Bind DN used to imply. |
-| **Simple** | User DN pattern | No service account. Bind directly as the identity built from the pattern, then read the person's **own** entry, as them, on the same connection, for email, display name and groups — nested groups through the AD matching rule when enabled. |
+| **Simple** | User DN pattern (`{email}` or `{username}`) | No service account. Bind directly as the identity built from the pattern, then read the person's **own** entry, as them, on the same connection, for email, display name and groups — nested groups through the AD matching rule when enabled. |
 
-**A Simple pattern is a DN or a UPN, and nothing else.** It contains `{username}` exactly once.
+**What a pattern is built from is the sign-in address.** People always sign in with their account's email: `AuthProviderResolver` finds the account by it — trimmed, lower-cased — before any directory is asked, so that address is what reaches the provider. A pattern takes one of two parts of it:
 
-- **A DN** (`uid={username},ou=people,dc=example,dc=com`) has `{username}` as a whole attribute value, and the username is escaped for DN context — RFC 4514, whose specials are `, + " \ < > ; =` and a leading space or `#` and a trailing one. That is a different set from filter escaping (RFC 4515), and the tests hold both apart. A username cannot add an RDN, add a value to the RDN, or end the value: `alice,ou=admins` is one `uid` that no entry has.
-- **A UPN** (`{username}@corp.example`) is not a DN, so there is nothing to escape into. Anything that could name a different account — `@`, `\`, DN specials, whitespace, filter specials — is refused. The entry is then found by searching for **exactly the bound UPN**, never for the typed name: on AD a typed `jdoe` can be another account's `sAMAccountName`, and its groups would be granted to whoever knew the first account's password. More than one match is refused rather than guessed.
+- **`{email}`** — the whole address, normalised exactly as the account lookup normalises it. On Active Directory the address people sign in with is their UPN, so the AD pattern is simply `{email}`.
+- **`{username}`** — the part before the **last** `@`.
+
+> *Amended before merge, after the staging run against a real AD.* The first version of this section had only `{username}`, and assumed it would be what a person typed — `alice`. It never is: it is `alice@corp.local`, so `{username}@corp.local` bound as `alice@corp.local@corp.local`, and the one pattern AD needed, a bare placeholder, was refused by validation. The provider-level tests had handed the provider `alice`, a value no user can submit. Tests now sign in through the real resolver with an account's real email.
+
+**A Simple pattern is a DN or a UPN, and nothing else.** It contains exactly one placeholder, once.
+
+- **A DN** (`uid={username},ou=people,dc=example,dc=com`, `cn={email},ou=people,…`) has the placeholder as a whole attribute value, and the value is escaped for DN context — RFC 4514, whose specials are `, + " \ < > ; =` and a leading space or `#` and a trailing one. That is a different set from filter escaping (RFC 4515), and the tests hold both apart. An address cannot add an RDN, add a value to the RDN, or end the value: `alice,ou=admins@example.com` gives one `uid` that no entry has.
+- **A UPN** — exactly `{email}`, or `{username}@<domain>` — is not a DN, so there is nothing to escape into. Anything that could name a different account is refused: for `{username}`, any `@`, `\`, DN special, whitespace or filter special; for `{email}`, anything but one plain local part and one plain domain around exactly one `@`. The entry is then found by searching for **exactly the bound UPN**, never for the typed name: on AD a name can be another account's `sAMAccountName`, and its groups would be granted to whoever knew the first account's password. More than one match is refused rather than guessed.
 - **Control characters are refused** in both, before any network round trip.
+
+**The account is the one signed in with.** The resolver chose it by the typed address; Simple bind never moves the session to an account named by the entry's `mail` (which on AD often differs from the UPN). And because **`{username}` drops the domain** — `alice@one.example` and `alice@two.example` both reach `uid=alice` — an entry that has a `mail` must carry the address signed in with, or the sign-in is refused. Otherwise whoever holds `uid=alice`'s password could open any same-named account. `{email}` needs no such check: the identity bound *is* the address.
 
 **No new login oracle.** Every Simple refusal — an unusable username, a rejected bind, an entry the person may not read — is the same `INVALID_CREDENTIALS` as a wrong password, inside the resolver's timing floor (ADR-0015 §2).
 
 **An empty password authenticates nobody, in any bind type.** The provider already refused it before binding; the client now refuses it too, without opening a connection, so a future caller cannot forget. The fixture is configured to *accept* an unauthenticated bind, which is what makes the test of this mean something.
+
+**A directory that will not be searched anonymously says so in words.** Active Directory answers an unbound search with `operationsError` and `000004DC … a successful bind must be completed`; OpenLDAP with `olcRequires: authc` answers `unwillingToPerform`, `authentication required`; others use `insufficientAccessRights` or `inappropriateAuthentication`. For an Anonymous configuration each becomes *This directory does not allow anonymous searches. Use Regular with a service account (User DN and Password).*, with the directory's own text kept as a secondary *Directory said* line. OpenLDAP's default ACLs *hide* what an anonymous reader may not see, so its refusal arrives as `noSuchObject` — indistinguishable from a mistyped search base — and is reported as either.
 
 ### 4. The directory type is detected
 

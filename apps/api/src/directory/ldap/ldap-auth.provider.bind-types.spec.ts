@@ -6,6 +6,7 @@ import {
   type StoredIdentity,
 } from './ldap-auth.provider';
 import {
+  ANONYMOUS_REFUSED,
   LdapUnavailableError,
   type LdapDirectory,
   type LdapEntry,
@@ -162,15 +163,28 @@ describe('Anonymous bind', () => {
   });
 });
 
+/**
+ * People sign in with their account's EMAIL — the resolver finds the account
+ * by it before asking any directory — so that is what these type.
+ */
 describe('Simple bind', () => {
-  it('binds directly with the DN built from the pattern, and searches nothing first', async () => {
+  const SIMPLE_EMAIL = config({
+    bindType: 'simple',
+    userDnPattern: '{email}',
+    detectedDialect: 'ad',
+  });
+
+  it('binds as uid={username} — the part of the address before the @ — and searches nothing first', async () => {
     const directory = recordingDirectory();
     const result = await provider(SIMPLE_DN, directory).authenticate({
-      email: 'Alice',
+      email: ' Alice@Example.com ',
       password: 'pw',
     });
 
-    expect(result).toMatchObject({ ok: true, principal: { role: 'OPERATOR' } });
+    expect(result).toMatchObject({
+      ok: true,
+      principal: { role: 'OPERATOR', email: 'alice@example.com' },
+    });
     expect(directory.calls).toEqual(['bindAndRead']);
     expect(directory.binds).toEqual([
       {
@@ -180,26 +194,76 @@ describe('Simple bind', () => {
     ]);
   });
 
-  it('escapes the username for DN context before binding', async () => {
-    const directory = recordingDirectory();
-    await provider(SIMPLE_DN, directory).authenticate({
-      email: 'alice,ou=admins',
+  /**
+   * Active Directory: the address people sign in with IS their UPN, so the
+   * pattern is just {email}, and the entry is found by exactly that UPN —
+   * never by the typed name, which on AD can be another account's
+   * sAMAccountName, whose groups would then be granted.
+   */
+  it('binds as {email} — the whole address, normalised as the account lookup is', async () => {
+    const directory = recordingDirectory({
+      bindAndRead: async (identity, _password, lookup) => {
+        directory.binds.push({ identity, lookup });
+        return {
+          bound: true,
+          entry: { ...ENTRY, email: 'Alice.Admin@corp.example.com' },
+          nestedGroups: null,
+        };
+      },
+    });
+    const result = await provider(SIMPLE_EMAIL, directory).authenticate({
+      email: 'Alice.Admin@Corp.Local',
       password: 'pw',
     });
 
-    expect(directory.binds[0]?.identity).toBe(
-      'uid=alice\\,ou\\=admins,ou=people,dc=example,dc=com',
-    );
+    expect(directory.binds).toEqual([
+      {
+        identity: 'alice.admin@corp.local',
+        lookup: { filter: '(userPrincipalName=alice.admin@corp.local)' },
+      },
+    ]);
+    // The entry's mail differs from the UPN, as it often does on AD. The
+    // account signed in is still the one typed, never the one the mail names.
+    expect(result).toMatchObject({ ok: true });
   });
 
-  /**
-   * With a UPN the entry is found by EXACTLY the identity that bound. Never by
-   * the typed name: on AD that can be another account's sAMAccountName, and
-   * its groups would be granted to whoever knew the first account's password.
-   */
-  it('reads the entry carrying exactly the bound UPN, escaped for the filter', async () => {
-    const directory = recordingDirectory();
-    await provider(SIMPLE_UPN, directory).authenticate({ email: 'jdoe', password: 'pw' });
+  it('signs in as the account typed, even when the entry has a different mail ({email})', async () => {
+    const looked: string[] = [];
+    const directory = recordingDirectory({
+      bindAndRead: async () => ({
+        bound: true,
+        entry: { ...ENTRY, email: 'someone.else@example.com' },
+        nestedGroups: null,
+      }),
+    });
+    const p = new LdapAuthProvider({
+      config: SIMPLE_EMAIL,
+      directory,
+      identities: {
+        ...identities(),
+        findByEmail: async (email) => {
+          looked.push(email);
+          return IDENTITY;
+        },
+      },
+      logger: silent,
+    });
+
+    await p.authenticate({ email: 'alice.admin@corp.local', password: 'pw' });
+    expect(looked).toEqual(['alice.admin@corp.local']);
+  });
+
+  it('puts {username} into a fixed UPN domain', async () => {
+    const directory = recordingDirectory({
+      bindAndRead: async (identity, _password, lookup) => {
+        directory.binds.push({ identity, lookup });
+        return { bound: true, entry: { ...ENTRY, email: null }, nestedGroups: null };
+      },
+    });
+    await provider(SIMPLE_UPN, directory).authenticate({
+      email: 'jdoe@example.com',
+      password: 'pw',
+    });
 
     expect(directory.binds).toEqual([
       {
@@ -209,12 +273,64 @@ describe('Simple bind', () => {
     ]);
   });
 
-  it.each(['jdoe@evil.example', 'CORP\\administrator', 'a*', 'jdoe\u0000'])(
-    'refuses %j like a wrong password, without contacting the directory',
-    async (username) => {
+  /**
+   * {username} drops the domain: alice@x and alice@y both reach uid=alice.
+   * When the entry says whose it is, it must be the address typed — or the
+   * holder of uid=alice's password could sign in as somebody else's account.
+   */
+  it('refuses a {username} bind whose entry mail is not the address typed', async () => {
+    const warnings: string[] = [];
+    const directory = recordingDirectory(); // ENTRY.email is alice@example.com
+    const p = new LdapAuthProvider({
+      config: SIMPLE_DN,
+      directory,
+      identities: identities(),
+      logger: { ...silent, warn: (m) => warnings.push(m) },
+    });
+
+    await expect(p.authenticate({ email: 'alice@other.example', password: 'pw' })).resolves.toEqual(
+      { ok: false, reason: 'INVALID_CREDENTIALS' },
+    );
+    expect(warnings.join('\n')).toMatch(/mail is alice@example\.com, not the address/);
+  });
+
+  it('escapes the {username} for DN context before binding', async () => {
+    const directory = recordingDirectory();
+    await provider(SIMPLE_DN, directory).authenticate({
+      email: 'alice,ou=admins@example.com',
+      password: 'pw',
+    });
+
+    expect(directory.binds[0]?.identity).toBe(
+      'uid=alice\\,ou\\=admins,ou=people,dc=example,dc=com',
+    );
+  });
+
+  it('escapes the {email} for DN context before binding', async () => {
+    const directory = recordingDirectory();
+    await provider(
+      config({ bindType: 'simple', userDnPattern: 'cn={email},ou=people,dc=example,dc=com' }),
+      directory,
+    ).authenticate({ email: 'a+cn=admin@example.com', password: 'pw' });
+
+    expect(directory.binds[0]?.identity).toBe(
+      'cn=a\\+cn\\=admin@example.com,ou=people,dc=example,dc=com',
+    );
+  });
+
+  it.each([
+    [SIMPLE_UPN, 'jdoe@evil@example.com'],
+    [SIMPLE_UPN, 'CORP\\administrator@example.com'],
+    [SIMPLE_UPN, 'a*@example.com'],
+    [SIMPLE_EMAIL, 'jdoe@corp.local@evil.example'],
+    [SIMPLE_EMAIL, 'alice'],
+    [SIMPLE_EMAIL, 'jdoe\u0000@corp.local'],
+  ])(
+    'refuses %#: %j like a wrong password, without contacting the directory',
+    async (cfg, address) => {
       const directory = recordingDirectory();
-      const result = await provider(SIMPLE_UPN, directory).authenticate({
-        email: username,
+      const result = await provider(cfg, directory).authenticate({
+        email: address,
         password: 'pw',
       });
 
@@ -226,7 +342,7 @@ describe('Simple bind', () => {
   it('gives a rejected bind the same answer as an unknown user', async () => {
     const directory = recordingDirectory({ bindAndRead: async () => ({ bound: false }) });
     await expect(
-      provider(SIMPLE_DN, directory).authenticate({ email: 'alice', password: 'wrong' }),
+      provider(SIMPLE_DN, directory).authenticate({ email: 'alice@example.com', password: 'x' }),
     ).resolves.toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
   });
 
@@ -242,7 +358,7 @@ describe('Simple bind', () => {
       logger: { ...silent, warn: (m) => warnings.push(m) },
     });
 
-    await expect(p.authenticate({ email: 'alice', password: 'pw' })).resolves.toEqual({
+    await expect(p.authenticate({ email: 'alice@example.com', password: 'pw' })).resolves.toEqual({
       ok: false,
       reason: 'INVALID_CREDENTIALS',
     });
@@ -253,7 +369,7 @@ describe('Simple bind', () => {
   it('adds the nested groups the directory resolved as the user', async () => {
     const nested = config({
       bindType: 'simple',
-      userDnPattern: 'uid={username},ou=people,dc=example,dc=com',
+      userDnPattern: '{email}',
       detectedDialect: 'ad',
       nestedGroups: true,
       roleMappings: [{ groupDn: 'cn=admins,dc=example,dc=com', role: 'ADMIN' }],
@@ -267,7 +383,7 @@ describe('Simple bind', () => {
     });
 
     await expect(
-      provider(nested, directory).authenticate({ email: 'alice', password: 'pw' }),
+      provider(nested, directory).authenticate({ email: 'alice@example.com', password: 'pw' }),
     ).resolves.toMatchObject({ ok: true, principal: { role: 'ADMIN' } });
     expect(asked).toBe(true);
   });
@@ -285,7 +401,7 @@ describe('Simple bind', () => {
     const p = new LdapAuthProvider({
       config: config({
         bindType: 'simple',
-        userDnPattern: 'uid={username},ou=people,dc=example,dc=com',
+        userDnPattern: '{email}',
         detectedDialect: 'ad',
         nestedGroups: true,
       }),
@@ -294,10 +410,9 @@ describe('Simple bind', () => {
       logger: { ...silent, error: (m) => errors.push(m) },
     });
 
-    await expect(p.authenticate({ email: 'alice', password: 'pw' })).resolves.toMatchObject({
-      ok: true,
-      principal: { role: 'OPERATOR' },
-    });
+    await expect(
+      p.authenticate({ email: 'alice@example.com', password: 'pw' }),
+    ).resolves.toMatchObject({ ok: true, principal: { role: 'OPERATOR' } });
     expect(errors.join('\n')).toMatch(/Nested group resolution failed/);
   });
 
@@ -308,12 +423,42 @@ describe('Simple bind', () => {
       },
     });
     await expect(
-      provider(SIMPLE_DN, directory).authenticate({ email: 'alice', password: 'pw' }),
+      provider(SIMPLE_DN, directory).authenticate({ email: 'alice@example.com', password: 'pw' }),
     ).resolves.toEqual({ ok: false, reason: 'PROVIDER_ERROR' });
   });
 
-  it('labels the login field Username', () => {
-    expect(provider(SIMPLE_DN, recordingDirectory()).identifierLabel).toBe('Username');
+  it('labels the login field Email — it is the account address people type', () => {
+    expect(provider(SIMPLE_DN, recordingDirectory()).identifierLabel).toBe('Email');
+    expect(provider(SIMPLE_EMAIL, recordingDirectory()).identifierLabel).toBe('Email');
+  });
+});
+
+/** Defect 2 from the staging run against AD: a raw 000004DC is not an answer. */
+describe('Test connection when the directory refuses anonymous searches', () => {
+  const candidate = {
+    host: 'dc01.example.com',
+    protocol: 'ldaps',
+    bindType: 'anonymous',
+    searchBase: 'dc=example,dc=com',
+  };
+
+  it('says so plainly, and keeps the directory’s own words beneath', async () => {
+    const raw =
+      'LDAP search failed: OperationsError: 000004DC: LdapErr: DSID-0C090CA2, comment: In order ' +
+      'to perform this operation a successful bind must be completed on the connection., data 0, v4f7c';
+    const directory = recordingDirectory({
+      findEntry: async () => {
+        throw new LdapUnavailableError(ANONYMOUS_REFUSED, { detail: raw });
+      },
+    });
+    const result = await provider(ANONYMOUS, directory).verifyConfiguration(candidate);
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(
+      'This directory does not allow anonymous searches. Use Regular with a service account ' +
+        '(User DN and Password).',
+    );
+    expect(result.details).toContainEqual({ label: 'Directory said', value: raw });
   });
 });
 

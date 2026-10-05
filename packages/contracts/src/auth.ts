@@ -899,8 +899,23 @@ export type LdapBindType = (typeof LDAP_BIND_TYPES)[number];
 export const LDAP_DIALECTS = ['openldap', 'ad'] as const;
 export type LdapDialectName = (typeof LDAP_DIALECTS)[number];
 
-/** The placeholder a Simple-bind User DN pattern must contain, exactly once. */
+/**
+ * The placeholders a Simple-bind User DN pattern may contain — exactly one of
+ * them, once (ADR-0030 §3).
+ *
+ * People always sign in with their account's EMAIL: the resolver finds the
+ * account by it before any directory is asked. So what reaches the pattern is
+ * an address, and the two placeholders are two parts of it:
+ *
+ * - `{email}` — the whole address as typed, normalised exactly as the account
+ *   lookup normalises it (trimmed, lower-cased). On Active Directory this is
+ *   the UPN, so the pattern is just `{email}`.
+ * - `{username}` — the part before the LAST `@`. For a DN such as
+ *   `uid={username},ou=people,dc=example,dc=com`, or a UPN in another domain:
+ *   `{username}@corp.example`.
+ */
 export const LDAP_USERNAME_PLACEHOLDER = '{username}';
+export const LDAP_EMAIL_PLACEHOLDER = '{email}';
 
 /**
  * The URL the LDAP client is opened with. STARTTLS starts on `ldap://` and
@@ -983,19 +998,23 @@ export function ldapHostProblem(host: string): string | null {
  *
  * Two shapes, and nothing else:
  *
- * - a **DN** — it contains `=` — where `{username}` is an attribute value:
- *   `uid={username},ou=people,dc=example,dc=com`. The username is escaped
- *   for DN context (RFC 4514) before it is substituted.
- * - a **UPN** — `{username}@corp.example` — Active Directory's
- *   user@domain form. The substituted value is not a DN, so instead of
- *   escaping it, anything that could change which account is named is refused.
+ * - a **DN** — it contains `=` — where `{username}` or `{email}` is an
+ *   attribute value: `uid={username},ou=people,dc=example,dc=com`. The value is
+ *   escaped for DN context (RFC 4514) before it is substituted.
+ * - a **UPN** — exactly `{email}`, or `{username}@<domain>` — Active
+ *   Directory's user@domain form. The substituted value is not a DN, so
+ *   instead of escaping it, anything that could change which account is named
+ *   is refused.
  *
  * Shared with the browser so the form says what is wrong before Save.
  */
 export function userDnPatternProblem(pattern: string): string | null {
-  const count = pattern.split(LDAP_USERNAME_PLACEHOLDER).length - 1;
+  const count =
+    pattern.split(LDAP_USERNAME_PLACEHOLDER).length -
+    1 +
+    (pattern.split(LDAP_EMAIL_PLACEHOLDER).length - 1);
   if (count !== 1) {
-    return `Must contain ${LDAP_USERNAME_PLACEHOLDER} exactly once, where the sign-in name goes.`;
+    return 'Must contain exactly one of {email} or {username}, where the sign-in address goes.';
   }
   if (hasControlCharacter(pattern)) return 'Contains a control character.';
 
@@ -1003,14 +1022,18 @@ export function userDnPatternProblem(pattern: string): string | null {
     // The placeholder must be a whole attribute VALUE: right after `=`, and
     // followed by the end, `,` or `+`. Anywhere else it would be splicing the
     // sign-in name into an attribute TYPE or across RDNs.
-    if (!/=\{username\}(?:$|[,+])/.test(pattern)) {
-      return 'Put {username} as a whole attribute value, as in uid={username},ou=people,dc=example,dc=com.';
+    if (!/=\{(?:username|email)\}(?:$|[,+])/.test(pattern)) {
+      return 'Put {username} or {email} as a whole attribute value, as in uid={username},ou=people,dc=example,dc=com.';
     }
     return null;
   }
 
+  if (pattern === LDAP_EMAIL_PLACEHOLDER) return null;
   if (!/^\{username\}@[^\s@{}\\,;=+<>"]+$/.test(pattern)) {
-    return 'Use a DN such as uid={username},ou=people,dc=example,dc=com, or a UPN such as {username}@corp.example.';
+    return (
+      'Use {email} for Active Directory (the address people sign in with), a DN such as ' +
+      'uid={username},ou=people,dc=example,dc=com, or a UPN such as {username}@corp.example.'
+    );
   }
   return null;
 }
@@ -1206,7 +1229,7 @@ const ldapSettingsChecked = ldapSettingsObject
       context.addIssue({
         code: 'custom',
         path: ['userDnPattern'],
-        message: `Simple bind needs a User DN pattern containing ${LDAP_USERNAME_PLACEHOLDER}.`,
+        message: 'Simple bind needs a User DN pattern containing {email} or {username}.',
       });
     }
   })

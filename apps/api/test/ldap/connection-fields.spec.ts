@@ -126,9 +126,14 @@ describe.each([
 
   it('Simple: dave binds directly with the pattern and reads his own groups, ADMIN', async () => {
     const p = provider(config(transport, SIMPLE));
-    expect(p.identifierLabel).toBe('Username');
+    expect(p.identifierLabel).toBe('Email');
 
-    const result = await p.authenticate({ email: 'dave', password: 'dave-password' });
+    // What a person types is their account's address; {username} is the part
+    // before the @. (resolver-login.spec.ts runs this through the resolver.)
+    const result = await p.authenticate({
+      email: 'dave@nexuspuppet.test',
+      password: 'dave-password',
+    });
     expect(result).toMatchObject({
       ok: true,
       principal: { role: 'ADMIN', email: 'dave@nexuspuppet.test', displayName: 'Dave Okafor' },
@@ -137,7 +142,10 @@ describe.each([
 
   it('Simple: a wrong password is a wrong password', async () => {
     await expect(
-      provider(config(transport, SIMPLE)).authenticate({ email: 'dave', password: 'nope' }),
+      provider(config(transport, SIMPLE)).authenticate({
+        email: 'dave@nexuspuppet.test',
+        password: 'nope',
+      }),
     ).resolves.toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
   });
 
@@ -146,12 +154,12 @@ describe.each([
    * — a different DN. Escaped, it is one uid value no entry has, and the
    * server refuses the bind like any wrong password.
    */
-  it.each(['alice,ou=people', 'alice+cn=Alice Ng', 'uid=alice', 'alice\\', ' #alice'])(
+  it.each(['alice,ou=people', 'alice+cn=Alice Ng', 'uid=alice', 'alice\\', '#alice'])(
     'Simple: the username %j cannot change which DN is bound',
     async (username) => {
       await expect(
         provider(config(transport, SIMPLE)).authenticate({
-          email: username,
+          email: `${username}@nexuspuppet.test`,
           password: 'alice-password',
         }),
       ).resolves.toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
@@ -214,7 +222,7 @@ describe('an empty password, against a server that would accept it', () => {
     ['Anonymous', ANONYMOUS],
     ['Simple', SIMPLE],
   ])('is refused by the console (%s)', async (_name, bind) => {
-    const email = bind === SIMPLE ? 'alice' : 'alice@nexuspuppet.test';
+    const email = 'alice@nexuspuppet.test';
     await expect(
       provider(config(STARTTLS, bind)).authenticate({ email, password: '' }),
     ).resolves.toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
@@ -354,7 +362,10 @@ describe('STARTTLS fails closed', () => {
 
     it('sends no Simple bind', async () => {
       await expect(
-        provider(refusing(SIMPLE)).authenticate({ email: 'alice', password: 'alice-password' }),
+        provider(refusing(SIMPLE)).authenticate({
+          email: 'alice@nexuspuppet.test',
+          password: 'alice-password',
+        }),
       ).resolves.toEqual({ ok: false, reason: 'PROVIDER_ERROR' });
       assertNothingSecretSent(proxy.sent());
     });

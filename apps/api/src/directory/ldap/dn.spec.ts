@@ -1,5 +1,11 @@
 import { userDnPatternProblem } from '@nexuspuppet/contracts';
-import { InvalidUsernameError, buildBindIdentity, escapeDnValue, isDnPattern } from './dn';
+import {
+  InvalidUsernameError,
+  buildBindIdentity,
+  escapeDnValue,
+  isDnPattern,
+  signInParts,
+} from './dn';
 import { escapeFilterValue } from './filter';
 
 /**
@@ -86,64 +92,124 @@ describe('escapeDnValue (RFC 4514)', () => {
   });
 });
 
-describe('buildBindIdentity with a DN pattern', () => {
-  /**
-   * Usernames that would add an RDN, add a multi-valued RDN, end the value,
-   * or start a hex-encoded one. Each must land as ONE attribute value of the
-   * ONE RDN the pattern put it in, and decode back to exactly what was typed.
-   */
-  const adversarial = [
-    'alice,ou=admins',
-    'alice,dc=example,dc=com',
-    'alice+cn=admin',
-    'alice"',
-    '"alice"',
-    'alice\\',
-    'alice\\,ou=admins',
-    '<alice>',
-    'alice;ou=admins',
-    'uid=admin',
-    'alice=',
-    ' alice',
-    'alice ',
-    '#616c696365',
-    '\\2c',
-    'a,b+c"d\\e<f>g;h=i',
-  ];
+/**
+ * Values that would add an RDN, add a multi-valued RDN, end the value, or
+ * start a hex-encoded one. Each must land as ONE attribute value of the ONE
+ * RDN the pattern put it in, and decode back to exactly what it was.
+ */
+const ADVERSARIAL = [
+  'alice,ou=admins',
+  'alice,dc=example,dc=com',
+  'alice+cn=admin',
+  'alice"',
+  '"alice"',
+  'alice\\',
+  'alice\\,ou=admins',
+  '<alice>',
+  'alice;ou=admins',
+  'uid=admin',
+  'alice=',
+  ' alice',
+  'alice ',
+  '#616c696365',
+  '\\2c',
+  'a,b+c"d\\e<f>g;h=i',
+];
 
-  it.each(adversarial)('keeps %j inside the uid value', (username) => {
-    const identity = buildBindIdentity(DN_PATTERN, username);
-    const parts = rdns(identity);
+/** Assert `identity` is `<attr>=<one escaped value>,<rest>` and the value decodes to `value`. */
+function expectOneValue(identity: string, attr: string, rest: string[], value: string): void {
+  const parts = rdns(identity);
+  expect(parts).toHaveLength(1 + rest.length);
+  expect(parts.slice(1)).toEqual(rest);
+  expect(parts[0]!.startsWith(`${attr}=`)).toBe(true);
+  // No unescaped `+` (a second attribute in the RDN) or `=` after the first.
+  expect(parts[0]!.slice(attr.length + 1)).not.toMatch(/(^|[^\\])(\\\\)*[+=]/);
+  expect(unescape(parts[0]!.slice(attr.length + 1))).toBe(value);
+}
 
-    expect(parts).toHaveLength(4);
-    expect(parts.slice(1)).toEqual(['ou=people', 'dc=example', 'dc=com']);
-    expect(parts[0]!.startsWith('uid=')).toBe(true);
-    // No unescaped `+` (a second attribute in the RDN) or `=` after the first.
-    expect(parts[0]!.slice(4)).not.toMatch(/(^|[^\\])(\\\\)*[+=]/);
-    expect(unescape(parts[0]!.slice(4))).toBe(username);
+describe('signInParts', () => {
+  it('takes {username} from before the LAST @', () => {
+    expect(signInParts('alice@example.com')).toEqual({
+      email: 'alice@example.com',
+      username: 'alice',
+    });
+    expect(signInParts('a@b@example.com')).toEqual({
+      email: 'a@b@example.com',
+      username: 'a@b',
+    });
   });
 
-  it('builds the ordinary case unchanged', () => {
-    expect(buildBindIdentity(DN_PATTERN, 'alice')).toBe('uid=alice,ou=people,dc=example,dc=com');
-  });
-
-  it('does not interpret $ sequences from the username as replacement patterns', () => {
-    expect(buildBindIdentity(DN_PATTERN, "$&$'$`")).toBe("uid=$&$'$`,ou=people,dc=example,dc=com");
-  });
-
-  it('refuses an empty username', () => {
-    expect(() => buildBindIdentity(DN_PATTERN, '')).toThrow(InvalidUsernameError);
-  });
-
-  it('refuses a control character', () => {
-    expect(() => buildBindIdentity(DN_PATTERN, 'alice\u0000')).toThrow(InvalidUsernameError);
+  it('treats an address with no @ as all username', () => {
+    expect(signInParts('alice')).toEqual({ email: 'alice', username: 'alice' });
   });
 });
 
-describe('buildBindIdentity with a UPN pattern', () => {
-  it('builds the ordinary case', () => {
-    expect(buildBindIdentity(UPN_PATTERN, 'jdoe')).toBe('jdoe@corp.example');
-    expect(buildBindIdentity(UPN_PATTERN, 'j.doe-2_x')).toBe('j.doe-2_x@corp.example');
+describe('buildBindIdentity with a {username} DN pattern', () => {
+  it('uses the part of the address before the @', () => {
+    expect(buildBindIdentity(DN_PATTERN, 'alice@example.com')).toBe(
+      'uid=alice,ou=people,dc=example,dc=com',
+    );
+  });
+
+  it.each(ADVERSARIAL)('keeps %j inside the uid value', (local) => {
+    expectOneValue(
+      buildBindIdentity(DN_PATTERN, `${local}@example.com`),
+      'uid',
+      ['ou=people', 'dc=example', 'dc=com'],
+      local,
+    );
+  });
+
+  it('does not interpret $ sequences as replacement patterns', () => {
+    expect(buildBindIdentity(DN_PATTERN, "$&$'$`@example.com")).toBe(
+      "uid=$&$'$`,ou=people,dc=example,dc=com",
+    );
+  });
+
+  it('refuses an empty address, and an address with nothing before the @', () => {
+    expect(() => buildBindIdentity(DN_PATTERN, '')).toThrow(InvalidUsernameError);
+    expect(() => buildBindIdentity(DN_PATTERN, '@example.com')).toThrow(InvalidUsernameError);
+  });
+
+  it('refuses a control character', () => {
+    expect(() => buildBindIdentity(DN_PATTERN, 'alice\u0000@example.com')).toThrow(
+      InvalidUsernameError,
+    );
+  });
+});
+
+describe('buildBindIdentity with an {email} DN pattern', () => {
+  const EMAIL_DN = 'cn={email},ou=people,dc=example,dc=com';
+
+  it('uses the whole address as the value', () => {
+    expect(buildBindIdentity(EMAIL_DN, 'erin@example.com')).toBe(
+      'cn=erin@example.com,ou=people,dc=example,dc=com',
+    );
+  });
+
+  it.each(ADVERSARIAL)('keeps %j@example.com inside the cn value', (local) => {
+    expectOneValue(
+      buildBindIdentity(EMAIL_DN, `${local}@example.com`),
+      'cn',
+      ['ou=people', 'dc=example', 'dc=com'],
+      `${local}@example.com`,
+    );
+  });
+
+  it('escapes a DN hidden in the domain part too', () => {
+    expectOneValue(
+      buildBindIdentity(EMAIL_DN, 'alice@x,ou=admins,dc=example,dc=com'),
+      'cn',
+      ['ou=people', 'dc=example', 'dc=com'],
+      'alice@x,ou=admins,dc=example,dc=com',
+    );
+  });
+});
+
+describe('buildBindIdentity with {username}@domain', () => {
+  it('puts the part before the @ into the configured domain', () => {
+    expect(buildBindIdentity(UPN_PATTERN, 'jdoe@example.com')).toBe('jdoe@corp.example');
+    expect(buildBindIdentity(UPN_PATTERN, 'j.doe-2_x@example.com')).toBe('j.doe-2_x@corp.example');
   });
 
   /**
@@ -152,34 +218,60 @@ describe('buildBindIdentity with a UPN pattern', () => {
    * refused instead.
    */
   it.each([
-    'jdoe@other.example', // a different domain
-    'CORP\\administrator', // a down-level name
-    'cn=admin,dc=corp', // a DN
-    'jdoe,ou=x',
-    'jdoe;x',
-    'jdoe+x',
-    'j doe',
-    ' jdoe',
-    'jdoe\t',
-    'jdoe\u0000',
-    'jdoe\n',
-    '*',
-    'jdoe)(objectClass=*',
-    '"jdoe"',
-    '<jdoe>',
-  ])('refuses %j', (username) => {
-    expect(() => buildBindIdentity(UPN_PATTERN, username)).toThrow(InvalidUsernameError);
+    'jdoe@other@example.com', // the username would carry an @: another domain
+    'CORP\\administrator@example.com', // a down-level name
+    'cn=admin,dc=corp@example.com', // a DN
+    'jdoe,ou=x@example.com',
+    'jdoe;x@example.com',
+    'jdoe+x@example.com',
+    'j doe@example.com',
+    'jdoe\t@example.com',
+    'jdoe\u0000@example.com',
+    '*@example.com',
+    'jdoe)(objectClass=*@example.com',
+    '"jdoe"@example.com',
+    '<jdoe>@example.com',
+    '@example.com',
+  ])('refuses %j', (address) => {
+    expect(() => buildBindIdentity(UPN_PATTERN, address)).toThrow(InvalidUsernameError);
+  });
+});
+
+/**
+ * {email} — what an AD UPN is, and what people sign in with. The address
+ * itself becomes the bind identity, so it must be exactly one plain user@domain.
+ */
+describe('buildBindIdentity with {email}', () => {
+  it('binds as the address signed in with', () => {
+    expect(buildBindIdentity('{email}', 'alice.admin@corp.local')).toBe('alice.admin@corp.local');
   });
 
-  it('refuses an empty username', () => {
-    expect(() => buildBindIdentity(UPN_PATTERN, '')).toThrow(InvalidUsernameError);
+  it.each([
+    'alice', // no domain
+    '@corp.local',
+    'alice@',
+    'alice@corp@evil.example', // two domains
+    'al ice@corp.local',
+    'alice@corp local',
+    'CORP\\alice@corp.local',
+    'cn=alice,dc=corp@corp.local',
+    'alice@corp.local,ou=x',
+    'alice\u0000@corp.local',
+    'alice@corp.local\n',
+    '*@corp.local',
+    '"alice"@corp.local',
+  ])('refuses %j', (address) => {
+    expect(() => buildBindIdentity('{email}', address)).toThrow(InvalidUsernameError);
   });
 });
 
 describe('the User DN pattern itself', () => {
   it.each([
+    '{email}',
     'uid={username},ou=people,dc=example,dc=com',
     'cn={username},ou=Users,dc=corp,dc=example',
+    'cn={email},ou=people,dc=example,dc=com',
+    'mail={email},ou=people,dc=example,dc=com',
     'cn={username}+sn=x,dc=example',
     '{username}@corp.example',
     '{username}@CORP.EXAMPLE.COM',
@@ -190,9 +282,13 @@ describe('the User DN pattern itself', () => {
   it.each([
     ['no placeholder', 'uid=alice,dc=example'],
     ['two placeholders', 'uid={username},cn={username},dc=example'],
+    ['both placeholders', 'uid={username},cn={email},dc=example'],
+    ['both placeholders, as a UPN', '{username}@{email}'],
     ['placeholder inside a value', 'uid=x{username},dc=example'],
+    ['{email} inside a value', 'cn=x{email},dc=example'],
     ['placeholder as an attribute type', '{username}=x,dc=example'],
-    ['bare placeholder', '{username}'],
+    ['bare {username}', '{username}'],
+    ['{email} with a domain after it', '{email}@corp.example'],
     ['down-level name', 'CORP\\{username}'],
     ['UPN with spaces', '{username}@corp example'],
     ['UPN with a second @', '{username}@x@corp.example'],
@@ -201,12 +297,19 @@ describe('the User DN pattern itself', () => {
     expect(userDnPatternProblem(pattern)).not.toBeNull();
   });
 
+  it('points a bare {username} at {email}, the pattern Active Directory needs', () => {
+    expect(userDnPatternProblem('{username}')).toMatch(/\{email\} for Active Directory/);
+  });
+
   it('tells a DN pattern from a UPN one by the =', () => {
     expect(isDnPattern(DN_PATTERN)).toBe(true);
     expect(isDnPattern(UPN_PATTERN)).toBe(false);
+    expect(isDnPattern('{email}')).toBe(false);
   });
 
   it('will not build an identity from an unusable pattern', () => {
-    expect(() => buildBindIdentity('{username}', 'alice')).toThrow(/Unusable User DN pattern/);
+    expect(() => buildBindIdentity('{username}', 'alice@example.com')).toThrow(
+      /Unusable User DN pattern/,
+    );
   });
 });

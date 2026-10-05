@@ -246,7 +246,7 @@ const checkedLdapConfigSchema = baseLdapConfigSchema.superRefine((value, context
     context.addIssue({
       code: 'custom',
       path: ['userDnPattern'],
-      message: 'Simple bind needs a User DN pattern containing {username}.',
+      message: 'Simple bind needs a User DN pattern containing {email} or {username}.',
     });
   }
 });
@@ -268,9 +268,9 @@ export const ldapConfigSchema = z
       /** Derived, for the client and for display. Never stored. */
       url: ldapUrlOf(input),
       searchFilter: input.searchFilter ?? defaults.searchFilter,
-      // Simple bind substitutes what was typed into a pattern, which is a
-      // username whatever the directory is.
-      identifierLabel: input.bindType === 'simple' ? 'Username' : defaults.identifierLabel,
+      // Simple bind substitutes the account's EMAIL — what the resolver looks
+      // the account up by — into the pattern, whatever the directory is.
+      identifierLabel: input.bindType === 'simple' ? 'Email' : defaults.identifierLabel,
       supportsNestedGroups: defaults.supportsNestedGroups,
       groupSearchBase: input.groupSearchBase ?? input.searchBase,
       attributes: {

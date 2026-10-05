@@ -299,14 +299,27 @@ describe('a configuration saved after ADR-0030', () => {
     expect(config.url).toBe('ldap://dc01.example.com:389');
   });
 
-  it('labels the login field Username for Simple bind, whatever the directory', () => {
-    expect(
-      ldapConfigSchema.parse({
-        ...saved,
-        detectedDialect: 'openldap',
-        userDnPattern: 'uid={username},dc=x',
-      }).identifierLabel,
-    ).toBe('Username');
+  it('labels the login field Email for Simple bind, whatever the directory', () => {
+    // People type the account's address; the pattern takes {email} or the
+    // {username} before its @ from it.
+    for (const [dialect, pattern] of [
+      ['openldap', 'uid={username},dc=x'],
+      ['ad', '{email}'],
+    ]) {
+      expect(
+        ldapConfigSchema.parse({ ...saved, detectedDialect: dialect, userDnPattern: pattern })
+          .identifierLabel,
+      ).toBe('Email');
+    }
+  });
+
+  it('accepts {email}, the pattern AD needs, which a bare {username} used to be refused for', () => {
+    expect(ldapSettingsSchema.parse({ ...saved, userDnPattern: '{email}' })).toMatchObject({
+      userDnPattern: '{email}',
+    });
+    expect(ldapSettingsSchema.safeParse({ ...saved, userDnPattern: '{username}' }).success).toBe(
+      false,
+    );
   });
 
   it('treats an undetected directory as OpenLDAP', () => {

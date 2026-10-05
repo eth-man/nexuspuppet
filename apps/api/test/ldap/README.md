@@ -24,7 +24,13 @@ host whose user is not in the docker group). It serves, loopback only:
 - `ldap://127.0.0.1:3892` — a second directory with **no TLS**, which refuses
   STARTTLS. `connection-fields.spec.ts` points STARTTLS at it through a proxy
   that records every byte the client sends, to prove nothing follows the
-  refused upgrade (ADR-0030).
+  refused upgrade (ADR-0030). It also refuses ALL unauthenticated access
+  (`olcRequires: authc`), for the "does not allow anonymous searches" message.
+
+`resolver-login.spec.ts` signs in **through the real resolver** — account rows
+with real email addresses in Postgres, settings saved through the settings
+service — so it also needs the integration database: set `TEST_DATABASE_URL`
+and run `npm run db:test:setup` first, as for `test:int`.
 
 Before returning it verifies that `memberOf` is populated, that the service
 account and an anonymous reader can see people, that the chain validates over

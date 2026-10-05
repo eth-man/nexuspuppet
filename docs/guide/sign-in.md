@@ -61,7 +61,11 @@ Everything happens in the console. There is no file to edit and nothing to resta
     - **Port** — fills itself in from the protocol (636 or 389). Type your own and it stays.
     - **Bind type** — how NexusPuppet finds people:
         - **Regular** (default): a service account finds each person, who then signs in as themselves. Fill in **User DN** — the service account, such as `cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com` — and its **Password**.
-        - **Simple**: no service account; each person signs in directly. Fill in **User DN pattern**, with `{username}` where their sign-in name goes: `{username}@example.com` for Active Directory, or `uid={username},ou=People,dc=example,dc=com` for any directory. People must be allowed to read their own entry.
+        - **Simple**: no service account; each person signs in directly. Fill in **User DN pattern**. People sign in with their email address, and the pattern says how to turn it into the identity the directory checks: `{email}` is the whole address, `{username}` the part before the `@`.
+            - **Active Directory:** `{email}` — the address *is* the user's UPN (`alice@corp.example.com`). If people's email domain differs from the UPN suffix, use `{username}@corp.local`.
+            - **OpenLDAP:** `uid={username},ou=People,dc=example,dc=com` (or `cn={email},…` if entries are named by address).
+
+            People must be allowed to read their own entry. With `{username}`, an entry that has a `mail` attribute must carry the address signed in with, so `alice@one.example` cannot use the entry of `alice@two.example`.
         - **Anonymous**: people are found without signing in, then sign in as themselves. The directory must allow anonymous search.
     - **Directory type** is not something you choose. It is read from the server (*Detected: Active Directory* or *OpenLDAP*) when you test or save.
     - Leave **Verify the directory's TLS certificate** on.
@@ -71,7 +75,7 @@ Everything happens in the console. There is no file to edit and nothing to resta
 6. Click **Test connection**. It connects, reads what kind of directory this is, and binds and searches with what you typed, without saving. (With **Simple** there is no service account to search with, so the test stops at connecting.) Fix anything it reports — see [When the test fails](troubleshooting.md#the-directory-test-fails).
 7. Click **Save**. It applies from the next sign-in; the badge changes to **Saved in the console**, and **Directory type** shows what was detected.
 8. **Create the accounts.** In **Settings → Users & Roles → New user**, enter each person's email — it must match their `mail` attribute in the directory — and set **Authentication** to `ldap`. No password. The role you pick is replaced at each sign-in by what their groups map to.
-9. **Sign in.** Active Directory users type their username (`jdoe`) or `jdoe@example.com`; OpenLDAP users type their email address. With **Simple**, everyone types what goes in `{username}` — `jdoe` for `{username}@example.com`.
+9. **Sign in.** Everyone types the email address of their NexusPuppet account — the one you entered in step 8. On Active Directory that is usually their UPN (`jdoe@example.com`). A bare username such as `jdoe` is not an account, so it is refused.
 
 ![The LDAP form, filled in with example values](../images/directory-ldap-form.png)
 

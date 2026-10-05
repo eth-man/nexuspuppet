@@ -5,7 +5,9 @@ import { AD_CAPABILITY_OID } from './dialect';
 import {
   LdapUnavailableError,
   LdaptsDirectory,
+  ANONYMOUS_REFUSED,
   explainError,
+  isAnonymousRefusal,
   type LdapClientFactory,
 } from './ldap-client';
 
@@ -614,5 +616,85 @@ describe('explainError', () => {
 
   it('keeps the library’s own words for anything else', () => {
     expect(explainError(new Error('something odd'), target)).toBe('Error: something odd');
+  });
+});
+
+/**
+ * An anonymous search the directory will not serve. Each says so differently
+ * and none plainly; the operator is told plainly, with the original beneath.
+ */
+describe('a directory that refuses anonymous searches', () => {
+  /** AD's answer to an unbound search, as a Windows Server 2025 DC words it. */
+  const AD_000004DC = Object.assign(
+    new Error(
+      '000004DC: LdapErr: DSID-0C090CA2, comment: In order to perform this operation a ' +
+        'successful bind must be completed on the connection., data 0, v4f7c Code: 0x1',
+    ),
+    { name: 'OperationsError', code: 1 },
+  );
+
+  it.each([
+    ['Active Directory (000004DC)', AD_000004DC],
+    ['OpenLDAP requiring authentication', ldapResult(53, 'authentication required Code: 0x35')],
+    ['insufficientAccessRights', ldapResult(50, 'insufficient access')],
+    ['inappropriateAuthentication', ldapResult(48, 'anonymous bind disallowed')],
+  ])('recognises %s', (_name, error) => {
+    expect(isAnonymousRefusal(error)).toBe(true);
+  });
+
+  it.each([
+    ['an ordinary operations error', ldapResult(1, 'something else')],
+    ['a busy server', ldapResult(51, 'busy')],
+    ['a transport failure', tlsError('ECONNRESET', 'socket hang up')],
+  ])('does not mistake %s for one', (_name, error) => {
+    expect(isAnonymousRefusal(error)).toBe(false);
+  });
+
+  it('says so plainly for an Anonymous configuration, keeping the raw text as detail', async () => {
+    const wire = recording({
+      search: async () => {
+        throw AD_000004DC;
+      },
+    });
+
+    const failure = await new LdaptsDirectory(
+      config({ bindType: 'anonymous' }),
+      silent,
+      wire.factory,
+    )
+      .findEntry('(mail=a)')
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(LdapUnavailableError);
+    expect((failure as LdapUnavailableError).message).toBe(ANONYMOUS_REFUSED);
+    expect((failure as LdapUnavailableError).detail).toMatch(
+      /^LDAP search failed: OperationsError: 000004DC/,
+    );
+  });
+
+  it('names a hidden search base on OpenLDAP without blaming it on anonymity alone', async () => {
+    const wire = recording({
+      search: async () => {
+        throw ldapResult(32, 'No Such Object Code: 0x20');
+      },
+    });
+
+    await expect(
+      new LdaptsDirectory(config({ bindType: 'anonymous' }), silent, wire.factory).findEntry(
+        '(a=b)',
+      ),
+    ).rejects.toThrow(/search base was not found — or this directory hides it from anonymous/);
+  });
+
+  it('leaves a Regular configuration’s errors as they were', async () => {
+    const wire = recording({
+      search: async () => {
+        throw AD_000004DC;
+      },
+    });
+
+    await expect(
+      new LdaptsDirectory(config(), silent, wire.factory).findEntry('(mail=a)'),
+    ).rejects.toThrow(/^LDAP search failed: OperationsError: 000004DC/);
   });
 });

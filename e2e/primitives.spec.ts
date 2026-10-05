@@ -278,8 +278,13 @@ test.describe('primitives', () => {
 
     await pattern.fill('{username}');
     await expect(region.getByText(/UPN such as \{username\}@corp\.example/)).toBeVisible();
+    // A bare {username} is not an identity; the message points at {email}.
+    await expect(region.getByText(/Use \{email\} for Active Directory/)).toBeVisible();
     await pattern.fill('{username}@corp.example');
     await expect(region.getByText(/UPN such as \{username\}@corp\.example/)).toHaveCount(0);
+    // The Active Directory pattern: the address people sign in with.
+    await pattern.fill('{email}');
+    await expect(region.getByText(/Use \{email\} for Active Directory/)).toHaveCount(0);
 
     await bindType.selectOption('anonymous');
     await expect(pattern).toHaveCount(0);

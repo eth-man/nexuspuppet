@@ -465,11 +465,11 @@ export function LdapSettingsPanel() {
                 required
                 label="User DN pattern"
                 error={patternProblem}
-                hint="{username} is replaced by what people type at sign-in. A {username}@domain pattern works with Active Directory; a DN works with any directory."
+                hint="People sign in with their email address. {email} is that address — the pattern for Active Directory. {username} is the part before the @, for a DN such as uid={username},ou=people,dc=example,dc=com."
                 tooltip={
                   <InfoHint
                     label="About the User DN pattern"
-                    text="Each person binds as this, with {username} replaced by what they type — escaped, so a username cannot change which account it names. Their own entry is then read, as them, for their email, name and groups, so they must be allowed to read it."
+                    text="Each person binds as this, with {email} or {username} filled in from the address they sign in with — escaped, so no address can change which account it names. Their own entry is then read, as them, for their email, name and groups, so they must be allowed to read it."
                   />
                 }
               >
@@ -478,7 +478,11 @@ export function LdapSettingsPanel() {
                     id={id}
                     value={form.userDnPattern ?? ''}
                     onChange={(e) => field('userDnPattern', e.target.value)}
-                    placeholder="{username}@corp.example.com  or  uid={username},ou=people,dc=example,dc=com"
+                    placeholder={
+                      dialect === 'ad'
+                        ? '{email}'
+                        : '{email} for Active Directory, or uid={username},ou=people,dc=example,dc=com'
+                    }
                     aria-invalid={patternProblem !== null}
                     autoComplete="off"
                     spellCheck={false}
@@ -1081,7 +1085,8 @@ function TestResult({ result }: { result: LdapVerification }) {
               {result.details.map((detail) => (
                 <div key={detail.label} className="flex gap-2 text-2xs">
                   <dt className="text-ink-faint">{detail.label}</dt>
-                  <dd className="min-w-0 truncate font-mono text-ink-muted">{detail.value}</dd>
+                  {/* Wraps: "Directory said" carries the server's full text. */}
+                  <dd className="min-w-0 break-words font-mono text-ink-muted">{detail.value}</dd>
                 </div>
               ))}
             </dl>

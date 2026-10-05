@@ -108,10 +108,44 @@ export interface ReferralNotice {
 
 /** Distinguishes "the directory said no" from "the directory did not answer". */
 export class LdapUnavailableError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  /**
+   * The directory's own words, when `message` is a plain explanation of them.
+   * Shown as a secondary line, so the paraphrase hides nothing.
+   */
+  readonly detail: string | undefined;
+
+  constructor(message: string, options?: { cause?: unknown; detail?: string }) {
     super(message, options);
     this.name = 'LdapUnavailableError';
+    this.detail = options?.detail;
   }
+}
+
+/** What an operator is told when the directory will not be searched anonymously. */
+export const ANONYMOUS_REFUSED =
+  'This directory does not allow anonymous searches. Use Regular with a service account ' +
+  '(User DN and Password).';
+
+/**
+ * Whether a failed ANONYMOUS operation was the directory refusing anonymous
+ * access, as opposed to anything else going wrong.
+ *
+ * Each directory says it differently, and none says it plainly:
+ *
+ * - Active Directory: operationsError (1) with `000004DC … a successful bind
+ *   must be completed on the connection`.
+ * - OpenLDAP with `olcRequires: authc`: unwillingToPerform (53),
+ *   `authentication required`.
+ * - Others: insufficientAccessRights (50), inappropriateAuthentication (48),
+ *   or text naming anonymous access as disallowed.
+ */
+export function isAnonymousRefusal(error: unknown): boolean {
+  const code = codeOf(error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (code === 1 && /000004DC|successful bind must be completed/i.test(message)) return true;
+  if (code === 53 && /authentication required/i.test(message)) return true;
+  if (code === 50 || code === 48) return true;
+  return /anonymous[^.]*(disallowed|not allowed|denied)/i.test(message);
 }
 
 /** The part of `ldapts`' Client this package uses. A seam for tests. */
@@ -275,6 +309,20 @@ export class LdaptsDirectory implements LdapDirectory {
       return await run(client);
     } catch (error) {
       if (error instanceof LdapUnavailableError) throw error;
+      const raw = `${failure}: ${describe(error)}`;
+      if (this.config.bindType === 'anonymous' && isAnonymousRefusal(error)) {
+        throw new LdapUnavailableError(ANONYMOUS_REFUSED, { cause: error, detail: raw });
+      }
+      // OpenLDAP's default ACLs HIDE what an anonymous reader may not see, so
+      // the refusal arrives as "no such object" — indistinguishable from a
+      // mistyped search base, and so both are named.
+      if (this.config.bindType === 'anonymous' && codeOf(error) === NO_SUCH_OBJECT_CODE) {
+        throw new LdapUnavailableError(
+          `The search base was not found — or this directory hides it from anonymous readers. ` +
+            'Check Search base, or use Regular with a service account (User DN and Password).',
+          { cause: error, detail: raw },
+        );
+      }
       throw new LdapUnavailableError(`${failure}: ${explainError(error, this.config)}`, {
         cause: error,
       });

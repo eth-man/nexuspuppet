@@ -10,6 +10,7 @@ import type {
   LdapVerification,
   ProviderVerification,
 } from '@nexuspuppet/contracts';
+import { LDAP_EMAIL_PLACEHOLDER } from '@nexuspuppet/contracts';
 import { type LdapConfig, ldapConfigSchema } from './config';
 import { InvalidUsernameError, buildBindIdentity, isDnPattern } from './dn';
 import { buildFilter, escapeFilterValue } from './filter';
@@ -97,6 +98,14 @@ export interface LdapAuthProviderDeps {
    * a restart — which is what the settings screen has always appeared to do.
    */
   settings?: IAuthProviderSettings;
+}
+
+/** A person the directory authenticated, and which NexusPuppet account they are. */
+interface DirectoryMatch {
+  entry: LdapEntry;
+  groupDns: string[];
+  /** The email the NexusPuppet account is looked up by. */
+  accountEmail: string;
 }
 
 /** The configuration in force for one authentication, and its client. */
@@ -337,7 +346,12 @@ export class LdapAuthProvider implements IAuthProvider {
     try {
       detection = await this.directoryFor(candidateConfig).detectDialect();
     } catch (error) {
-      return { ok: false, message: describeError(error), details, detectedDialect: null };
+      return {
+        ok: false,
+        message: describeError(error),
+        details: withDirectoryWords(details, error),
+        detectedDialect: null,
+      };
     }
 
     const dialect: LdapDialectName = detection.dialect ?? 'openldap';
@@ -408,10 +422,10 @@ export class LdapAuthProvider implements IAuthProvider {
     } catch (error) {
       return {
         ok: false,
-        // The directory's own words. A message invented here would describe a
-        // guess about the failure rather than the failure.
+        // The directory's own words — or, where they are opaque (AD's
+        // 000004DC), a plain explanation with those words kept beneath it.
         message: describeError(error),
-        details,
+        details: withDirectoryWords(details, error),
         detectedDialect: detection.dialect,
       };
     }
@@ -557,7 +571,7 @@ export class LdapAuthProvider implements IAuthProvider {
       }
 
       // --- Authenticated. Everything below is authorization. ---------------
-      const { entry, groupDns } = found;
+      const { entry, groupDns, accountEmail } = found;
 
       const resolved = resolveRoles(groupDns, config);
       if (resolved === null) {
@@ -571,7 +585,7 @@ export class LdapAuthProvider implements IAuthProvider {
         return { ok: false, reason: 'INVALID_CREDENTIALS' };
       }
 
-      const identity = await this.identities.findByEmail(entry.email ?? email);
+      const identity = await this.identities.findByEmail(accountEmail);
       if (identity === null) {
         this.logger.log(
           `LDAP login refused for ${email}: authenticated against the directory, but no ` +
@@ -631,7 +645,7 @@ export class LdapAuthProvider implements IAuthProvider {
           error instanceof LdapUnavailableError || error instanceof Error
             ? error.message
             : String(error)
-        }`,
+        }${error instanceof LdapUnavailableError && error.detail !== undefined ? ` (${error.detail})` : ''}`,
       );
       return { ok: false, reason: 'PROVIDER_ERROR' };
     }
@@ -646,7 +660,7 @@ export class LdapAuthProvider implements IAuthProvider {
     directory: LdapDirectory,
     identifier: string,
     password: string,
-  ): Promise<{ entry: LdapEntry; groupDns: string[] } | null> {
+  ): Promise<DirectoryMatch | null> {
     const filter = buildFilter(config.searchFilter, identifier);
     const entry = await directory.findEntry(filter);
     if (entry === null || entry.dn === '') return null;
@@ -661,7 +675,7 @@ export class LdapAuthProvider implements IAuthProvider {
     const groupDns = config.nestedGroups
       ? await this.resolveNestedGroups(entry, directory)
       : entry.groupDns;
-    return { entry, groupDns };
+    return { entry, groupDns, accountEmail: entry.email ?? identifier };
   }
 
   /**
@@ -679,7 +693,7 @@ export class LdapAuthProvider implements IAuthProvider {
     directory: LdapDirectory,
     identifier: string,
     password: string,
-  ): Promise<{ entry: LdapEntry; groupDns: string[] } | null> {
+  ): Promise<DirectoryMatch | null> {
     const pattern = config.userDnPattern ?? '';
 
     let identity: string;
@@ -711,6 +725,29 @@ export class LdapAuthProvider implements IAuthProvider {
       return null;
     }
 
+    /*
+     * {username} DROPS THE DOMAIN, so two addresses can reach one entry:
+     * alice@x.example and alice@y.example both bind as uid=alice. Whoever
+     * holds that entry's password must not thereby sign in as an account that
+     * is not theirs. When the entry says whose it is — a `mail` — it has to be
+     * the address that was typed. ({email} needs no check: the identity bound
+     * IS the address typed.)
+     */
+    const typedEmail = identifier.trim().toLowerCase();
+    if (
+      !pattern.includes(LDAP_EMAIL_PLACEHOLDER) &&
+      result.entry.email !== null &&
+      result.entry.email.trim().toLowerCase() !== typedEmail
+    ) {
+      this.logger.warn(
+        `LDAP login refused for ${identifier}: the directory accepted the password for ` +
+          `${result.entry.dn}, but that entry's mail is ${result.entry.email}, not the address ` +
+          'signed in with. With {username} the domain is not part of the bind, so the mail must ' +
+          'match. Use {email}, or correct the account’s email.',
+      );
+      return null;
+    }
+
     if (result.nestedError !== undefined) {
       this.logger.error(
         `Nested group resolution failed for ${result.entry.dn}: ${result.nestedError}. ` +
@@ -723,7 +760,10 @@ export class LdapAuthProvider implements IAuthProvider {
       result.nestedGroups === null
         ? result.entry.groupDns
         : [...new Set([...result.entry.groupDns, ...result.nestedGroups])];
-    return { entry: result.entry, groupDns };
+    // The account the resolver chose — the one typed — and no other. On AD the
+    // entry's mail may differ from the UPN signed in with, and that must not
+    // move the session to a different account.
+    return { entry: result.entry, groupDns, accountEmail: typedEmail };
   }
 
   /**
@@ -871,6 +911,16 @@ function describeTls(config: LdapConfig, inherited = false): string {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The details, plus the directory's raw words when the message paraphrased them. */
+function withDirectoryWords(
+  details: NonNullable<ProviderVerification['details']>,
+  error: unknown,
+): NonNullable<ProviderVerification['details']> {
+  return error instanceof LdapUnavailableError && error.detail !== undefined
+    ? [...details, { label: 'Directory said', value: error.detail }]
+    : details;
 }
 
 function describeProtocol(config: Pick<LdapConfig, 'protocol'>): string {
