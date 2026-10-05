@@ -20,6 +20,13 @@
 #   --skip-preflight  deploy without checking. For automated environments that
 #                   deliberately have no real PuppetDB — CI uses it, after
 #                   asserting that --check REFUSES that same environment.
+#   --reset-admin <email>  set a new password for a LOCAL account and stop —
+#                   for a lost admin password. Prompts twice without echo (or
+#                   reads one line from a non-terminal stdin); unlocks and
+#                   reactivates the account, ends its sessions, and writes an
+#                   audit record. Works with the API stopped. Builds, deploys
+#                   and changes nothing else. DEPLOYMENT.md §5.
+#                     sudo ./scripts/deploy.sh --reset-admin admin@example.com
 #
 # WHY THIS EXISTS. DEPLOYMENT.md is a reference — it explains why each decision
 # is what it is, which is what you want at 2am and not what you want on a fresh
@@ -41,6 +48,8 @@ CERT_DIR_ARG=""
 CHECK_ONLY=""
 SKIP_PREFLIGHT=""
 TLS_HOSTNAME=""
+RESET_ADMIN=""
+RESET_EMAIL=""
 
 # Where DEPLOYMENT.md §3 tells operators to install the certificates. The
 # .env.example default is ./certs, and those two disagreeing is a real trap:
@@ -61,8 +70,17 @@ while [ $# -gt 0 ]; do
         --check) CHECK_ONLY=yes; shift ;;
         --tls) TLS_HOSTNAME="${2:-}"; shift 2 ;;
         --skip-preflight) SKIP_PREFLIGHT=yes; shift ;;
+        --reset-admin)
+            RESET_ADMIN=yes
+            RESET_EMAIL="${2:-}"
+            shift
+            if [ $# -gt 0 ]; then shift; fi
+            ;;
         -h | --help)
-            sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+            # Everything above "WHY THIS EXISTS", not a fixed line range: the
+            # range was 2-12, which cut --check off mid-sentence and never
+            # showed --tls or --skip-preflight at all.
+            sed -n '2,/^# WHY THIS EXISTS/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -84,6 +102,102 @@ human_age() {
 
 command -v docker >/dev/null || die "Docker is not installed. See DEPLOYMENT.md §0."
 docker compose version >/dev/null 2>&1 || die "The Docker Compose plugin is missing. See DEPLOYMENT.md §0."
+
+# Waits for the db service to answer. stdin from /dev/null so `exec` can never
+# swallow input meant for something else in this script.
+wait_for_db() {
+    ready=""
+    for _ in $(seq 1 45); do
+        if docker compose exec -T db pg_isready -U nexuspuppet >/dev/null 2>&1 </dev/null; then ready=yes; break; fi
+        sleep 2
+    done
+    [ -n "$ready" ] || die "the database never became ready"
+}
+
+# ---------------------------------------------------------------------------
+# --reset-admin <email>: a lost local password, and nothing else.
+#
+# A real operator lost the only administrator's password. BOOTSTRAP_ADMIN_*
+# only seeds an EMPTY users table, and the console's own reset needs an admin
+# who can sign in. This is the supported way back: whoever can run docker
+# compose here already holds .env, so it grants nothing new — it only makes the
+# recovery audited instead of a hand-written UPDATE in psql.
+#
+# BEFORE everything else on purpose: it must not write .env, check
+# certificates, build, migrate or restart anything. It must also work while the
+# API is down or crash-looping, so it starts ONLY the database and runs the
+# reset in a one-off container (`run --no-deps`) that never starts the server.
+#
+# THE PASSWORD TRAVELS ON STDIN ONLY. Never argv (visible in `ps`, /proc and
+# shell history), never the environment (/proc/<pid>/environ, `docker
+# inspect`), never a file. printf is a bash builtin, so no process is ever
+# created with it in its arguments.
+# ---------------------------------------------------------------------------
+reset_admin() {
+    [ -n "$RESET_EMAIL" ] || die "--reset-admin needs the account's email:
+         sudo ./scripts/deploy.sh --reset-admin admin@example.com"
+    case "$RESET_EMAIL" in
+        -*) die "--reset-admin needs the account's email, not \"${RESET_EMAIL}\"." ;;
+    esac
+    if [ -n "${CHECK_ONLY}${TLS_HOSTNAME}${PUPPETDB_URL}${SKIP_PREFLIGHT}${CERT_DIR_ARG}" ]; then
+        die "--reset-admin runs on its own. Run it without other options."
+    fi
+    [ -f .env ] || die "No .env in ${PWD}, so there is no deployment here to reset a password in.
+       Run this from the checkout you deployed from."
+
+    local pw="" pw2="" rc=0
+    if [ -t 0 ]; then
+        # read -s restores echo itself; the trap covers being killed mid-prompt.
+        trap 'stty echo 2>/dev/null || true' EXIT
+        printf 'New password for %s (at least 12 characters, not shown): ' "$RESET_EMAIL" >&2
+        IFS= read -r -s pw || true
+        printf '\nAgain: ' >&2
+        IFS= read -r -s pw2 || true
+        printf '\n' >&2
+        if [ "$pw" != "$pw2" ]; then
+            die "The two entries did not match. Nothing was changed."
+        fi
+        pw2=""
+    else
+        # Automation: one line from stdin, never echoed. A last line with no
+        # trailing newline still counts.
+        IFS= read -r pw || true
+    fi
+
+    # The console's rule — resetPasswordSchema, 12 to 1024 characters. The
+    # command in the image applies that schema itself; checking here only makes
+    # a short password fail before anything is started.
+    [ -n "$pw" ] || die "No password given. Nothing was changed."
+    if [ "${#pw}" -lt 12 ]; then
+        die "The password must be at least 12 characters. Nothing was changed."
+    fi
+    if [ "${#pw}" -gt 1024 ]; then
+        die "The password must be at most 1024 characters. Nothing was changed."
+    fi
+
+    if [ -z "$(docker compose ps --status running -q db 2>/dev/null || true)" ]; then
+        step "Starting the database (only the database)"
+        docker compose up -d db || die "docker compose up -d db"
+    fi
+    wait_for_db
+
+    step "Resetting the password for ${RESET_EMAIL}"
+    # The host's name for the audit actor: inside the container, hostname is
+    # the container id, which identifies nothing a week later.
+    printf '%s\n' "$pw" | docker compose run --rm --no-deps -T \
+        -e NEXUSPUPPET_RESET_HOST="${HOSTNAME:-$(uname -n)}" \
+        api node dist/cli/reset-password.js "$RESET_EMAIL" || rc=$?
+    pw=""
+
+    if [ "$rc" -ne 0 ]; then
+        printf '\n\033[31mThe password was NOT reset\033[0m (exit %s).\n' "$rc" >&2
+    fi
+    exit "$rc"
+}
+
+if [ -n "$RESET_ADMIN" ]; then
+    reset_admin
+fi
 
 # ---------------------------------------------------------------------------
 # Configure, but only once.
@@ -599,12 +713,7 @@ docker compose build || die "docker compose build"
 
 step "Starting the database"
 docker compose up -d db || die "docker compose up -d db"
-ready=""
-for _ in $(seq 1 45); do
-    if docker compose exec -T db pg_isready -U nexuspuppet >/dev/null 2>&1; then ready=yes; break; fi
-    sleep 2
-done
-[ -n "$ready" ] || die "the database never became ready"
+wait_for_db
 
 # BEFORE the api starts, always. The api bootstraps its admin account on boot
 # and exits if the tables are absent — a restart loop whose error reads like a

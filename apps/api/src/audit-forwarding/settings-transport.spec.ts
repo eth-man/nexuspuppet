@@ -96,6 +96,40 @@ describe('SettingsAuditTransport', () => {
     });
   });
 
+  /**
+   * For a one-shot process (cli/admin-reset.ts) the cold-cache answer above is
+   * wrong in both directions: it ignores a stored OFF over an env baseline, and
+   * a stored syslog with no baseline. isConfigured resolves instead.
+   */
+  describe('isConfigured, the one-shot view', () => {
+    it('honours a stored OFF over an environment baseline on the first call', async () => {
+      const transport = new SettingsAuditTransport(
+        settingsAnswering({ state: 'off' }),
+        ENV_WEBHOOK,
+      );
+      await expect(transport.isConfigured()).resolves.toBe(false);
+    });
+
+    it('sees a stored syslog configuration on the first call', async () => {
+      const transport = new SettingsAuditTransport(
+        settingsAnswering({
+          state: 'syslog',
+          config: syslogSettingsSchema.parse({ host: 'siem.example.test', port: 6514 }),
+        }),
+        null,
+      );
+      await expect(transport.isConfigured()).resolves.toBe(true);
+    });
+
+    it('falls back to the environment baseline when nothing is stored', async () => {
+      const unset = settingsAnswering({ state: 'unset' });
+      await expect(new SettingsAuditTransport(unset, ENV_WEBHOOK).isConfigured()).resolves.toBe(
+        true,
+      );
+      await expect(new SettingsAuditTransport(unset, null).isConfigured()).resolves.toBe(false);
+    });
+  });
+
   describe('deliver', () => {
     let server: Server;
     let port: number;

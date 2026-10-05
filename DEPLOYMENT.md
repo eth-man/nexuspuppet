@@ -790,6 +790,40 @@ users table, but there is no reason to leave a working credential in a file.
 > thing to create on a production host. It remains useful for local development
 > and for scripting a rotation from a workstation that has a checkout.
 
+### Lost the admin password
+
+If nobody who can administer users can sign in, reset the password on the host,
+from the checkout you deployed from:
+
+```bash
+sudo ./scripts/deploy.sh --reset-admin admin@example.com
+```
+
+It asks for the new password twice without echoing it (at least 12 characters,
+the console's own rule), then, in one transaction: sets it, clears the failed-login
+lockout, reactivates the account if it was deactivated, revokes every refresh
+token, and writes a `user.password.reset` audit record — actor
+`cli:deploy.sh@<this host>`, forwarded to your SIEM like any other record if
+forwarding is configured. Nothing else is touched: no build, no migration, no
+restart, no `.env` change.
+
+- **It works with the API down or crash-looping.** It starts only the `db` service
+  if it is not running, and does the reset in a one-off container
+  (`docker compose run --no-deps api`) that never starts the web server or any
+  background work.
+- **The password never appears in a process list, the environment or your shell
+  history** — it travels to the container on stdin only. For automation, pipe one
+  line on stdin instead of answering the prompt.
+- **Local accounts only.** An LDAP or OIDC account is refused (exit 3), with the
+  same message as the console: reset it in that directory. An unknown email exits
+  2 and changes nothing.
+- **Access tokens already issued stay valid until they expire** (`ACCESS_TOKEN_TTL`,
+  60 minutes by default) — they are checked from their own claims, not against
+  the database. Revoking the refresh tokens means none of them can be renewed.
+- You need a shell on this host and permission to run `docker compose` here.
+  Anyone with that can already read `.env`, so this grants nothing new; it makes
+  the recovery supported and audited instead of a hand-written `UPDATE`.
+
 ---
 
 ## 6. Wiring puppetserver
