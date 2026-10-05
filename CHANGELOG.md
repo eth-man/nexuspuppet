@@ -2,7 +2,7 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.13.0] — 2026-10-05
 
 **LDAP connection fields an operator recognises** ([ADR-0030](docs/architecture/adr/0030-ldap-connection-fields.md)). An operator configuring LDAPS against a real Active Directory asked for the form every other LDAP client has — server name, port, bind type, User DN, password, protocol — instead of typing `ldaps://url:port` and choosing a directory type. That is the form now, STARTTLS is new, and the directory type is detected. **No migration.**
 
