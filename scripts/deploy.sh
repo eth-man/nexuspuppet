@@ -145,6 +145,23 @@ reset_admin() {
     [ -f .env ] || die "No .env in ${PWD}, so there is no deployment here to reset a password in.
        Run this from the checkout you deployed from."
 
+    # The command lives in the API IMAGE, not in this script. A checkout that
+    # was updated without re-running the upgrade still has an image built by an
+    # older release, which has no dist/cli/reset-password.js — and used to fail
+    # with a bare MODULE_NOT_FOUND stack trace AFTER asking for the password.
+    # Found by an operator doing exactly that. Checked before the prompt, and
+    # the answer is the upgrade, which rebuilds the image and needs no login.
+    if ! docker compose run --rm --no-deps -T api test -f dist/cli/reset-password.js </dev/null >/dev/null 2>&1; then
+        die "This installation's API image does not contain --reset-admin yet: it was
+       built by an earlier release (or not built at all). Upgrade first — it rebuilds
+       the image and needs no login — then run this again:
+
+         sudo ./scripts/deploy.sh
+         sudo ./scripts/deploy.sh --reset-admin ${RESET_EMAIL}
+
+       Nothing was changed."
+    fi
+
     local pw="" pw2="" rc=0
     if [ -t 0 ]; then
         # read -s restores echo itself; the trap covers being killed mid-prompt.

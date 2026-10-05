@@ -36,7 +36,14 @@ sudo ./scripts/deploy.sh --reset-admin admin@example.com
 
 It asks for the new password twice, without showing it. It works even when the API is down. It sets the password, unlocks and reactivates the account, ends its sessions, and records `user.password.reset` in the audit log. It is for local accounts only; directory and single sign-on users reset their password in the directory.
 
-Available from the release after v1.11.0. On v1.11.0 itself, upgrade first.
+Available from the release after v1.11.0. The command lives in the console's image, so **on a server last upgraded to v1.11.0 or earlier, run the upgrade once first** — it rebuilds the image and needs no login — then run the command:
+
+```bash
+sudo ./scripts/deploy.sh
+sudo ./scripts/deploy.sh --reset-admin admin@example.com
+```
+
+If you skip that, the command says so before asking for a password, and changes nothing.
 
 ## Connect LDAP or Active Directory
 

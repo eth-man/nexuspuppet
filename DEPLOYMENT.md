@@ -828,6 +828,11 @@ restart, no `.env` change.
   60 minutes by default) — they are checked from their own claims, not against
   the database. Revoking the refresh tokens means none of them can be renewed.
 - You need a shell on this host and permission to run `docker compose` here.
+- **The command is in the API image, not in this script.** Updating the checkout
+  is not enough: an image built by v1.11.0 or earlier does not contain it. Run the
+  upgrade once (`sudo ./scripts/deploy.sh` — it rebuilds the image and needs no
+  login), then `--reset-admin`. Without that, `--reset-admin` checks the image
+  first, says exactly this, and changes nothing — before asking for a password.
   Anyone with that can already read `.env`, so this grants nothing new; it makes
   the recovery supported and audited instead of a hand-written `UPDATE`.
 
