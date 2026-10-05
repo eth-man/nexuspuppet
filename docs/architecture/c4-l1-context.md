@@ -42,7 +42,7 @@ graph TB
 |---|---|---|---|
 | **PuppetDB** | PQL over HTTPS with mTLS client cert | NexusPuppet → PuppetDB, read-only | Degrades visibility features only |
 | **Puppet Server** | Filesystem handoff — NexusPuppet writes YAML, `puppetserver` reads it via an `exec` node terminus | Indirect, asynchronous, no runtime coupling | **Deliberately zero runtime coupling** ([ADR-0003](./adr/0003-enc-generate-dont-serve.md)) |
-| **Identity Provider** | LDAP/AD bind or OIDC redirect, alongside local accounts ([ADR-0015](./adr/0015-hybrid-authentication.md)) | NexusPuppet → IdP | Optional — used only when `LDAP_URL` / `OIDC_ISSUER` is set; local accounts always work |
+| **Identity Provider** | LDAP/AD bind or OIDC redirect, alongside local accounts ([ADR-0015](./adr/0015-hybrid-authentication.md)) | NexusPuppet → IdP | Optional — used only once configured, from Settings → Directory / Auth or the `LDAP_*` / `OIDC_*` environment ([ADR-0029](./adr/0029-directory-from-the-console.md)); local accounts always work |
 
 ## The relationship that is deliberately absent
 

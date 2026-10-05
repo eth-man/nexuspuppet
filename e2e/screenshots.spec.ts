@@ -366,7 +366,119 @@ test.describe('@screenshots', () => {
 
     await page.screenshot({ path: `${SHOTS}/settings.png` });
   });
+
+  /*
+   * The screens the 1.10 and 1.11 sections of the guide walk through.
+   *
+   * The guide tells an operator where the support bundle is and how to switch
+   * a directory on from the console. Prose that says "click Configure
+   * directory" next to no picture of it is how the old Not enabled card stayed
+   * in the guide a release after it was removed.
+   */
+  test('support bundle card', async ({ page }) => {
+    /*
+     * WIDER THAN THE DEFAULT. General lays its cards out in three columns, and
+     * at 1280 the host command at the foot of this card is clipped mid-filename
+     * — the one line an operator is meant to copy.
+     */
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.goto('/settings/general');
+    const title = page.getByText('Support bundle', { exact: true });
+    await expect(title).toBeVisible({ timeout: 20_000 });
+
+    /*
+     * THE CARD, not the page: General also holds the log level and the
+     * deployment details, and a full-page capture shrinks the one card the
+     * caption is about to a corner. Same framing as the conflict report.
+     */
+    const card = title.locator('xpath=ancestor::div[contains(@class,"glass-panel")][1]');
+    await expect(card.getByRole('link', { name: 'Download' })).toBeVisible();
+    // Open the "what is in it" list: it is the answer to the first question
+    // anybody asks before sending a file to support.
+    await card.getByText('What is in it, and what is not').click();
+    await expect(card.getByText(/Never included/)).toBeVisible();
+
+    await card.screenshot({ path: `${SHOTS}/settings-support-bundle.png` });
+  });
+
+  /**
+   * Directory / Auth with no directory configured — the state an upgraded
+   * install opens on, and the one the guide's walkthrough starts from.
+   *
+   * SKIPPED, not failed, where a directory is configured: that is a perfectly
+   * good deployment to photograph everything else against (staging has one),
+   * and the empty state cannot be produced there without discarding its
+   * settings, which this file must never do.
+   */
+  test('directory: not configured, then the LDAP form', async ({ page, request }) => {
+    await apiLogin(request);
+    const view = (await (await request.get('/api/settings/auth/ldap')).json()) as {
+      source: string;
+    };
+    test.skip(view.source !== 'unset', `LDAP is configured here (${view.source})`);
+
+    await page.goto('/settings/auth');
+    const ldap = page.getByRole('region', { name: 'Directory (LDAP)' });
+    await expect(ldap.getByText('Not configured', { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(ldap.getByRole('button', { name: 'Configure directory' })).toBeVisible();
+
+    await page.screenshot({ path: `${SHOTS}/directory-not-configured.png` });
+
+    /*
+     * Filled with example.com values ONLY. This picture is published; a real
+     * domain controller's name in it would be a gift to anybody mapping the
+     * estate. The CA is a throwaway self-signed certificate — public material,
+     * the kind the field exists for — whose key was discarded at generation.
+     *
+     * NOT SAVED. The form is photographed and left; the page is navigated away
+     * from, and the deployment stays exactly as unconfigured as it was found.
+     */
+    await ldap.getByRole('button', { name: 'Configure directory' }).click();
+    /*
+     * By ROLE, not getByLabel: each field's info button is labelled "About the
+     * server URL" and so on, which getByLabel also matches.
+     */
+    const box = (name: string | RegExp) => ldap.getByRole('textbox', { name });
+    await box(/^Server URL/).fill('ldaps://dc01.example.com:636');
+    await ldap.getByRole('combobox', { name: 'Directory type' }).selectOption('ad');
+    await box(/^Bind DN/).fill('cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com');
+    // A password input has no textbox role.
+    await ldap.locator('input[type="password"]').fill('example-only-password');
+    await box(/^CA certificate/).fill(EXAMPLE_CA_PEM);
+    await box(/^Search base/).fill('ou=People,dc=example,dc=com');
+    await box(/^Group search base/).fill('ou=Groups,dc=example,dc=com');
+    // Typing leaves the textarea scrolled to its last line; show the
+    // BEGIN CERTIFICATE header, which is what tells a reader what goes there.
+    await box(/^CA certificate/).evaluate((el) => {
+      el.scrollTop = 0;
+    });
+
+    // Framed on the connection card and the search card together: the fields
+    // the walkthrough names, top to bottom.
+    await ldap.getByText('Connection & authentication').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${SHOTS}/directory-ldap-form.png` });
+  });
 });
+
+/**
+ * A self-signed "Example Corp Root CA", generated once for this capture with
+ * its private key thrown away. A certificate is public by design; nothing here
+ * can sign anything.
+ */
+const EXAMPLE_CA_PEM = `-----BEGIN CERTIFICATE-----
+MIIBwTCCAWegAwIBAgIUVZ1K24SfL8vCQuPrg8CgIXPHXWIwCgYIKoZIzj0EAwIw
+NjEVMBMGA1UECgwMRXhhbXBsZSBDb3JwMR0wGwYDVQQDDBRFeGFtcGxlIENvcnAg
+Um9vdCBDQTAeFw0yNjEwMDUxNDQ5MzhaFw0zNjEwMDIxNDQ5MzhaMDYxFTATBgNV
+BAoMDEV4YW1wbGUgQ29ycDEdMBsGA1UEAwwURXhhbXBsZSBDb3JwIFJvb3QgQ0Ew
+WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARG+11JrXaI35Lo+a3DkB8HRLf6dzfe
+YT935jm1FtqTQOrLxTJ5a6bt+WLw5kumbAxbmggSAwDR0sFMAUmc01Kxo1MwUTAd
+BgNVHQ4EFgQUqW57kk0mEVctQBuPasMcABiHwI4wHwYDVR0jBBgwFoAUqW57kk0m
+EVctQBuPasMcABiHwI4wDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBF
+AiEAvqKhGnQhtqClMaaoupbIVBNG0mlpFxBOyZSiw+JQUaMCIE066iVGuysiQ8jX
+3z6tslk5lsoABT6MPr6e9T5joI41
+-----END CERTIFICATE-----`;
 
 async function put(request: APIRequestContext, url: string, data: unknown): Promise<void> {
   const response = await request.put(url, { data });

@@ -4,7 +4,7 @@
 - **Deciders:** Architect
 - **Amended:** 2026-08-12 — reference analysis against Foreman and its Smart Proxy; §6 corrected; §7–§9 added.
 - **Amended:** 2026-08-13 — §4 relaxed: absent configuration is silent everywhere EXCEPT the dialog where the feature would appear.
-- **Related:** [ADR-0003](./0003-enc-generate-dont-serve.md) (this is the opposite direction, and that is the whole argument), [ADR-0004](./0004-puppetdb-read-only-mtls.md) (the pattern this follows), [ADR-0013](./0013-console-tls.md)
+- **Related:** [ADR-0003](./0003-enc-generate-dont-serve.md) (this is the opposite direction, and that is the whole argument), [ADR-0004](./0004-puppetdb-read-only-mtls.md) (the pattern this follows), [ADR-0013](./0013-console-tls-private-ca.md)
 
 ## Context
 

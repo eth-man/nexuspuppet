@@ -9,6 +9,8 @@ A web console and node classifier for Puppet and OpenVox. It previews the blast 
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.12-brightgreen.svg)](package.json)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+**📖 Documentation: <https://eth-man.github.io/nexuspuppet/>** — install and upgrade, a tour of the console, connecting LDAP/AD or single sign-on, troubleshooting and support bundles.
+
 ---
 
 ## Plan before apply
@@ -103,7 +105,7 @@ PuppetDB is never written to. Queries are built as a parameterised AST, never st
 [OpenVox](https://github.com/openvoxproject) is Vox Pupuli's fork of Puppet. `openvoxdb` serves the same API and identifies as `PuppetDB`, so everything just works — and that was verified, not assumed: a live `openvoxdb 8.15.0` checked against a live `PuppetDB 7.10.0` across every AST operator, every mapped field, and the paging the reconciler depends on.
 
 **📖 Fully open source, one product.**
-Everything is in this repository under Apache-2.0: LDAP/AD, OIDC single sign-on, custom roles and audit forwarding included. There are no editions and no build flags. Every image has every feature, and each integration stays inert until it is configured. CI proves on every commit that a fresh clone builds and passes its tests with no secrets. ([ADR-0027](docs/architecture/adr/0027-one-product.md))
+Everything is in this repository under Apache-2.0: LDAP/AD, OIDC single sign-on, custom roles and audit forwarding included. There are no editions and no build flags. Every image has every feature, and each integration stays inert until it is configured — LDAP/AD and single sign-on from the console, with no restart. CI proves on every commit that a fresh clone builds and passes its tests with no secrets. ([ADR-0027](docs/architecture/adr/0027-one-product.md))
 
 ---
 
@@ -158,13 +160,14 @@ sudo ./scripts/dev/openvox-stack.sh && ./scripts/dev/openvox-compat.sh
 
 | | |
 |---|---|
+| 📖 [**Documentation site**](https://eth-man.github.io/nexuspuppet/) | The short path for operators: install, use, sign-in and users, troubleshooting ([source](docs/guide/index.md)) |
 | 📘 [**User Guide**](docs/USER_GUIDE.md) | Using the console: inventory, classification, reports, administration |
 | 🚀 [**Deployment**](DEPLOYMENT.md) | A fresh on-prem VM, end to end — certificates, `.env`, migrations, puppetserver wiring, TLS, backups |
 | 🧭 [**Roadmap**](ROADMAP.md) | What is built, what is next, and where to help |
 | 📋 [**Changelog**](CHANGELOG.md) | Release notes, known constraints, and what was deliberately deferred |
 | 🤝 [**Contributing**](CONTRIBUTING.md) | Local development, tests, architecture boundaries, how to open a PR |
 | 🧯 [**Lessons**](docs/LESSONS.md) | Mistakes this project made, what they cost, and what to do instead |
-| 🏛 [**Architecture**](docs/architecture/README.md) | C4 diagrams and thirteen ADRs recording the binding decisions |
+| 🏛 [**Architecture**](docs/architecture/README.md) | C4 diagrams and the ADRs recording every binding decision |
 
 ---
 

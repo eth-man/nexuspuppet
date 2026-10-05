@@ -91,3 +91,6 @@ qa-report*/
 # detail and, with the opt-in, personal data: never commit one.
 nexuspuppet-support-*.tar.gz
 nexuspuppet-host-support-*.tar.gz
+
+# Python bytecode from the documentation site hook (scripts/docs/hooks.py).
+__pycache__/
