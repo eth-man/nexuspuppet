@@ -24,7 +24,16 @@ The core product is complete, verified against real Puppet and OpenVox software,
 | ✅ **Console TLS** | An optional bundled proxy terminating HTTPS from your own CA, and a Settings card reporting the certificate's subject, the names it covers and days remaining. Reads a file, so it works whatever terminates TLS ([ADR-0013](docs/architecture/adr/0013-console-tls-private-ca.md)). |
 | ✅ **LDAP / Active Directory** | Nested groups, dialect switching, secure referral handling, admin-managed group→role mapping. |
 | ✅ **OIDC SSO** | Authorization-code with PKCE, ID-token validation on `node:crypto` with an algorithm allow-list, discovery and JWKS caching with rotation, claim→role mapping. Verified against a live Keycloak. |
-| ✅ **Audit export** | A forwarding sink that composes over the Postgres sink rather than replacing it, a transactional delivery outbox with leases and backoff, and a webhook transport. The local audit trail is never traded for the external copy. |
+| ✅ **Audit export** | A forwarding sink that composes over the Postgres sink rather than replacing it, a transactional delivery outbox with leases and backoff, and syslog (RFC 5424 over TCP/TLS) and webhook transports configured from the console. The local audit trail is never traded for the external copy. |
+| ✅ **Plan before apply** | Every classification write opens a preview first: nodes affected, the catalog diff grouped by outcome, and any new override it introduces. |
+| ✅ **Fact filters, saved queries, CSV export** | Filter the inventory by any projected fact, save a filter privately or shared, and export the whole result set ([ADR-0026](docs/architecture/adr/0026-saved-queries.md)). |
+| ✅ **Estate-wide resource search** | What nodes actually received, grouped by resource and led by variance — do these nodes agree? ([ADR-0025](docs/architecture/adr/0025-estate-wide-resource-search.md)) |
+| ✅ **Custom roles** | Roles as rows with granular permissions, mappable from directory groups ([ADR-0018](docs/architecture/adr/0018-custom-roles.md)). |
+| ✅ **ENC tree replication and compile receipts** | A separate Puppet server pulls the tree over mTLS on its own timer and reports what it served ([ADR-0019](docs/architecture/adr/0019-enc-tree-replication.md), [ADR-0022](docs/architecture/adr/0022-compile-receipts.md)). |
+| ✅ **Operational notifications** | Conditions such as PuppetDB being unreachable are tracked with how long they have been open ([ADR-0021](docs/architecture/adr/0021-operational-notifications.md)). |
+| ✅ **One product** | No editions, no capability checks, no build flag: every image has every feature, inert until configured ([ADR-0027](docs/architecture/adr/0027-one-product.md), 1.10.0). |
+| ✅ **Support bundle** | Settings → General downloads one redacted archive of logs, status and configuration, with an opt-in for personal data; `scripts/support-bundle.sh` adds the host's half ([ADR-0028](docs/architecture/adr/0028-support-bundle.md), 1.10.0). |
+| ✅ **Directory from the console** | LDAP/AD and OIDC configured and enabled from Settings → Directory / Auth with no `.env` edit and no restart, including a pasted CA certificate ([ADR-0029](docs/architecture/adr/0029-directory-from-the-console.md), 1.11.0). |
 
 ---
 
@@ -38,6 +47,9 @@ Every feature ships to every deployment ([ADR-0027](docs/architecture/adr/0027-o
 |---|---|
 | **SAML SSO** | The redirect plumbing OIDC needed now exists, so this is one more provider in `AUTH_PROVIDERS`, beside LDAP and OIDC in `apps/api/src/directory/`. Read the caution below before starting. |
 | **Scoped RBAC** | **Deferred** — designed and declined. See [ADR-0011](docs/architecture/adr/0011-scoped-rbac.md). |
+| **Object-scoped permissions** | Permissions constrained to a set of objects, after NetBox's `ObjectPermission` ([#230](https://github.com/eth-man/nexuspuppet/issues/230)). Needs the same answer ADR-0011 could not give: what a rule-based group actually bounds. |
+| **Single sign-out** | Signing out of the console does not end the session at the identity provider; RP-initiated logout is not implemented ([#108](https://github.com/eth-man/nexuspuppet/issues/108)). |
+| **A machine credential** | Programs authenticate as an automation account with a password today ([ADR-0020](docs/architecture/adr/0020-automation-account.md)); there is no token or certificate credential ([#129](https://github.com/eth-man/nexuspuppet/issues/129)). |
 
 #### A caution about SAML
 
@@ -54,6 +66,13 @@ margin, and the honest options are a well-audited library or not shipping SAML.
 Entra ID, Okta, Keycloak and Google all speak OIDC, so this is worth doing when
 a specific deployment needs it and not before.
 
+### Smaller open items
+
+- **The bundled TLS proxy leaves the console blind to its own certificate** — the expiry card cannot read what the proxy serves ([#136](https://github.com/eth-man/nexuspuppet/issues/136)).
+- **Pick pinned nodes from a list** instead of typing certnames ([#224](https://github.com/eth-man/nexuspuppet/issues/224)).
+- **Theme preference follows the browser, not the operator** ([#198](https://github.com/eth-man/nexuspuppet/issues/198)).
+- **Coverage floors are never enforced**, including the 95/90 floor on `materialization/pure/` ([#267](https://github.com/eth-man/nexuspuppet/issues/267)).
+
 ### Validation and hardening
 
 - **Estate-scale validation.** Everything is verified for correctness but not for scale. A 1,000+ node estate with large custom facts will stress pagination, projection and the materializer in ways a local harness does not. **If you run one, we would like to hear what breaks.**
@@ -68,7 +87,7 @@ Real limits of what is built, recorded so nobody discovers them in production.
 
 | Constraint | Impact | Where |
 |---|---|---|
-| **OIDC login state is in-process** | A load-balanced deployment can route a callback to a replica that did not begin the login, and that login fails. Needs sticky sessions until there is an external store. | [DEPLOYMENT.md §8](DEPLOYMENT.md#8-high-availability-and-horizontal-scaling) |
+| **OIDC login state is in-process** | A load-balanced deployment can route a callback to a replica that did not begin the login, and that login fails. Needs sticky sessions until there is an external store ([#109](https://github.com/eth-man/nexuspuppet/issues/109)). | [DEPLOYMENT.md §8](DEPLOYMENT.md#8-high-availability-and-horizontal-scaling) |
 | **Login rate limiting is per replica** | N replicas permit N× the configured attempts. Account lockout is durable and still applies, so this widens the online-guessing window rather than removing the protection. | as above |
 | **JWKS refetch has a cooldown** | A rotated signing key is picked up within the cooldown rather than instantly. Deliberate — it bounds a flood of tokens bearing kids that will never exist. | `OidcDirectory`, `apps/api/src/directory/oidc/` |
 | **Not exercised at estate scale** | Correctness is verified against real Puppet and OpenVox estates; throughput is not. | [fixtures/README.md](fixtures/README.md) |
@@ -111,7 +130,6 @@ Genuinely useful, self-contained, and a good way to learn the codebase. None req
 
 ### 🟡 Medium
 
-- **Estate-wide conflict report.** The data exists — `ClassMerger` returns conflicts and they are persisted per materialization. This is a query, a route and a page.
 - **Bulk group operations.** Enable/disable or re-rank several groups at once, going through the same transactional service so the outbox and audit rows stay correct.
 - **A `docker-compose.demo.yml`.** One command bringing up Postgres, API, console *and* the PuppetDB stand-in, so the quickstart becomes a single `docker compose up`. Today the stand-in runs outside compose.
 - **Prometheus metrics.** Projection lag, outbox depth, materialization failures, PuppetDB latency. All already measured internally; they just need exposing.
@@ -119,7 +137,7 @@ Genuinely useful, self-contained, and a good way to learn the codebase. None req
 ### 🔴 Larger
 
 - **External state store for OIDC flows**, so a load-balanced deployment does not need sticky sessions. The PKCE verifier and nonce for a login in flight are held in memory today; moving them to PostgreSQL with a short TTL would let any replica complete any login. Self-contained, and it removes a constraint recorded above.
-- **More audit transports** — syslog (RFC 5424) or Splunk HEC alongside the existing webhook, behind `AUDIT_TRANSPORT`. The queue, retries and leases are core's; a transport is one method.
+- **More audit transports** — Splunk HEC, say, alongside the existing syslog and webhook transports. The queue, retries and leases already exist; a transport is one method.
 - **Estate-scale load testing** with a synthetic 5,000-node PuppetDB, to find where projection and materialization actually bend.
 
 ---

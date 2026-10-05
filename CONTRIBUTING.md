@@ -102,7 +102,7 @@ npm run test:e2e                                  # browser — needs a running 
 
 ### Unit
 
-The usual thing, plus one suite worth knowing about: `apps/api/src/app.wiring.spec.ts` inspects the DI graph and fails if a seam token is unbound or bound twice, is bypassed by a consumer injecting the concrete class directly, or if `AUTH_PROVIDERS` ever loses the local provider. It iterates `CAPABILITY_TOKENS`, so a new token is covered automatically, and it pins which directory providers are registered for which configuration. If it fails, read the message — it names the exact provider and the seam it broke.
+The usual thing, plus one suite worth knowing about: `apps/api/src/app.wiring.spec.ts` inspects the DI graph and fails if a seam token is unbound or bound twice, is bypassed by a consumer injecting the concrete class directly, or if `AUTH_PROVIDERS` ever loses the local provider. It iterates `CAPABILITY_TOKENS`, so a new token is covered automatically, and it pins the provider list: local first, then both directory providers on every deployment, configured or not (ADR-0029). If it fails, read the message — it names the exact provider and the seam it broke.
 
 The directory and audit-forwarding code (`src/directory/`, `src/audit-forwarding/`) carries a higher coverage floor under `npm run test:cov` — 90% lines, 85% branches — because a bug there is an authentication bypass or a silently missing audit trail. It is not met yet (see ADR-0027 §6), and `test:cov` is not part of CI.
 
@@ -145,11 +145,12 @@ In CI, [`scripts/ci/e2e-stack.sh`](scripts/ci/e2e-stack.sh) boots the stack from
 #### There is one product
 
 Every test runs against the whole product (ADR-0027); nothing skips for want of
-an edition. The LDAP and OIDC *form* tests key on configuration — they need a
-provider registered, i.e. `LDAP_URL` / `OIDC_ISSUER` set when the API booted,
-and read that from the settings view's `liveReload`. CI sets neither, so there
-it asserts the other half: each card says which variable enables it and draws
-no form.
+an edition. Both directory providers are registered on every deployment
+(ADR-0029), so the LDAP and OIDC settings tests run everywhere: a test that
+needs a stored configuration saves one through the API and discards it
+afterwards, and the *Not configured* empty state is asserted only when the
+deployment configures nothing — which is the case in CI, where neither
+`LDAP_URL` nor `OIDC_ISSUER` is set.
 
 ### Installs from the documentation
 
@@ -167,15 +168,28 @@ It exists because every other job runs the source tree, and four blocking defect
 
 It uses its own Compose project name and restores your `.env` on exit, so it will not disturb a stack you are using.
 
-### Regenerating the README screenshots
+### Regenerating the screenshots
 
-Opt-in, and skipped everywhere else:
+The images in `docs/images/` — used by the README, the user guide and the documentation site — come from one opt-in spec, skipped everywhere else. Run it against a stack started with `npm run dev:stack` (or `scripts/ci/e2e-stack.sh`) that has no directory configured and has some node groups — the override report and group captures refuse to photograph an empty classification:
 
 ```bash
 CAPTURE_SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
 ```
 
 It builds the state, captures, and cleans up. The two features the README leads on — the plan dialog and the override report — only exist mid-flow or on an estate where groups genuinely conflict, and hand-capturing those is how screenshots come to show a version of the product nobody ships. **Look at the images before committing them**; every mistake this script has made so far produced a passing test and a wrong picture.
+
+### Previewing the documentation site
+
+The site at <https://eth-man.github.io/nexuspuppet/> is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) from `docs/guide/` only; the rest of the Markdown stays here, for developers. The `Docs site` workflow builds it with `--strict` on every pull request that touches documentation, and publishes it to GitHub Pages from `main`. Locally:
+
+```bash
+python3 -m venv build/.venv-docs                      # build/ is gitignored
+build/.venv-docs/bin/pip install -r docs/requirements.txt
+build/.venv-docs/bin/mkdocs serve                     # http://127.0.0.1:8000, reloads on save
+build/.venv-docs/bin/mkdocs build --strict            # what CI runs; output in build/site
+```
+
+Write the guide pages so they also read correctly on GitHub: plain GitHub Markdown, no MkDocs-only syntax (no `!!!` admonitions, no `{: .class}` attributes, no snippets). Link to other files with ordinary relative paths. `scripts/docs/hooks.py` keeps links between guide pages and to `docs/images/` on the site and turns links to anything else in the repository into GitHub links. A link to a file that does not exist, a missing anchor, a nested list indented by fewer than four spaces, or a list with no blank line before it fails the strict build — each of those renders differently on GitHub and on the site.
 
 ---
 

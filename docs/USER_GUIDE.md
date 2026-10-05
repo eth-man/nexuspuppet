@@ -1,6 +1,8 @@
 # NexusPuppet User Guide
 
-How to use the console once it is running. If you are still installing, see the [Quickstart](../README.md#quickstart--try-it-in-2-minutes-no-puppet-required) or [DEPLOYMENT.md](../DEPLOYMENT.md).
+How to use the console once it is running, screen by screen. If you are still installing, see the [Quickstart](../README.md#quickstart--try-it-in-2-minutes-no-puppet-required) or [DEPLOYMENT.md](../DEPLOYMENT.md).
+
+For the short, task-oriented version — install, a tour, connecting a directory, troubleshooting — see the [documentation site](https://eth-man.github.io/nexuspuppet/) ([source](guide/index.md)). This guide is the full reference behind it.
 
 **Contents**
 
@@ -38,13 +40,15 @@ If you only remember one thing: **eventual consistency is deliberate here, and i
 
 ![Sign in](images/login.png)
 
-Sign in with your account and password. **The first field is labelled for the deployment** — `Email` where accounts are local, `Username` where a directory supplies them, as above — so it asks for whatever you actually type rather than a name that only fits one setup.
+Sign in with your account and password. **The first field is labelled for the deployment** — `Email` where accounts are local (as above), `Username` where an Active Directory supplies them — so it asks for whatever you actually type rather than a name that only fits one setup.
 
 The first administrator is seeded from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` the first time the API starts against an empty database; those variables do nothing afterwards and should be removed from the environment.
 
 Repeated failed attempts lock the account temporarily. This is deliberate and applies even to correct passwords once the account is locked — wait it out, or have another administrator reset it.
 
-Where a directory is configured, the sign-in screen offers it too: an LDAP or Active Directory account signs in through the same form, and an OIDC identity provider gets a button of its own. Local accounts keep working alongside either. With no directory configured, every account is local.
+Where a directory is configured, the sign-in screen offers it too: an LDAP or Active Directory account signs in through the same form, and an OIDC identity provider gets a button of its own. Local accounts keep working alongside either. With no directory configured, every account is local, and a directory that is not configured is not offered at all.
+
+**Nobody gets an account by signing in.** Every person, directory and single sign-on users included, needs an account created under **Settings → Users & Roles** first. A directory user without one is refused with the same message as a wrong password — see [Directory sign-in](#directory-sign-in).
 
 ### Roles
 
@@ -53,6 +57,8 @@ Where a directory is configured, the sign-in screen offers it too: an LDAP or Ac
 | **VIEWER** | Read everything: inventory, facts, reports, classification |
 | **OPERATOR** | Everything a viewer can, plus create and change classification |
 | **ADMIN** | Everything, plus user administration and settings |
+
+These three are built in and cannot be edited. An administrator can define more under **Settings → Users & Roles** — duplicate a built-in role as a custom role and change its permissions.
 
 ---
 
@@ -109,7 +115,7 @@ Three tabs:
 | **Written** | When the file was last actually changed |
 | **Facts as of** | The age of the projection this classification was computed from |
 
-If a change you just made is not reflected here, give it a moment — see [section 8](#8-how-classification-reaches-your-nodes).
+If a change you just made is not reflected here, give it a moment — see [section 10](#10-how-classification-reaches-your-nodes).
 
 ### Facts
 
@@ -321,11 +327,27 @@ Separately, a **projector** polls PuppetDB for changed facts and refreshes the c
 
 ![Settings](images/settings.png)
 
-**Settings** shows the running deployment: version, uptime and database connection, with an on-demand update check. There are no editions: every deployment has every feature. What differs is configuration. Under **Directory / Auth**, the LDAP and OIDC cards say where their settings come from — *Not configured*, *From the environment* or *Saved in the console* — and either can be configured right there; a saved directory takes effect at the next sign-in, with no restart. *Not configured* is expected on a deployment that uses local accounts only, not a fault.
+**Settings** has five tabs: **General**, **Directory / Auth**, **Integrations**, **Notifications** and **Users & Roles**. Everyone sees **General** — your account, your password, and the running deployment: version, uptime and database connection, with an on-demand update check. The other tabs need the matching permission.
+
+There are no editions: every deployment has every feature. What differs is configuration. Under **Directory / Auth**, the LDAP and OIDC sections say where their settings come from — *Not configured*, *From the environment* or *Saved in the console* — and either can be configured right there; a saved directory takes effect at the next sign-in, with no restart. *Not configured* is expected on a deployment that uses local accounts only, not a fault.
+
+### Directory sign-in
+
+LDAP, Active Directory and OIDC are configured from **Settings → Directory / Auth**, with no `.env` edit and no restart. The step-by-step walkthrough — including pasting the directory's CA certificate and the role mappings — is in [Sign-in & users](guide/sign-in.md#connect-ldap-or-active-directory).
+
+![Directory / Auth, nothing configured yet](images/directory-not-configured.png)
+
+The points that catch people:
+
+- **Upgrade with `scripts/deploy.sh`.** The console needs `CONFIG_ENCRYPTION_KEY` to store a bind password, and `deploy.sh` appends one to `.env` when it is missing. Without it the form says *Saving a bind password needs CONFIG_ENCRYPTION_KEY*.
+- **Use the directory's hostname, not its IP address**, and paste the CA that signed its certificate. Domain controller certificates rarely name an IP.
+- **The API container must resolve that hostname.** If **Test connection** reports `EAI_AGAIN` or `ENOTFOUND`, give the `api` service a `dns:` entry ([DEPLOYMENT.md](../DEPLOYMENT.md#pointing-at-active-directory)).
+- **Map at least one group to a role.** An LDAP user in no mapped group is refused; there is no default role.
+- **Create each person's account first**, under **Users & Roles**, with **Authentication** set to `ldap` (or `oidc`) and the email in their directory entry. There is no automatic account creation, and a missing account is refused exactly like a wrong password. The API log says which it was: `docker compose logs api | grep -i "login refused"`.
 
 ### Users
 
-Administrators manage accounts under **Users**: create, change role, disable, delete, reset password.
+Administrators manage accounts under **Settings → Users & Roles**: create (**New user**), change role, deactivate, delete, and set a new password for a local account. When a directory is registered, **New user** asks which **Authentication** source the account uses; a source that is not configured yet is labelled so, and the account can sign in once it is.
 
 Two protections you cannot override, both there to stop an estate locking itself out:
 
@@ -334,7 +356,7 @@ Two protections you cannot override, both there to stop an estate locking itself
 
 ### Password changes
 
-Changing your own password requires the current one. Doing so **revokes every other session** — the change, the audit row and the revocation happen in one transaction.
+Changing your own password (**Settings → General → Change your password**) requires the current one. Doing so **revokes every other session** — the change, the audit row and the revocation happen in one transaction. A forgotten administrator password is covered in [Sign-in & users](guide/sign-in.md#forgotten-administrator-password).
 
 ### Audit
 
@@ -364,6 +386,8 @@ Read the comments in that file before adopting it — the driver trades away `do
 ### Support bundle
 
 When something is wrong and you need to hand it to somebody else, **Settings → General → Support bundle** downloads one archive describing this deployment. It needs the `settings:manage` permission; the download is recorded in the audit log, and forwarded like any other record.
+
+![Support bundle](images/settings-support-bundle.png)
 
 Pick a window — 1, 6, 24 or 72 hours — and press **Download**. You get `nexuspuppet-support-<host>-<time>.tar.gz`. Open `summary.txt` first: it leads with anything that needs attention, such as a condition that has been open for weeks.
 
@@ -450,7 +474,21 @@ Check in this order:
 
 ### The inventory is empty or stale
 
-The projector polls PuppetDB periodically. If nothing appears at all, the API cannot reach PuppetDB — run `npm run test:puppetdb`, which distinguishes an unreadable key, an untrusted CA, an unauthorised certname and a wrong URL rather than reporting a generic failure.
+The projector polls PuppetDB periodically. If nothing appears at all, the API cannot reach PuppetDB. The inventory screens then say so, with the time of the last successful query — kept across API restarts, so "never" really means never. On the console host, run `./scripts/deploy.sh --check`, or `docker compose run --rm api node scripts/test-puppetdb.mjs` (`npm run test:puppetdb` in a development checkout). Both distinguish an unreadable key, an untrusted CA, an unauthorised certname and a wrong URL rather than reporting a generic failure.
+
+### A directory user cannot sign in
+
+The refusal is identical to a wrong password on purpose, so the login page cannot be used to discover accounts. The API log names the cause:
+
+```bash
+docker compose logs api | grep -i "login refused\|not configured"
+```
+
+- *no NexusPuppet account exists* — create the account under **Settings → Users & Roles** with **Authentication** `ldap` and the email from their directory entry.
+- *member of no mapped group* — the password is right; add one of their groups to the **Role mappings**.
+- *LDAP sign-in is not configured* — the directory has not been saved.
+
+If **Test connection** itself fails, see [The directory test fails](guide/troubleshooting.md#the-directory-test-fails).
 
 ### Everything looks down
 

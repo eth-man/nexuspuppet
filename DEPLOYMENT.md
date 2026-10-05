@@ -4,6 +4,11 @@ Deploying NexusPuppet onto a clean host and connecting it to a live Puppet
 estate. Read [`docs/architecture/README.md`](docs/architecture/README.md) first if
 you have not; the constraints below come from the ADRs and are not stylistic.
 
+This is the reference. For the short path — install, upgrade, connecting a
+directory, troubleshooting — see the
+[documentation site](https://eth-man.github.io/nexuspuppet/)
+([source](docs/guide/install.md)).
+
 > **Status.** This has now been installed on real estates — a native OpenVox
 > Server 8.15 with OpenVoxDB 8.15 on Ubuntu 24.04, and a containerised Puppet
 > stack — and reached a working console with live inventory both times. It is no
@@ -572,8 +577,10 @@ against a live Windows Server 2025 DC.
 
 - **Use the hostname, not the IP.** A DC certificate carries
   `SAN: DNS:dc01.example.com` and typically **no IP SAN**, so an `ldaps://<ip>`
-  URL fails strict verification — which is the entire point of setting
-  `LDAP_CA_PATH`. Give the container a resolver that can answer for the domain.
+  URL fails strict verification — which is the entire point of trusting the
+  CA, whether pasted into **CA certificate (PEM)** in the console or mounted
+  with `LDAP_CA_PATH`. Give the container a resolver that can answer for the
+  domain.
 - **`extra_hosts` is not enough.** With a hosts entry present, `getent hosts`
   resolves inside the container while Node's `dns.lookup()` still returns
   `EAI_AGAIN`. What works is `dns: [<dc-ip>]` on the api service; Docker's
@@ -1685,8 +1692,10 @@ The ENC tree is fully rebuildable from Postgres — the reconciler regenerates
 every file and removes orphans. Back it up regardless: restoring it is instant,
 whereas a rebuild during an incident is one more moving part.
 
-Also back up `.env` (it holds `JWT_SECRET`) into your secret store. Losing
-`JWT_SECRET` invalidates every session; losing the database loses the audit log.
+Also back up `.env` (it holds `JWT_SECRET` and `CONFIG_ENCRYPTION_KEY`) into
+your secret store. Losing `JWT_SECRET` invalidates every session; losing
+`CONFIG_ENCRYPTION_KEY` makes every bind password and client secret saved in
+the console unreadable; losing the database loses the audit log.
 
 The `api-logs` volume does not need backing up. It is a bounded, rotating copy
 of the API's stdout kept only for support bundles (see Troubleshooting).
@@ -1698,12 +1707,19 @@ of the API's stdout kept only for support bundles (see Troubleshooting).
 ```bash
 cd /opt/nexuspuppet
 git fetch --tags && git checkout <new-tag>
-docker compose build
-docker compose run --rm api npx prisma migrate deploy
-docker compose up -d
+./scripts/deploy.sh
 ```
 
-Migrations run as a discrete step, before the new containers start.
+Re-running `deploy.sh` is the upgrade: it keeps `.env`, rebuilds, runs the
+migrations as a discrete step before the new containers start, and restarts.
+Read the **Upgrading** section of every release you are moving past in
+[CHANGELOG.md](CHANGELOG.md) first.
+
+It is also the only step that adds `CONFIG_ENCRYPTION_KEY` to an install that
+lacks one (§2). The manual equivalent — `docker compose build`, then
+`docker compose run --rm api npx prisma migrate deploy`, then
+`docker compose up -d` — does not, so an install upgraded that way cannot store
+a directory password until the key is set in `.env`.
 
 The ENC tree keeps serving the previous classification throughout — agents
 converging during the upgrade are unaffected. That is the property the whole
@@ -1800,6 +1816,10 @@ SQL
 | Change saved, nodes unchanged | Expected until the node's next Puppet run. Check `EncMaterialization` confirmed it |
 | Role editing or audit forwarding returns 501 | The image was built by a release up to 1.9.0 with the old `EDITION=core` default. Rebuild it: `docker compose build api && docker compose up -d api` |
 | `GET /capabilities` returns 404 | Removed in ADR-0027 — there is no edition to report. Use `GET /auth/mode` for sign-in sources |
+| A directory user's correct password is refused as wrong | No account with `authSource` `ldap`/`oidc` and their directory email, or none of their groups is mapped to a role. `docker compose logs api \| grep -i "login refused"` says which (§2) |
+| Settings → Directory / Auth: *Saving a bind password needs CONFIG_ENCRYPTION_KEY* | Re-run `scripts/deploy.sh`, which appends one to `.env` (§2) |
+| LDAP **Test connection**: `EAI_AGAIN` or `ENOTFOUND` | The api container cannot resolve the DC's name. `dns: [<dc-ip>]` on the api service, not `extra_hosts` ([Pointing at Active Directory](#pointing-at-active-directory)) |
+| LDAP **Test connection**: certificate altname or "unable to verify" | URL uses an IP the certificate does not name, or the signing CA is not trusted. Use the hostname; paste the CA in the form |
 | API stderr: "The local log copy in /var/log/nexuspuppet is disabled" | The `api-logs` volume is not mounted or not writable by uid 100. Support bundles will lack API logs; see below |
 
 ### Support bundles
