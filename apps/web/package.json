@@ -1,6 +1,6 @@
 {
   "name": "@nexuspuppet/web",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "NexusPuppet web console \u2014 rendering tier only",
   "license": "Apache-2.0",
   "private": true,
