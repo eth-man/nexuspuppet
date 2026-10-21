@@ -13,7 +13,7 @@ This is the short path. Every option, and the reasoning behind each step, is in 
 ```bash
 git clone https://github.com/eth-man/nexuspuppet.git /opt/nexuspuppet
 cd /opt/nexuspuppet
-git checkout v1.11.0                         # use the latest release tag
+git checkout v1.13.1                         # use the latest release tag
 
 ./scripts/deploy.sh --check --puppetdb https://puppetdb.example.com:8081
 ./scripts/deploy.sh --puppetdb https://puppetdb.example.com:8081
@@ -60,7 +60,7 @@ It installs a small script on the Puppet server, proves it serves a node, and on
 ```bash
 cd /opt/nexuspuppet
 git fetch --tags
-git checkout v1.11.0                         # the release you are moving to
+git checkout v1.13.1                         # the release you are moving to
 ./scripts/deploy.sh
 ```
 
