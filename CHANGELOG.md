@@ -2,9 +2,13 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.13.1] — 2026-10-21
+
+**Active Directory sign-in when the email is not the UPN.** An operator reported users who could not sign in through AD — "user not found". Reproduced against a real Active Directory and fixed. **No migration.**
 
 ### Fixed
+
+**An AD sign-in opens the account that was typed.** After a successful bind, sign-in opened the account named by the directory entry's `mail` rather than the one typed. Where `mail` differs from the UPN, an account created with the UPN — as the guide said to — could never sign in ("authenticated against the directory, but no NexusPuppet account exists"), and someone with an account under each address was signed into the other one. The session is now always the account that was typed; Simple bind already behaved this way.
 
 **Active Directory users whose email is not their UPN could not sign in, and nothing said why.** In most corporate ADs the work email (`mail`, `alice@example.com`) differs from the UPN (`alice@corp.local`). The account is created with the work email, but the AD default search filter matched only `sAMAccountName` and `userPrincipalName`, so the directory found nobody and the person got *Invalid email or password.* with nothing in the log. Reproduced against Windows Server 2025. The AD default filter now also matches `mail`: `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))`. **No migration:** saved configurations do not store a filter, so the new default applies to them and to `LDAP_*` configurations at the next sign-in. A stored or `LDAP_SEARCH_FILTER` filter exactly equal to the old AD default is read as the default too; any other explicit filter is unchanged. The OpenLDAP default (`mail`) is unchanged. Simple bind with `{email}` still binds as the address typed, so on AD it needs the address to be the UPN.
 
