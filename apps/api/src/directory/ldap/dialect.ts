@@ -16,7 +16,19 @@ export type LdapDialect = 'openldap' | 'ad';
 
 export interface DialectDefaults {
   searchFilter: string;
-  attributes: { email: string; displayName: string; memberOf: string };
+  attributes: {
+    email: string;
+    displayName: string;
+    memberOf: string;
+    /** The UPN, where the directory has one — an address an account may carry. */
+    upn: string | null;
+    /** The sign-in name: sAMAccountName, uid. */
+    username: string;
+    /** The entry's stable id (ADR-0031): objectGUID, entryUUID. */
+    directoryId: string;
+  };
+  /** Whether `directoryId` arrives as raw bytes (AD's objectGUID) rather than text. */
+  directoryIdIsBinary: boolean;
   /** What the login form should call the identifier. */
   identifierLabel: string;
   /** Whether transitive group membership can be resolved at all. */
@@ -60,6 +72,22 @@ export function dialectFromRootDse(attributes: Record<string, string[]>): LdapDi
   return answered ? 'openldap' : null;
 }
 
+/**
+ * OpenLDAP's default user search: by `uid` (the username) or `mail`
+ * (ADR-0031). People sign in with what they type everywhere else, which on
+ * most OpenLDAP estates is their uid.
+ */
+export const OPENLDAP_SEARCH_FILTER = '(&(objectClass=person)(|(uid={{input}})(mail={{input}})))';
+
+/**
+ * The OpenLDAP default up to v1.13.1, which matched `mail` only.
+ *
+ * Read as "the default" wherever it appears, for the same reason as
+ * AD_SEARCH_FILTER_WITHOUT_MAIL: a saved row carrying exactly this string got
+ * it from a form opened on the environment baseline, not from a choice.
+ */
+export const OPENLDAP_SEARCH_FILTER_MAIL_ONLY = '(&(objectClass=person)(mail={{input}}))';
+
 /** Active Directory's default user search: by sAMAccountName, UPN or mail. */
 export const AD_SEARCH_FILTER =
   '(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))';
@@ -79,29 +107,34 @@ export const AD_SEARCH_FILTER_WITHOUT_MAIL =
 
 const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
   openldap: {
-    searchFilter: '(&(objectClass=person)(mail={{input}}))',
-    attributes: { email: 'mail', displayName: 'displayName', memberOf: 'memberOf' },
-    identifierLabel: 'Email',
+    searchFilter: OPENLDAP_SEARCH_FILTER,
+    attributes: {
+      email: 'mail',
+      displayName: 'displayName',
+      memberOf: 'memberOf',
+      upn: null,
+      username: 'uid',
+      // Operational, so it is returned only when asked for by name — it is.
+      directoryId: 'entryUUID',
+    },
+    directoryIdIsBinary: false,
+    identifierLabel: 'Username or email',
     supportsNestedGroups: false,
   },
   ad: {
     /*
-     * The address a person signs in with is the EMAIL on their NexusPuppet
-     * account — the resolver finds the account by it before any directory is
-     * asked (ADR-0015), so a bare `jdoe` never gets here — and this filter has
-     * to find their entry by that address.
+     * People sign in with whatever AD knows them by (ADR-0031): their
+     * username, their UPN, or their email. The directory is asked FIRST, and
+     * the account is whichever is linked to the entry it finds — so this
+     * filter has to find an entry by any of the three:
      *
-     * In most corporate ADs the address is the entry's `mail`, and it is NOT
-     * the UPN: mail alice@example.com, UPN alice@corp.local, because the email
-     * domain is not the AD domain. Matching only sAMAccountName and
-     * userPrincipalName found nobody for such a person and refused them like a
-     * wrong password (reproduced against Windows Server 2025). So:
-     *
-     * - `mail`, the usual case;
-     * - `userPrincipalName`, where the account was created with the UPN, or
-     *   the UPN is the email;
-     * - `sAMAccountName`, harmless, and kept because a stored or environment
-     *   filter may rely on the same shape.
+     * - `sAMAccountName`, `jdoe` — what people type into every other AD-backed
+     *   login, and the only one that works where `mail` is empty (no
+     *   Exchange) and the UPN suffix is `.local`;
+     * - `userPrincipalName`, `jdoe@corp.local`;
+     * - `mail`, `jdoe@example.com` — in most corporate ADs NOT the UPN, because
+     *   the email domain is not the AD domain (reproduced against Windows
+     *   Server 2025).
      *
      * An address that is one entry's mail and another's UPN matches both, and
      * is refused rather than guessed: the search asks for at most two entries
@@ -112,10 +145,18 @@ const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
      * account could match and be bound against.
      */
     searchFilter: AD_SEARCH_FILTER,
-    attributes: { email: 'mail', displayName: 'displayName', memberOf: 'memberOf' },
-    // 'Email', not 'Username': accounts are found by the address typed, so
-    // inviting `jdoe` produced a refusal that read as a wrong password.
-    identifierLabel: 'Email',
+    attributes: {
+      email: 'mail',
+      displayName: 'displayName',
+      memberOf: 'memberOf',
+      upn: 'userPrincipalName',
+      username: 'sAMAccountName',
+      // 16 raw bytes, little-endian in its first three fields — directory-id.ts.
+      directoryId: 'objectGUID',
+    },
+    directoryIdIsBinary: true,
+    // The directory is asked first, so `jdoe` now finds the person (ADR-0031).
+    identifierLabel: 'Username or email',
     supportsNestedGroups: true,
   },
 };

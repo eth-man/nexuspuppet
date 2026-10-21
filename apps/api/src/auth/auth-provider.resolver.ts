@@ -9,6 +9,7 @@ import {
   type ProvisionableAuthSource,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../prisma/prisma.service';
+import type { DirectoryAccountWriter, SignInContext } from './directory-accounts';
 
 /**
  * How long a refused login takes, whichever provider refused it.
@@ -31,6 +32,17 @@ const DEFAULT_LOGIN_FLOOR_MS = 1500;
  * immediately, and long enough that a stranger cannot drive the log.
  */
 const NO_ACCOUNT_WARN_INTERVAL_MS = 60_000;
+
+/**
+ * The one source signed in DIRECTORY-FIRST (ADR-0031): its directory is asked
+ * who somebody is before any account is chosen, and the account is the one
+ * linked to the entry it finds.
+ *
+ * One, on purpose. OIDC is a redirect and never reaches this method, and its
+ * account linking is a follow-up with its own questions. `local` can never be
+ * one: its credential is a password an administrator set.
+ */
+const DIRECTORY_FIRST_SOURCE = 'ldap';
 
 /**
  * Dispatch a login to the one provider that owns the account (ADR-0015).
@@ -77,6 +89,14 @@ export class AuthProviderResolver {
     @Inject(AUTH_PROVIDERS) providers: readonly IAuthProvider[],
     private readonly prisma: PrismaService,
     private readonly floorMs: number = DEFAULT_LOGIN_FLOOR_MS,
+    /**
+     * What a directory sign-in may write — links and created accounts, each
+     * with its audit row (ADR-0031). Absent, the resolver dispatches by the
+     * account's `authSource` only, exactly as before: nothing is linked or
+     * created, and an identifier with no account never reaches a directory.
+     * Every test double written before ADR-0031 relies on that.
+     */
+    private readonly directoryAccounts: DirectoryAccountWriter | null = null,
   ) {
     for (const provider of providers) {
       const existing = this.bySource.get(provider.source);
@@ -256,26 +276,54 @@ export class AuthProviderResolver {
    * the same. That defence stops working the moment a second provider with a
    * different cost profile sits beside it, so the resolver owns it instead.
    */
-  async authenticate(credentials: Credentials): Promise<AuthResult> {
+  /*
+   * Directory-first sign-in (ADR-0031) is inside `dispatch`, so inside the
+   * floor like everything else. It is a path where an identifier with no
+   * account reaches a directory — a bind's worth of time — and without the
+   * floor that difference would say which names the directory knows.
+   *
+   * `context` is for the audit rows of what a directory sign-in writes;
+   * nothing else here reads it.
+   */
+  async authenticate(credentials: Credentials, context: SignInContext = {}): Promise<AuthResult> {
     const startedAt = Date.now();
 
     try {
-      return await this.dispatch(credentials);
+      return await this.dispatch(credentials, context);
     } finally {
       await this.padTo(startedAt);
     }
   }
 
-  private async dispatch(credentials: Credentials): Promise<AuthResult> {
+  /*
+   * THE ORDER (ADR-0031, amending ADR-0015 §1 and §5):
+   *
+   * 1. An account whose email is what was typed, and whose source is NOT the
+   *    directory-first one — a local account above all — is dispatched to its
+   *    own provider and to nothing else, exactly as before. A local account is
+   *    never reachable with a directory password: no fallback, no shadowing.
+   * 2. Otherwise, with the directory configured, the DIRECTORY is asked first
+   *    — whatever was typed: a username, a UPN, an email — and the account is
+   *    the one linked to the entry it authenticates, or linked or created now.
+   * 3. Otherwise, refused as before.
+   */
+  private async dispatch(credentials: Credentials, context: SignInContext): Promise<AuthResult> {
     const email = credentials.email.trim().toLowerCase();
 
-    // Resolve the account BEFORE choosing a provider. The account's authSource
-    // is the only thing that decides, so an unknown address cannot be steered
-    // at a provider of the caller's choosing.
+    // Resolve the account BEFORE choosing a provider. Its authSource decides
+    // for every source but the directory-first one, so an address that is a
+    // local account cannot be steered at a directory, nor the other way round.
     const account = await this.prisma.user.findUnique({
       where: { email },
       select: { authSource: true },
     });
+
+    if (account === null || account.authSource === DIRECTORY_FIRST_SOURCE) {
+      const directory = await this.directoryFirst();
+      if (directory !== null) {
+        return this.directorySignIn(directory, credentials, account !== null, context);
+      }
+    }
 
     if (account === null) {
       /*
@@ -285,12 +333,13 @@ export class AuthProviderResolver {
        *
        * The LOG is a different question, and it was wrong to have none.
        *
-       * There is no auto-provisioning (ADR-0015 §5), so a directory user with
-       * no account row is refused HERE: the directory provider is never asked,
-       * and nothing was written anywhere. Somebody who has just configured LDAP
-       * sees a correct-looking bind, a correct-looking search base, and a login
-       * that fails exactly as a wrong password does. That cost hours during the
-       * 2026-08-09 AD switch-over and would have cost minutes with this line.
+       * With an LDAP directory configured, an identifier with no account was
+       * handed to it above (ADR-0031). What arrives here has no account and no
+       * directory that signs people in directory-first — OIDC, which only
+       * signs people in by redirect. Somebody who has just configured a
+       * directory sees a login that fails exactly as a wrong password does.
+       * That cost hours during the 2026-08-09 AD switch-over and would have
+       * cost minutes with this line.
        *
        * Only when a DIRECTORY is configured — not merely registered, which
        * every deployment's are (ADR-0029). Without one an unknown address is a
@@ -339,6 +388,50 @@ export class AuthProviderResolver {
     }
 
     return provider.authenticate(credentials);
+  }
+
+  /**
+   * The directory that signs people in directory-first, when it can now:
+   * registered, able to, configured, and with a writer to link and create
+   * accounts through. Else null, and dispatch is by `authSource` as before.
+   */
+  private async directoryFirst(): Promise<IAuthProvider | null> {
+    if (this.directoryAccounts === null) return null;
+    const provider = this.forSource(DIRECTORY_FIRST_SOURCE);
+    if (provider?.authenticateDirectory === undefined) return null;
+    return (await this.isConfigured(provider)) ? provider : null;
+  }
+
+  /**
+   * Sign in through the directory first (ADR-0031). The provider
+   * authenticates and authorises, then finds the account linked to the entry,
+   * or links or creates one through the writer bound here — to its source and
+   * to this request, for the audit rows.
+   *
+   * For an identifier NO account has, every refusal — no entry, a wrong
+   * password, no mapped group, the directory unreachable, no account that may
+   * be used — is the same INVALID_CREDENTIALS, inside the same floor: an
+   * unreachable directory must not look different from "no such person" to
+   * somebody probing names. For an account's own email the provider's answer
+   * stands, as it always has.
+   */
+  private async directorySignIn(
+    provider: IAuthProvider,
+    credentials: Credentials,
+    identifierHasAccount: boolean,
+    context: SignInContext,
+  ): Promise<AuthResult> {
+    if (this.directoryAccounts === null || provider.authenticateDirectory === undefined) {
+      return { ok: false, reason: 'INVALID_CREDENTIALS' };
+    }
+
+    const result = await provider.authenticateDirectory(
+      credentials,
+      this.directoryAccounts.forSignIn(provider.source, identifierHasAccount, context),
+    );
+
+    if (result.ok || identifierHasAccount) return result;
+    return { ok: false, reason: 'INVALID_CREDENTIALS' };
   }
 
   /**
@@ -416,9 +509,9 @@ export class AuthProviderResolver {
      * every legitimate AD username.
      */
     this.logger.warn(
-      `Login refused for ${JSON.stringify(email)}: no account exists. Directory users are ` +
-        'not provisioned automatically (ADR-0015 §5) — create the account with ' +
-        `authSource set to one of: ${directories.join(', ')}.${swallowed}`,
+      `Login refused for ${JSON.stringify(email)}: no account exists, and no directory that ` +
+        'signs people in by username is configured. Create the account with authSource set ' +
+        `to one of: ${directories.join(', ')}.${swallowed}`,
     );
   }
 

@@ -32,9 +32,25 @@ agent, never a program acting on the console)
 **Authentication source**:
 Which provider checks an account's credentials: `local`, `ldap` or `oidc`,
 stored on the account as `authSource`. Chosen when the account is created —
-there is no automatic account creation from a directory — and decides which
-provider handles every sign-in for that account.
+by an administrator, or by LDAP at first sign-in where that is turned on
+(ADR-0031) — and decides which provider handles every sign-in for that account.
+A `local` account is never opened through a directory.
 _Avoid_: login type, auth method, realm
+
+**Directory link**:
+The stable id of the directory entry an `ldap` account belongs to — AD's
+`objectGUID`, OpenLDAP's `entryUUID` — stored on the account as `directoryId`
+(ADR-0031). Set at the account's first directory sign-in, or when the
+directory creates it; never changed by a sign-in afterwards. It is how a
+directory sign-in finds the account whatever the person typed.
+_Avoid_: external id, LDAP id, GUID (it is a UUID on OpenLDAP)
+
+**Created at first sign-in**:
+An `ldap` account the directory created, because someone in a mapped group
+signed in with no account and the operator ticked *Create accounts
+automatically for people in a mapped group* (ADR-0031). Audited as
+`user.create` by `directory:ldap`.
+_Avoid_: auto-provisioning, JIT provisioning (the console never says either)
 
 **Dormant directory**:
 A directory provider with no configuration in the console or the environment

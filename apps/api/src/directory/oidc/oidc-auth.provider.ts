@@ -309,9 +309,10 @@ export class OidcAuthProvider implements IAuthProvider {
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
-    // Provisioning stays administrator-driven, as it is for LDAP: authenticating
-    // against the identity provider does not create an account here. An estate
-    // decides who may reach it; the directory only decides who they are.
+    // Provisioning stays administrator-driven for OIDC: authenticating against
+    // the identity provider does not create an account here. (LDAP may, where
+    // the operator turned it on — ADR-0031; OIDC's linking and creation are a
+    // follow-up with their own questions.)
     const identity = await identities.findByEmail(email);
     if (identity === null) {
       logger.log(

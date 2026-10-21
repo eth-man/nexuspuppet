@@ -355,7 +355,8 @@ The points that catch people:
 - **Use the directory's hostname, not its IP address**, and paste the CA that signed its certificate. Domain controller certificates rarely name an IP.
 - **The API container must resolve that hostname.** If **Test connection** reports `EAI_AGAIN` or `ENOTFOUND`, give the `api` service a `dns:` entry ([DEPLOYMENT.md](../DEPLOYMENT.md#pointing-at-active-directory)).
 - **Map at least one group to a role.** An LDAP user in no mapped group is refused; there is no default role.
-- **Create each person's account first**, under **Users & Roles**, with **Authentication** set to `ldap` (or `oidc`) and the email in their directory entry. There is no automatic account creation, and a missing account is refused exactly like a wrong password. The API log says which it was: `docker compose logs api | grep -i "login refused"`.
+- **People sign in with their directory username** (`jdoe`), UPN or email. The directory is asked first, and the account is the one linked to their entry (ADR-0031).
+- **Accounts: create them, or let the directory.** Tick **Create accounts automatically for people in a mapped group** and anyone in a mapped group gets an account at first sign-in, audited as `user.create` by `directory:ldap` — then map specific groups, never `Domain Users`, because the mappings become the access list. Leave it off and create each account under **Users & Roles** with **Authentication** `ldap` and the email on their directory entry (mail or UPN); it is linked to them at their first sign-in. Single sign-on (`oidc`) accounts are always created first. A missing account is refused exactly like a wrong password; the API log says which it was: `docker compose logs api | grep -i "login refused"`.
 
 ### Users
 
@@ -493,10 +494,11 @@ The projector polls PuppetDB periodically. If nothing appears at all, the API ca
 The refusal is identical to a wrong password on purpose, so the login page cannot be used to discover accounts. The API log names the cause:
 
 ```bash
-docker compose logs api | grep -i "login refused\|not configured"
+docker compose logs api | grep -i "login refused\|login for\|not configured"
 ```
 
-- *no NexusPuppet account exists* — create the account under **Settings → Users & Roles** with **Authentication** `ldap` and the email from their directory entry.
+- *no NexusPuppet account is linked to that entry or carries one of its addresses* — tick **Create accounts automatically for people in a mapped group**, or create the account under **Settings → Users & Roles** with **Authentication** `ldap` and one of the addresses the line lists.
+- *no directory entry matched* — on AD they can type their username, UPN or mail; check **Search base**.
 - *member of no mapped group* — the password is right; add one of their groups to the **Role mappings**.
 - *LDAP sign-in is not configured* — the directory has not been saved.
 

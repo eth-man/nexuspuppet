@@ -54,6 +54,7 @@ const BLANK: LdapSettings = {
   bindType: 'regular',
   searchBase: '',
   nestedGroups: false,
+  autoCreateAccounts: false,
   roleMappings: [],
   timeoutMs: 10_000,
   tlsRejectUnauthorized: true,
@@ -477,11 +478,11 @@ export function LdapSettingsPanel() {
                 required
                 label="User DN pattern"
                 error={patternProblem}
-                hint="People sign in with their email address. {email} is that address — the pattern for Active Directory. {username} is the part before the @, for a DN such as uid={username},ou=people,dc=example,dc=com."
+                hint="{username} is what people type — or the part of an address before the @: {username}@corp.local for Active Directory, uid={username},ou=people,dc=example,dc=com for OpenLDAP. {email} is a whole address, for when everyone signs in with their UPN."
                 tooltip={
                   <InfoHint
                     label="About the User DN pattern"
-                    text="Each person binds as this, with {email} or {username} filled in from the address they sign in with — escaped, so no address can change which account it names. Their own entry is then read, as them, for their email, name and groups, so they must be allowed to read it."
+                    text="Each person binds as this, with {username} or {email} filled in from what they type — escaped, so nothing typed can change which entry it names. Their own entry is then read, as them, for their email, name, groups and id, so they must be allowed to read it."
                   />
                 }
               >
@@ -713,6 +714,8 @@ export function LdapSettingsPanel() {
           mappings={form.roleMappings}
           onChange={(roleMappings) => field('roleMappings', roleMappings)}
           knownRoles={knownRoles}
+          autoCreate={form.autoCreateAccounts}
+          onAutoCreateChange={(next) => field('autoCreateAccounts', next)}
         />
 
         {/*
@@ -1156,10 +1159,14 @@ function RoleMappings({
   mappings,
   onChange,
   knownRoles,
+  autoCreate,
+  onAutoCreateChange,
 }: {
   mappings: LdapSettings['roleMappings'];
   onChange: (next: LdapSettings['roleMappings']) => void;
   knownRoles: string[];
+  autoCreate: boolean;
+  onAutoCreateChange: (next: boolean) => void;
 }) {
   /*
    * A mapping naming a role this deployment does not define.
@@ -1302,6 +1309,34 @@ function RoleMappings({
           <Plus aria-hidden />
           Add mapping
         </Button>
+
+        {/*
+          Automatic account creation (ADR-0031), HERE rather than with the
+          connection fields: turning it on makes the table above the list of
+          who may have an account at all, and that has to be read beside it.
+
+          A checkbox, not a Switch: it is saved with the form, not applied the
+          moment it is clicked — the distinction switch.tsx draws.
+        */}
+        <label className="flex items-start gap-2.5 border-t border-line-soft pt-3">
+          <input
+            type="checkbox"
+            checked={autoCreate}
+            onChange={(event) => onAutoCreateChange(event.target.checked)}
+            className="mt-0.5 size-3.5 shrink-0 accent-accent"
+          />
+          <span className="space-y-0.5">
+            <span className="block text-xs font-medium text-ink">
+              Create accounts automatically for people in a mapped group
+            </span>
+            <span className="block max-w-prose text-2xs text-ink-muted">
+              {'Someone with no account who signs in with their directory username or email and '}
+              {'is in a mapped group gets one, with the role their group maps to; every creation '}
+              {'is audited. Map specific groups — anyone who can sign in to the directory and is '}
+              {'in a mapped group gets access.'}
+            </span>
+          </span>
+        </label>
       </CardContent>
     </Card>
   );
@@ -1378,6 +1413,15 @@ function describeChanges(
   }
 
   if (passwordTyped && after.bindType === 'regular') lines.push('Password: replaced');
+
+  // Confirmed in words, because turning it on changes what the mappings mean.
+  if (before.autoCreateAccounts !== after.autoCreateAccounts) {
+    lines.push(
+      after.autoCreateAccounts
+        ? 'Automatic account creation: off → on — anyone in a mapped group can get an account'
+        : 'Automatic account creation: on → off — accounts must be created before sign-in',
+    );
+  }
 
   // Mappings compared as a SET of "group=role": reordering is not a change, and
   // presenting it as one would bury the additions among noise.

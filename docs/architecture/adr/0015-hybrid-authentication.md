@@ -13,6 +13,24 @@
 > contributes" below as "a directory provider is contributed". The licence
 > scenarios are moot, because there is no licence.
 
+> **Amended 2026-10-21 ([ADR-0031](./0031-standard-directory-sign-in.md)),
+> from two operator reports reproduced against a real Active Directory.**
+> §1 and §5 change for LDAP; everything else stands.
+>
+> - **§1.** An address that is a local (or OIDC) account is still dispatched by
+>   its `authSource`, to that provider only — no shadowing, no fallback. Every
+>   other LDAP sign-in is **directory-first**: the directory authenticates what
+>   was typed (username, UPN or email), and the account is the one linked to
+>   the entry by its stable id (`users.directoryId`), linked at first sign-in
+>   when an `ldap` account carries one of the entry's addresses.
+> - **§5.** "No auto-provisioning" becomes **opt-in**: with *Create accounts
+>   automatically for people in a mapped group* (`LDAP_AUTO_CREATE_ACCOUNTS`),
+>   a person who authenticates and is in a mapped group gets an account, in
+>   one transaction with its `user.create` audit row. Off by default. OIDC is
+>   unchanged: its accounts are still created first.
+> - **§2** applies to the new path: every refusal of an unknown identifier is
+>   the same answer, inside the floor.
+
 ## Delivered
 
 **This shipped, and the Context below describes the behaviour it REPLACED.**

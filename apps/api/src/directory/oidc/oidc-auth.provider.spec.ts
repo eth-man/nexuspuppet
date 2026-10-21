@@ -77,6 +77,9 @@ class FakeDirectoryUsers implements IUserDirectory {
   async findById(userId: string): Promise<DirectoryUser | null> {
     return [...this.users.values()].find((u) => u.userId === userId) ?? null;
   }
+  async findByDirectoryId(): Promise<DirectoryUser | null> {
+    return null;
+  }
   async recordLogin(userId: string, patch: { role: UserRole; displayName: string }): Promise<void> {
     if (this.failRecordLogin) throw new Error('database unavailable');
     this.logins.push({ userId, ...patch });

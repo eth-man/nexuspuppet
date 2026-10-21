@@ -4,6 +4,7 @@ import type { ConnectionOptions } from 'node:tls';
 import { Client, type ClientOptions, type SearchOptions, type SearchResult } from 'ldapts';
 import type { LdapConfig } from './config';
 import { dialectFromRootDse, nestedGroupFilter, type LdapDialect } from './dialect';
+import { directoryIdFrom } from './directory-id';
 import { escapeFilterValue } from './filter';
 
 /**
@@ -69,6 +70,15 @@ export interface LdapEntry {
   email: string | null;
   displayName: string | null;
   groupDns: string[];
+  /** AD's userPrincipalName; absent on a directory without one. */
+  upn?: string | null;
+  /** The sign-in name: sAMAccountName, uid. */
+  username?: string | null;
+  /**
+   * The entry's stable id (ADR-0031) — objectGUID or entryUUID, canonical
+   * lower-case. Null when the directory would not show it to the reader.
+   */
+  directoryId?: string | null;
 }
 
 /** How a Simple bind finds the entry it just bound as. */
@@ -371,12 +381,32 @@ export class LdaptsDirectory implements LdapDirectory {
       email: single(entry[attributes.email]),
       displayName: single(entry[attributes.displayName]),
       groupDns: multiple(entry[attributes.memberOf]),
+      upn: attributes.upn === null ? null : single(entry[attributes.upn]),
+      username: single(entry[attributes.username]),
+      directoryId: directoryIdFrom(entry[attributes.directoryId], this.config.directoryIdIsBinary),
     };
   }
 
   private get entryAttributes(): string[] {
     const { attributes } = this.config;
-    return [attributes.email, attributes.displayName, attributes.memberOf];
+    return [
+      attributes.email,
+      attributes.displayName,
+      attributes.memberOf,
+      ...(attributes.upn === null ? [] : [attributes.upn]),
+      attributes.username,
+      // Operational on OpenLDAP (entryUUID): returned only when named.
+      attributes.directoryId,
+    ];
+  }
+
+  /**
+   * AD's objectGUID is 16 raw bytes. Asked for as a Buffer by name: decoded
+   * as a string, as ldapts otherwise does, its bytes are mangled beyond
+   * recovery and every account would be linked to garbage.
+   */
+  private get bufferAttributes(): string[] {
+    return this.config.directoryIdIsBinary ? [this.config.attributes.directoryId] : [];
   }
 
   async findEntry(filter: string): Promise<LdapEntry | null> {
@@ -401,6 +431,7 @@ export class LdaptsDirectory implements LdapDirectory {
           scope: 'sub',
           sizeLimit: 2,
           attributes: this.entryAttributes,
+          explicitBufferAttributes: this.bufferAttributes,
         });
       } catch (error) {
         if (codeOf(error) === SIZE_LIMIT_EXCEEDED_CODE) {
@@ -548,12 +579,14 @@ export class LdaptsDirectory implements LdapDirectory {
               filter: '(objectClass=*)',
               scope: 'base',
               attributes: this.entryAttributes,
+              explicitBufferAttributes: this.bufferAttributes,
             })
           : await client.search(this.config.searchBase, {
               filter: lookup.filter,
               scope: 'sub',
               sizeLimit: 2,
               attributes: this.entryAttributes,
+              explicitBufferAttributes: this.bufferAttributes,
             });
 
       this.reportReferrals(result.searchReferences, 'own-entry read');

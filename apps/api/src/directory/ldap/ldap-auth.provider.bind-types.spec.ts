@@ -101,6 +101,7 @@ function identities(): LdapIdentityStore {
   return {
     findByEmail: async () => IDENTITY,
     findById: async () => IDENTITY,
+    findByDirectoryId: async () => null,
     recordLogin: async () => {},
   };
 }
@@ -291,7 +292,37 @@ describe('Simple bind', () => {
     await expect(p.authenticate({ email: 'alice@other.example', password: 'pw' })).resolves.toEqual(
       { ok: false, reason: 'INVALID_CREDENTIALS' },
     );
-    expect(warnings.join('\n')).toMatch(/mail is alice@example\.com, not the address/);
+    expect(warnings.join('\n')).toMatch(/address is alice@example\.com, not the one/);
+  });
+
+  /*
+   * ADR-0031: {username} takes a bare username, and binds as the pattern says.
+   * But a bare username proves nothing about the entry's MAIL — mail is not
+   * unique, and Simple bind has no account to search with and check — so an
+   * account not yet linked is not found through it. Signing in once with the
+   * address itself is what proves it, and links it.
+   */
+  it('binds a bare {username}, but does not find an unlinked account by an unproven mail', async () => {
+    const directory = recordingDirectory();
+    const warnings: string[] = [];
+    const p = new LdapAuthProvider({
+      config: SIMPLE_DN,
+      directory,
+      identities: identities(),
+      logger: { ...silent, warn: (m) => warnings.push(m) },
+    });
+
+    await expect(p.authenticate({ email: 'alice', password: 'pw' })).resolves.toEqual({
+      ok: false,
+      reason: 'INVALID_CREDENTIALS',
+    });
+    expect(directory.binds[0]?.identity).toBe('uid=alice,ou=people,dc=example,dc=com');
+    expect(warnings.join('\n')).toMatch(/does not identify only that entry/);
+
+    // The address itself — the entry's own mail — is proven by the bind.
+    await expect(
+      p.authenticate({ email: 'alice@example.com', password: 'pw' }),
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it('escapes the {username} for DN context before binding', async () => {
@@ -427,8 +458,10 @@ describe('Simple bind', () => {
     ).resolves.toEqual({ ok: false, reason: 'PROVIDER_ERROR' });
   });
 
-  it('labels the login field Email — it is the account address people type', () => {
-    expect(provider(SIMPLE_DN, recordingDirectory()).identifierLabel).toBe('Email');
+  // ADR-0031: a {username} pattern takes a username; only {email} needs the
+  // whole address.
+  it('labels the login field for what the pattern can take', () => {
+    expect(provider(SIMPLE_DN, recordingDirectory()).identifierLabel).toBe('Username or email');
     expect(provider(SIMPLE_EMAIL, recordingDirectory()).identifierLabel).toBe('Email');
   });
 });

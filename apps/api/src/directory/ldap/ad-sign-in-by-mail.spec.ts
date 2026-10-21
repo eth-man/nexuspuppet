@@ -164,6 +164,7 @@ function accounts(...emails: string[]): LdapIdentityStore {
   return {
     findByEmail: async (email) => (emails.includes(email.toLowerCase()) ? account(email) : null),
     findById: async () => null,
+    findByDirectoryId: async () => null,
     recordLogin: async () => {},
   };
 }
@@ -217,9 +218,10 @@ describe('the Active Directory default filter', () => {
     expect(filter).toContain('(objectCategory=person)');
   });
 
-  it('leaves the OpenLDAP default alone', () => {
+  // ADR-0031: OpenLDAP people sign in by uid as readily as by mail.
+  it('matches uid or mail by default on OpenLDAP', () => {
     expect(dialectDefaults('openldap').searchFilter).toBe(
-      '(&(objectClass=person)(mail={{input}}))',
+      '(&(objectClass=person)(|(uid={{input}})(mail={{input}})))',
     );
   });
 
@@ -348,8 +350,7 @@ describe('why an LDAP sign-in was refused, in the log', () => {
     expect(lines.warn).toEqual([
       'LDAP login refused for alice.admin@example.com: no directory entry matched under ' +
         'ou=people,dc=corp,dc=local (searched sAMAccountName, userPrincipalName, mail). ' +
-        'The NexusPuppet account’s email must equal one of those on the person’s directory ' +
-        'entry — on Active Directory, their mail or their UPN.',
+        'Sign in with one of those — on Active Directory the username, the UPN or the mail.',
     ]);
     expect(lines.log).toEqual([]);
   });

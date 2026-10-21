@@ -153,7 +153,10 @@ export class AuthController {
       );
     }
 
-    const result = await this.resolver.authenticate(credentials);
+    // The limiter above runs FIRST, for every path — including a directory
+    // creating an account at first sign-in (ADR-0031), which is the one path
+    // where an address with no account reaches a directory.
+    const result = await this.resolver.authenticate(credentials, contextOf(request));
 
     if (!result.ok) {
       // One message for every failure. Distinguishing "no such user" from

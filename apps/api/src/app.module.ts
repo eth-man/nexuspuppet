@@ -67,6 +67,7 @@ import { AuthController } from './auth/auth.controller';
 import { AccountController, UsersController } from './auth/users.controller';
 import { UsersService } from './auth/users.service';
 import { AuthProviderResolver } from './auth/auth-provider.resolver';
+import { DirectoryAccountWriter } from './auth/directory-accounts';
 import { SettingsController } from './settings/settings.controller';
 import { ldapEnvBaseline, oidcEnvBaseline } from './settings/provider-baseline';
 import { AuditForwardingController } from './settings/audit-forwarding.controller';
@@ -258,9 +259,22 @@ export class AppModule {
       },
       {
         provide: AuthProviderResolver,
-        inject: [AUTH_PROVIDERS, PrismaService],
-        useFactory: (providers: IAuthProvider[], prisma: PrismaService): AuthProviderResolver =>
-          new AuthProviderResolver(providers, prisma, env.AUTH_LOGIN_FLOOR_MS),
+        inject: [AUTH_PROVIDERS, PrismaService, AUDIT_SINK],
+        useFactory: (
+          providers: IAuthProvider[],
+          prisma: PrismaService,
+          audit: IAuditSink,
+        ): AuthProviderResolver =>
+          new AuthProviderResolver(
+            providers,
+            prisma,
+            env.AUTH_LOGIN_FLOOR_MS,
+            // What a directory sign-in writes — an account linked to its
+            // entry, or created at first sign-in — each with its audit row
+            // (ADR-0031). Through AUDIT_SINK, so the rows are forwarded like
+            // every other change to a user.
+            new DirectoryAccountWriter(prisma, audit),
+          ),
       },
       { provide: CORE_AUDIT_SINK, useClass: PrismaAuditSink },
       AuditDeliveryOutbox,

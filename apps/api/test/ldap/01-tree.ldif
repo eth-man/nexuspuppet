@@ -1,7 +1,7 @@
 # Test directory tree for validating LdapAuthProvider.
 #
 # Deliberately shaped to exercise the decisions that matter, not just a happy
-# path. Seven accounts:
+# path. Eight accounts:
 #
 #   alice   in ops              -> OPERATOR
 #   bob     in viewers          -> VIEWER
@@ -10,6 +10,7 @@
 #   erin    in viewers          -> VIEWER  (her DN is cn=<her email>, for {email} patterns)
 #   frank   in ops              -> OPERATOR (signs in by mail, which is not his "UPN")
 #   grace   in ops              -> her mail is frank's "UPN": that address is ambiguous
+#   henry   in ops              -> the operator's AD user: a "UPN" unlike his mail (ADR-0031)
 #
 # Passwords are the plaintext below; slapd hashes them on write. They are known
 # test values in a throwaway container bound to loopback.
@@ -109,6 +110,20 @@ displayName: Grace Moss
 mail: frank@corp.local
 userPassword: grace-password
 
+# Henry is the AD user from the report that drove ADR-0031: an account an
+# administrator created with an address that is NOT his mail — the UPN-like
+# henry@corp.local in his cn, playing userPrincipalName as frank's does —
+# while people sign in with their username. Unlike frank's, his "UPN" is
+# nobody else's mail, so it identifies him alone.
+dn: uid=henry,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: henry
+cn: henry@corp.local
+sn: Hart
+displayName: Henry Hart
+mail: henry.hart@nexuspuppet.test
+userPassword: henry-password
+
 # --- groups ----------------------------------------------------------------
 # groupOfNames requires at least one member, which is why each lists its people
 # inline rather than being created empty and populated later.
@@ -121,6 +136,7 @@ member: uid=alice,ou=people,dc=nexuspuppet,dc=test
 member: uid=dave,ou=people,dc=nexuspuppet,dc=test
 member: uid=frank,ou=people,dc=nexuspuppet,dc=test
 member: uid=grace,ou=people,dc=nexuspuppet,dc=test
+member: uid=henry,ou=people,dc=nexuspuppet,dc=test
 
 dn: cn=viewers,ou=groups,dc=nexuspuppet,dc=test
 objectClass: groupOfNames

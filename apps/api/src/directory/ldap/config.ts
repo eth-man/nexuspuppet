@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import {
   LDAP_BIND_TYPES,
   LDAP_DIALECTS,
+  LDAP_EMAIL_PLACEHOLDER,
   ldapHostProblem,
   ldapUrlOf,
   parseLegacyLdapUrl,
@@ -10,7 +11,11 @@ import {
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { CaPemError, parseCaPem } from './ca-pem';
-import { AD_SEARCH_FILTER_WITHOUT_MAIL, dialectDefaults } from './dialect';
+import {
+  AD_SEARCH_FILTER_WITHOUT_MAIL,
+  OPENLDAP_SEARCH_FILTER_MAIL_ONLY,
+  dialectDefaults,
+} from './dialect';
 
 /**
  * LDAP configuration, validated at boot.
@@ -104,6 +109,13 @@ const baseLdapConfigSchema = z.object({
    * which is a confusing thing to debug from the outside.
    */
   nestedGroups: z.boolean().default(false),
+
+  /**
+   * Create an account at a person's first sign-in when they authenticate here
+   * AND resolve to a mapped role (ADR-0031). Off by default, so a deployment
+   * that never chose it keeps requiring an administrator to create accounts.
+   */
+  autoCreateAccounts: z.boolean().default(false),
 
   /**
    * Must contain {{input}}. See buildFilter — a template without it would match
@@ -217,6 +229,13 @@ function prepare(raw: unknown): unknown {
   if (input['dialect'] === 'ad' && input['searchFilter'] === AD_SEARCH_FILTER_WITHOUT_MAIL) {
     delete input['searchFilter'];
   }
+  // Likewise the OpenLDAP default before it matched `uid` (ADR-0031).
+  if (
+    (input['dialect'] ?? 'openldap') === 'openldap' &&
+    input['searchFilter'] === OPENLDAP_SEARCH_FILTER_MAIL_ONLY
+  ) {
+    delete input['searchFilter'];
+  }
   return input;
 }
 
@@ -274,16 +293,27 @@ export const ldapConfigSchema = z
       /** Derived, for the client and for display. Never stored. */
       url: ldapUrlOf(input),
       searchFilter: input.searchFilter ?? defaults.searchFilter,
-      // Simple bind substitutes the account's EMAIL — what the resolver looks
-      // the account up by — into the pattern, whatever the directory is.
-      identifierLabel: input.bindType === 'simple' ? 'Email' : defaults.identifierLabel,
+      // What people may type (ADR-0031). A username, a UPN or an email for a
+      // search — and for a Simple pattern built from {username}. A pattern
+      // built from {email} binds as the whole address, so only an email works.
+      identifierLabel:
+        input.bindType === 'simple' && (input.userDnPattern ?? '').includes(LDAP_EMAIL_PLACEHOLDER)
+          ? 'Email'
+          : defaults.identifierLabel,
       supportsNestedGroups: defaults.supportsNestedGroups,
       groupSearchBase: input.groupSearchBase ?? input.searchBase,
       attributes: {
         email: input.attributes.email ?? defaults.attributes.email,
         displayName: input.attributes.displayName ?? defaults.attributes.displayName,
         memberOf: input.attributes.memberOf ?? defaults.attributes.memberOf,
+        // The dialect's, not configurable: the id in particular is what links
+        // an account, and an operator pointing it at a mutable attribute would
+        // silently re-key every account (ADR-0031).
+        upn: defaults.attributes.upn,
+        username: defaults.attributes.username,
+        directoryId: defaults.attributes.directoryId,
       },
+      directoryIdIsBinary: defaults.directoryIdIsBinary,
     };
     // Credentials a bind type does not use are not carried, so nothing can use
     // them by accident.
@@ -338,6 +368,14 @@ export function ldapConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LdapCon
     );
   }
 
+  // Strict, unlike the older boolean variables: this one decides who can get
+  // an account, and `LDAP_AUTO_CREATE_ACCOUNTS=yes` silently meaning "no" — or
+  // a typo silently meaning anything — is not an acceptable reading of it.
+  const autoCreate = env['LDAP_AUTO_CREATE_ACCOUNTS'];
+  if (autoCreate !== undefined && autoCreate !== 'true' && autoCreate !== 'false') {
+    problems.push(`  LDAP_AUTO_CREATE_ACCOUNTS: must be true or false, not "${autoCreate}"`);
+  }
+
   const bindType = env['LDAP_BIND_TYPE'];
   if (bindType !== undefined && !(LDAP_BIND_TYPES as readonly string[]).includes(bindType)) {
     problems.push(
@@ -388,6 +426,7 @@ export function ldapConfigFromEnv(env: NodeJS.ProcessEnv = process.env): LdapCon
     ...(env['LDAP_NESTED_GROUPS'] === undefined
       ? {}
       : { nestedGroups: env['LDAP_NESTED_GROUPS'] === 'true' }),
+    ...(autoCreate === 'true' ? { autoCreateAccounts: true } : {}),
     ...(env['LDAP_CA_PATH'] === undefined ? {} : { caPath: env['LDAP_CA_PATH'] }),
     ...(env['LDAP_TIMEOUT_MS'] === undefined ? {} : { timeoutMs: Number(env['LDAP_TIMEOUT_MS']) }),
     ...(env['LDAP_TLS_REJECT_UNAUTHORIZED'] === undefined

@@ -202,6 +202,12 @@ export class LocalUserDirectory implements IUserDirectory {
     return user === null ? null : toDirectoryUser(user);
   }
 
+  /** The account linked to a directory entry (ADR-0031). */
+  async findByDirectoryId(directoryId: string): Promise<DirectoryUser | null> {
+    const user = await this.prisma.user.findUnique({ where: { directoryId } });
+    return user === null ? null : toDirectoryUser(user);
+  }
+
   /**
    * Cache what an external authority asserted at login.
    *
@@ -287,6 +293,7 @@ interface UserRow {
 
 interface DirectoryRow extends UserRow {
   isActive: boolean;
+  directoryId: string | null;
 }
 
 /**
@@ -294,7 +301,7 @@ interface DirectoryRow extends UserRow {
  * not. A provider that cannot see `isActive` cannot enforce a deactivation.
  */
 function toDirectoryUser(user: DirectoryRow): DirectoryUser {
-  return { ...toPrincipal(user), isActive: user.isActive };
+  return { ...toPrincipal(user), isActive: user.isActive, directoryId: user.directoryId };
 }
 
 function toPrincipal(user: UserRow): AuthenticatedPrincipal {

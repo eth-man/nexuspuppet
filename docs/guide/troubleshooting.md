@@ -62,17 +62,27 @@ If **Save** says *Saved, but NexusPuppet cannot connect with these settings*, th
 A refused sign-in always shows the same message, whatever the cause, so that nobody can use the login page to find out which accounts exist. The API log says the real reason:
 
 ```bash
-docker compose logs api | grep -i "login refused\|not configured\|more than one directory entry"
+docker compose logs api | grep -i "login refused\|login for\|sign-in refused\|not configured\|more than one directory entry"
 ```
 
 | The log says | Fix |
 |---|---|
-| *no NexusPuppet account exists* | Create their account in **Settings → Users & Roles**, with **Authentication** set to `ldap` (or `oidc`), and the email that is in their directory entry. NexusPuppet never creates accounts automatically. |
-| *no directory entry matched under … (searched …)* | The directory has nobody whose attributes in brackets equal the account's email. On Active Directory the account's email must be the person's `mail` or their UPN. (1.13.0 and earlier matched only the UPN and logged nothing, so a person whose email differs from their UPN — `alice@example.com` vs `alice@corp.local` — was refused without a reason.) Otherwise check the account's email and **Search base**. |
+| *no directory entry matched under … (searched …)* | The directory has nobody whose attributes in brackets equal what they typed. On Active Directory they can type their username (`jdoe`), their UPN or their `mail`; on OpenLDAP their `uid` or `mail`. Otherwise check **Search base**. |
 | *the directory rejected the password* | The directory said no: a wrong password, or the account is locked or disabled in the directory. Nothing to fix in NexusPuppet. With **Simple** bind it can also mean no account has that name — with `{email}` on AD, the address must be the UPN. |
-| *More than one directory entry carries this sign-in name* | Two entries answer to the address — say one person's `mail` is another's UPN. NexusPuppet refuses rather than guess. Correct the directory so the address belongs to one person. |
-| *member of no mapped group* | Their password is fine, but none of their groups is under **Role mappings**. Add the group, or add them to a mapped group. |
+| *More than one directory entry carries this sign-in name* | Two entries answer to what they typed — say one person's `mail` is another's UPN. NexusPuppet refuses rather than guess. Have them type their username, or correct the directory so the address belongs to one person. |
+| *member of no mapped group — no account linked or created* | Their password is fine, but none of their groups is under **Role mappings**. Add the group, or add them to a mapped group. |
+| *no NexusPuppet account is linked to that entry or carries one of its addresses (…)* | They authenticated, but have no account. Either tick **Create accounts automatically for people in a mapped group** under **Settings → Directory / Auth**, or create their account in **Settings → Users & Roles** with **Authentication** `ldap` and one of the addresses in brackets. |
+| *is a "local" account, which is never linked to a directory entry* | A **local** account has the person's directory address. It keeps signing in with its own password; it is never opened with a directory password. If it should be their directory account, change its authentication to `ldap` in **Users & Roles**. |
+| *already exists (authSource "local") and is not linked to this entry* | Automatic creation wanted to create an account with that address, but a local account already has it. As above. |
+| *linked to a different directory entry … never re-linked* | The account belongs to another directory entry — the person was recreated in the directory, or moved to a new domain. If it is really the same person, change the account's authentication to `local` and back to `ldap` to clear the link; they are linked again at their next sign-in. |
+| *does not identify only that entry … not used to link the account* | The account's email is on this person's entry, but also on someone else's (or the search does not find it), so NexusPuppet will not link it by that address. Have them sign in once with that address itself, or make it unique in the directory. |
+| *did not return its stable id (entryUUID / objectGUID)* | The directory hides the entry's id from the account that searched, so nothing can be linked or created. Give the service account (or anonymous readers) read access to `entryUUID` (OpenLDAP) or `objectGUID` (AD). |
+| *no email address (mail or userPrincipalName) to key an account by* | Automatic creation needs an address for the account; the entry has neither. Give it a `mail`, or create the account by hand. |
+| *maps to the role "…", which this deployment does not define* | A role mapping names a role that does not exist. Fix the mapping, or create the role. |
+| *no account exists, and no directory that signs people in by username is configured* | Only single sign-on (or nothing) is configured, and nobody has this account. Create it in **Settings → Users & Roles**. |
 | *LDAP sign-in is not configured* | The directory has not been saved. Finish [Connect LDAP or Active Directory](sign-in.md#connect-ldap-or-active-directory). |
+
+Refusals for names nobody has an account for are limited to ten lines a minute, with a count of the rest, so a stranger cannot fill the log.
 
 Also check the account is **active**, and not locked after too many attempts (wait, or have an administrator reset it). A local administrator can always still sign in.
 

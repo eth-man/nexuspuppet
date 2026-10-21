@@ -56,6 +56,7 @@ const SETTINGS: LdapSettings = {
   bindPassword: 'svc-secret',
   searchBase: 'ou=people,dc=corp,dc=test',
   nestedGroups: false,
+  autoCreateAccounts: false,
   roleMappings: [{ groupDn: 'cn=ops,ou=groups,dc=corp,dc=test', role: 'OPERATOR' }],
   timeoutMs: 10_000,
   tlsRejectUnauthorized: true,

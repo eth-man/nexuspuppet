@@ -296,6 +296,70 @@ export interface IAuthProvider {
    * test double written before this existed, need nothing.
    */
   isConfigured?(): Promise<boolean>;
+
+  /**
+   * Sign somebody in DIRECTORY-FIRST (ADR-0031): authenticate the identifier
+   * against the directory — a username, a UPN or an email — and only then
+   * decide which account it is.
+   *
+   * The account is the one LINKED to the directory entry (by its stable id),
+   * else an account of this source carrying one of the entry's addresses —
+   * which is then linked — else, where the operator turned it on, a new one.
+   * `accounts` does the writing: each link and each creation lands with its
+   * audit row in one transaction.
+   *
+   * The same authentication as `authenticate`, not a second implementation,
+   * and the same refusals: no entry, a wrong password, no mapped group, no
+   * account that may be used — all the same answer as a wrong password.
+   *
+   * Optional. A provider without it is dispatched to with `authenticate`, by
+   * the account's `authSource`, exactly as before.
+   */
+  authenticateDirectory?(
+    credentials: Credentials,
+    accounts: DirectoryAccounts,
+  ): Promise<AuthResult>;
+}
+
+/**
+ * What a directory may do to accounts while signing somebody in (ADR-0031),
+ * bound by the resolver to one source and one request.
+ */
+export interface DirectoryAccounts {
+  /**
+   * Whether the identifier typed is already an account of this source's
+   * email. False means anybody could have typed it — a stranger probing
+   * addresses — so what the provider logs about the attempt is throttled.
+   */
+  readonly identifierHasAccount: boolean;
+
+  /**
+   * Link an account of this source that has no directory id to the entry
+   * that just authenticated, with its audit row. Resolves to the linked
+   * account — or to the one a concurrent sign-in linked to the same entry —
+   * or null when it cannot be linked (it is linked to another entry, it is
+   * not this source's, it is gone). Never links a local account.
+   */
+  link(userId: string, directoryId: string): Promise<DirectoryUser | null>;
+
+  /**
+   * Create the account of somebody authenticated and authorised, with its
+   * audit row, or find the one a concurrent first sign-in created for the
+   * same entry. Null: there is no account this sign-in may use.
+   */
+  create(account: FirstSignInAccount): Promise<DirectoryUser | null>;
+}
+
+/** The account a directory asks core to create at someone's first sign-in (ADR-0031). */
+export interface FirstSignInAccount {
+  /** The entry's own address — mail, else UPN — normalised. The account's key. */
+  email: string;
+  /** From the directory entry, or the email when the entry has none. */
+  displayName: string;
+  /** The PRIMARY role their mapped groups resolve to — a role name (ADR-0018). */
+  role: string;
+  /** The entry's stable id, which the account is linked to from the start. */
+  directoryId: string;
 }
 
 /** A directory group and the role it grants. */
@@ -413,6 +477,12 @@ export interface IAuthorizationPolicy {
  */
 export interface DirectoryUser extends AuthenticatedPrincipal {
   isActive: boolean;
+  /**
+   * The directory entry this account is linked to (ADR-0031): AD's
+   * objectGUID or OpenLDAP's entryUUID, as a canonical lower-case UUID. Null
+   * until its first directory sign-in; absent where a store does not track it.
+   */
+  directoryId?: string | null;
 }
 
 /** User lifecycle, backed by Postgres; directory providers resolve identities through it. */
@@ -431,6 +501,13 @@ export interface IUserDirectory {
    * the refresh window expired.
    */
   findById(userId: string): Promise<DirectoryUser | null>;
+
+  /**
+   * The account linked to a directory entry, by the entry's stable id
+   * (ADR-0031) — how a directory sign-in finds its account whatever was typed,
+   * and however the entry's mail or UPN has changed since.
+   */
+  findByDirectoryId(directoryId: string): Promise<DirectoryUser | null>;
 
   /**
    * Record what an external authority asserted at a successful login: the role
@@ -634,10 +711,22 @@ export interface IAuditTransport {
  * than offering edits that the provider will reject.
  */
 
+/**
+ * What an account's email must look like — the key every account is found by.
+ *
+ * One definition, used by the create-user form and by an account created at
+ * first sign-in through a directory (ADR-0031), so an address the console
+ * would refuse cannot become an account by another route.
+ */
+export const accountEmailSchema = z.string().email().max(255);
+
+/** The longest display name an account may hold. */
+export const ACCOUNT_DISPLAY_NAME_MAX = 128;
+
 export const createUserSchema = z
   .object({
-    email: z.string().email().max(255),
-    displayName: z.string().min(1).max(128),
+    email: accountEmailSchema,
+    displayName: z.string().min(1).max(ACCOUNT_DISPLAY_NAME_MAX),
     role: roleNameSchema,
     /**
      * Which authority owns this account's credentials. `local` means a password
@@ -903,16 +992,15 @@ export type LdapDialectName = (typeof LDAP_DIALECTS)[number];
  * The placeholders a Simple-bind User DN pattern may contain — exactly one of
  * them, once (ADR-0030 §3).
  *
- * People always sign in with their account's EMAIL: the resolver finds the
- * account by it before any directory is asked. So what reaches the pattern is
- * an address, and the two placeholders are two parts of it:
+ * What reaches the pattern is what the person typed, trimmed and lower-cased
+ * — a username, a UPN or an email, since sign-in is directory-first
+ * (ADR-0031) — and the two placeholders are two readings of it:
  *
- * - `{email}` — the whole address as typed, normalised exactly as the account
- *   lookup normalises it (trimmed, lower-cased). On Active Directory this is
- *   the UPN, so the pattern is just `{email}`.
- * - `{username}` — the part before the LAST `@`. For a DN such as
- *   `uid={username},ou=people,dc=example,dc=com`, or a UPN in another domain:
- *   `{username}@corp.example`.
+ * - `{email}` — the whole of it, which must then be an address. On Active
+ *   Directory, for people who sign in with their UPN.
+ * - `{username}` — the part before the LAST `@`, or all of it when there is
+ *   none. For a DN such as `uid={username},ou=people,dc=example,dc=com`, or a
+ *   UPN: `{username}@corp.example`, so people type `jdoe`.
  */
 export const LDAP_USERNAME_PLACEHOLDER = '{username}';
 export const LDAP_EMAIL_PLACEHOLDER = '{email}';
@@ -1147,6 +1235,16 @@ const ldapSettingsObject = z.object({
   groupSearchBase: z.string().min(1).optional(),
   searchFilter: z.string().min(1).optional(),
   nestedGroups: z.boolean().default(false),
+  /**
+   * Give a person an account at their first sign-in, when they authenticate
+   * against this directory AND are in a mapped group (ADR-0031). Off unless
+   * turned on, so every configuration saved before it existed behaves as it
+   * did: accounts are created by an administrator first.
+   *
+   * With it on, the role mappings ARE the access list — anybody who can sign
+   * in to the directory and is in a mapped group gets in.
+   */
+  autoCreateAccounts: z.boolean().default(false),
   roleMappings: z
     .array(
       z.object({
