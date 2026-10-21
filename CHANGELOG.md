@@ -2,7 +2,7 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.0] — 2026-10-21
 
 **Directory sign-in the way every other product does it** ([ADR-0031](docs/architecture/adr/0031-standard-directory-sign-in.md)). Two operator reports, reproduced against a real Active Directory: a person in the group mapped to ADMIN was refused because nobody had created their account; and once an account was created by hand with their email, they were still refused — *no directory entry matched* — because in that AD the UPN ends in `.local`, the email in `.com`, and `mail` is empty. People now sign in with their AD username, the directory is asked first, and the account is linked to their directory entry. **One migration**, which `deploy.sh` applies.
 
