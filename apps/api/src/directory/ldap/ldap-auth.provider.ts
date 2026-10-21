@@ -3,6 +3,7 @@ import type {
   AuthResult,
   AuthenticatedPrincipal,
   Credentials,
+  DirectoryAccounts,
   DirectoryUser,
   IAuthProvider,
   IAuthProviderSettings,
@@ -10,7 +11,12 @@ import type {
   LdapVerification,
   ProviderVerification,
 } from '@nexuspuppet/contracts';
-import { LDAP_EMAIL_PLACEHOLDER } from '@nexuspuppet/contracts';
+import {
+  ACCOUNT_DISPLAY_NAME_MAX,
+  LDAP_EMAIL_PLACEHOLDER,
+  accountEmailSchema,
+} from '@nexuspuppet/contracts';
+import { LogThrottle, throttledLogger } from '../../common/log-throttle';
 import { type LdapConfig, ldapConfigSchema } from './config';
 import { dialectDefaults } from './dialect';
 import { InvalidUsernameError, buildBindIdentity, isDnPattern } from './dn';
@@ -22,7 +28,7 @@ import {
   type LdapDirectory,
   type LdapEntry,
 } from './ldap-client';
-import { resolveRoles } from './role-mapping';
+import { normalizeDn, resolveRoles } from './role-mapping';
 
 /**
  * Identity lookup this provider needs from the host application.
@@ -33,13 +39,16 @@ import { resolveRoles } from './role-mapping';
  * it. A principal with an invented id would fail at session issuance, or worse,
  * detach the audit trail from the person who acted.
  *
- * So accounts are provisioned in NexusPuppet (with authSource 'ldap' and no
- * password hash) and the directory decides whether the person may log in and
+ * So every directory user has an account in NexusPuppet (authSource 'ldap',
+ * no password hash), LINKED to their directory entry by its stable id
+ * (ADR-0031), and the directory decides whether the person may sign in and
  * with what role.
  */
 export interface LdapIdentityStore {
   findByEmail(email: string): Promise<StoredIdentity | null>;
   findById(userId: string): Promise<StoredIdentity | null>;
+  /** The account linked to a directory entry (ADR-0031). */
+  findByDirectoryId(directoryId: string): Promise<StoredIdentity | null>;
   /**
    * Persist what the directory said at login: the role derived from group
    * membership, and the current display name.
@@ -101,13 +110,31 @@ export interface LdapAuthProviderDeps {
   settings?: IAuthProviderSettings;
 }
 
-/** A person the directory authenticated, and which NexusPuppet account they are. */
+/** A person the directory authenticated. */
 interface DirectoryMatch {
   entry: LdapEntry;
   groupDns: string[];
-  /** The email the NexusPuppet account is looked up by. */
-  accountEmail: string;
+  /**
+   * What was typed, normalised — but only when the directory VOUCHED for it:
+   * the search matched this entry by it, or a Simple bind bound as it. It may
+   * then link an account carrying it as its email. Null when the bind proved
+   * only part of it ({username} drops the domain), so it vouches for nothing.
+   */
+  vouchedIdentifier: string | null;
 }
+
+/**
+ * How many refusal lines a minute for an identifier NO account has (ADR-0031).
+ *
+ * Sign-in is directory-first, so anything typed reaches the directory, and
+ * each refusal says why. The login limiter keys on address and IP, so it does
+ * not bound that across identifiers: the lines are throttled — enough for an
+ * operator trying several people in a row, not enough for a stranger to fill
+ * a disk.
+ */
+const UNKNOWN_IDENTIFIER_LINES_PER_MINUTE = 10;
+
+type ProviderLogger = NonNullable<LdapAuthProviderDeps['logger']>;
 
 /** The configuration in force for one authentication, and its client. */
 interface EffectiveDirectory {
@@ -149,7 +176,9 @@ export class LdapAuthProvider implements IAuthProvider {
   /** A client for the baseline, built on first use if boot did not supply one. */
   private bootDirectory: LdapDirectory | null;
   private readonly identities: LdapIdentityStore;
-  private readonly logger: NonNullable<LdapAuthProviderDeps['logger']>;
+  private readonly logger: ProviderLogger;
+  /** The same logger, throttled, for identifiers no account has. See above. */
+  private readonly unknownIdentifierLogger: ProviderLogger;
   private readonly directoryFor: (config: LdapConfig) => LdapDirectory;
   private readonly settings: IAuthProviderSettings | undefined;
 
@@ -176,6 +205,10 @@ export class LdapAuthProvider implements IAuthProvider {
     this.settings = deps.settings;
     this.identities = deps.identities;
     this.logger = deps.logger ?? console;
+    this.unknownIdentifierLogger = throttledLogger(
+      this.logger,
+      new LogThrottle(UNKNOWN_IDENTIFIER_LINES_PER_MINUTE, 60_000),
+    );
     this.directoryFor = deps.directoryFor ?? ((config) => new LdaptsDirectory(config, this.logger));
     this.current = deps.config;
 
@@ -183,8 +216,10 @@ export class LdapAuthProvider implements IAuthProvider {
   }
 
   /**
-   * 'Email' for every dialect — accounts are found by the address typed — see
-   * the dialect defaults.
+   * 'Username or email' for every dialect — the directory is asked first, so a
+   * username finds the person (ADR-0031) — and 'Email' for a Simple pattern
+   * built from {email}, which binds as the whole address. 'Email' while
+   * dormant: there is nothing to type a username for.
    *
    * Follows the configuration in force, so a save that detects Active
    * Directory (or chooses Simple bind) relabels the login form at the next
@@ -274,6 +309,7 @@ export class LdapAuthProvider implements IAuthProvider {
         ? {}
         : { searchFilter: config.searchFilter }),
       nestedGroups: config.nestedGroups,
+      autoCreateAccounts: config.autoCreateAccounts,
       roleMappings: config.roleMappings.map((mapping) => ({
         groupDn: mapping.groupDn,
         role: mapping.role,
@@ -509,11 +545,59 @@ export class LdapAuthProvider implements IAuthProvider {
         // Stated explicitly because it changes what the mapping table means: a
         // referred user is invisible, not absent.
         { label: 'Referrals', value: 'not followed' },
+        // And this changes what it means more: with it on, the mapping table
+        // is the list of who may have an account at all (ADR-0031).
+        {
+          label: 'Accounts',
+          value: config.autoCreateAccounts
+            ? 'linked at sign-in; created at first sign-in for anyone in a mapped group'
+            : 'linked at sign-in; created by an administrator',
+        },
       ],
     };
   }
 
+  /**
+   * Sign in, finding the account WITHOUT writing: linked to the entry, else
+   * carrying one of its addresses. Never links and never creates — those need
+   * `authenticateDirectory`'s writer, which the resolver supplies.
+   */
   async authenticate(credentials: Credentials): Promise<AuthResult> {
+    return this.signIn(credentials, null);
+  }
+
+  /**
+   * Directory-first sign-in (ADR-0031): authenticate whatever was typed —
+   * username, UPN or email — then find the account linked to the entry, link
+   * one that carries its address, or create one where that is turned on.
+   */
+  async authenticateDirectory(
+    credentials: Credentials,
+    accounts: DirectoryAccounts,
+  ): Promise<AuthResult> {
+    return this.signIn(credentials, accounts);
+  }
+
+  /**
+   * ONE implementation of search, bind and group resolution, whichever way it
+   * was asked: a second copy for directory-first sign-in would be a second
+   * place for the subtle parts — escaping, the two-entry refusal — to drift.
+   */
+  private async signIn(
+    credentials: Credentials,
+    accounts: DirectoryAccounts | null,
+  ): Promise<AuthResult> {
+    /*
+     * Refusals of an identifier NO account has go through a throttle: with
+     * directory-first sign-in anybody can type anything and reach here, and
+     * the login limiter does not bound that across identifiers. One that is
+     * an account's email is bounded by the limiter, and logged in full.
+     */
+    const log =
+      accounts !== null && !accounts.identifierHasAccount
+        ? this.unknownIdentifierLogger
+        : this.logger;
+
     // An LDAP bind with a DN and an EMPTY password is an "unauthenticated
     // bind" (RFC 4513 §5.1.2): the server MAY treat it as success while
     // granting nothing, so forwarding a blank password can authenticate
@@ -531,7 +615,9 @@ export class LdapAuthProvider implements IAuthProvider {
       return { ok: false, reason: 'INVALID_CREDENTIALS' };
     }
 
-    const email = credentials.email.trim().toLowerCase();
+    // Lower-cased: AD's and OpenLDAP's default matching rules for these
+    // attributes are case-insensitive, and account emails are stored lower-case.
+    const identifier = credentials.email.trim().toLowerCase();
 
     try {
       // Resolved per login, which is what makes a saved change take effect
@@ -550,8 +636,8 @@ export class LdapAuthProvider implements IAuthProvider {
 
       const found =
         config.bindType === 'simple'
-          ? await this.bindDirectly(config, directory, email, credentials.password)
-          : await this.searchThenBind(config, directory, email, credentials.password);
+          ? await this.bindDirectly(config, directory, identifier, credentials.password, log)
+          : await this.searchThenBind(config, directory, identifier, credentials.password, log);
 
       // No such entry, or the wrong password — deliberately one outcome: any
       // observable difference makes login a user-enumeration oracle against
@@ -562,31 +648,33 @@ export class LdapAuthProvider implements IAuthProvider {
       }
 
       // --- Authenticated. Everything below is authorization. ---------------
-      const { entry, groupDns, accountEmail } = found;
+      const { entry, groupDns } = found;
 
       const resolved = resolveRoles(groupDns, config);
       if (resolved === null) {
         // Correct credentials, no mapped group. Logged at info because this is
         // the message an operator needs when someone reports "my password
         // works everywhere else": their account is fine, their group is not
-        // mapped.
-        this.logger.log(
-          `LDAP login refused for ${email}: authenticated, but member of no mapped group.`,
+        // mapped. Nothing is linked or created for them.
+        log.log(
+          `LDAP login refused for ${identifier}: authenticated as ${entry.dn}, but member of no ` +
+            'mapped group — no account linked or created.',
         );
         return { ok: false, reason: 'INVALID_CREDENTIALS' };
       }
 
-      const identity = await this.identities.findByEmail(accountEmail);
+      const identity = await this.accountFor(found, resolved.primary, effective, accounts, log, {
+        identifier,
+      });
       if (identity === null) {
-        this.logger.log(
-          `LDAP login refused for ${email}: authenticated against the directory, but no ` +
-            'NexusPuppet account exists. Create one with authSource "ldap".',
-        );
+        // accountFor has said why.
         return { ok: false, reason: 'INVALID_CREDENTIALS' };
       }
 
       // Checked after the bind so a disabled account is indistinguishable from
       // a wrong password to anyone who does not already know the password.
+      // Never recreated, never reactivated: a deactivated account is still
+      // the account linked to this person (ADR-0031).
       if (!identity.isActive) {
         return { ok: false, reason: 'ACCOUNT_DISABLED' };
       }
@@ -608,7 +696,7 @@ export class LdapAuthProvider implements IAuthProvider {
         });
       } catch (error) {
         this.logger.warn(
-          `Could not persist LDAP login state for ${email}: ${describeError(error)}. ` +
+          `Could not persist LDAP login state for ${identity.email}: ${describeError(error)}. ` +
             'Session continues; refreshed tokens may carry the previous role.',
         );
       }
@@ -631,14 +719,199 @@ export class LdapAuthProvider implements IAuthProvider {
       // invalid credentials, and must never fall through to another provider.
       // Failing closed with a distinct reason is what stops a directory outage
       // from looking like an estate-wide password change.
-      this.logger.error(
-        `LDAP authentication error for ${email}: ${
+      log.error(
+        `LDAP authentication error for ${identifier}: ${
           error instanceof LdapUnavailableError || error instanceof Error
             ? error.message
             : String(error)
         }${error instanceof LdapUnavailableError && error.detail !== undefined ? ` (${error.detail})` : ''}`,
       );
       return { ok: false, reason: 'PROVIDER_ERROR' };
+    }
+  }
+
+  /**
+   * WHICH ACCOUNT this authenticated, authorised person is (ADR-0031), in
+   * order:
+   *
+   * 1. **Linked** — the account whose `directoryId` is the entry's. Whatever
+   *    was typed, and however their mail or UPN has changed since.
+   * 2. **Linkable** — an `ldap` account with no link yet whose email is what
+   *    was typed (when the directory vouched for it), the entry's mail, or its
+   *    UPN. Linked now, so step 1 finds it next time. NEVER a local account
+   *    (ADR-0015 §1: a directory password must not open a password account),
+   *    and never one already linked to a different entry.
+   * 3. **Created** — where the operator turned it on: a new account with the
+   *    entry's own address and the mapped role.
+   *
+   * Else null, with the reason in the log. Without a writer (`accounts` null)
+   * steps 2 and 3 find but never write.
+   *
+   * WITHOUT A DIRECTORY ID — a directory whose ACLs hide objectGUID/entryUUID
+   * from the reader — nothing can be linked or created, and step 2 falls back
+   * to the account carrying the address, unlinked: how every directory
+   * sign-in worked before, so such a deployment keeps working.
+   */
+  private async accountFor(
+    found: DirectoryMatch,
+    role: string,
+    { config, directory }: EffectiveDirectory,
+    accounts: DirectoryAccounts | null,
+    log: ProviderLogger,
+    { identifier }: { identifier: string },
+  ): Promise<StoredIdentity | null> {
+    const { entry } = found;
+    const directoryId = entry.directoryId ?? null;
+
+    // 1. Linked.
+    if (directoryId !== null) {
+      const linked = await this.identities.findByDirectoryId(directoryId);
+      if (linked !== null) {
+        if (linked.authSource === this.source) return linked;
+        // Only a directory sign-in sets the column, and moving an account to
+        // another source clears it; a row like this was edited by hand.
+        log.warn(
+          `LDAP login refused for ${identifier}: the account linked to ${entry.dn} ` +
+            `(${linked.email}) is a "${linked.authSource}" account, and is never opened ` +
+            'with a directory password.',
+        );
+        return null;
+      }
+    }
+
+    // 2. Linkable, by address.
+    const addresses = [
+      ...new Set(
+        [found.vouchedIdentifier, entry.email ?? null, entry.upn ?? null]
+          .filter((value): value is string => value !== null)
+          .map((value) => value.trim().toLowerCase())
+          // Only an address can be an account's email; a bare `jdoe` is not.
+          .filter((value) => accountEmailSchema.safeParse(value).success),
+      ),
+    ];
+
+    for (const address of addresses) {
+      const account = await this.identities.findByEmail(address);
+      if (account === null) continue;
+
+      if (account.authSource !== this.source) {
+        log.log(
+          `LDAP login for ${identifier}: ${address} is a "${account.authSource}" account, which ` +
+            'is never linked to a directory entry — a directory password must not open it. ' +
+            'Not used.',
+        );
+        continue;
+      }
+      /*
+       * AN ADDRESS THE PERSON DID NOT TYPE MUST NAME ONLY THEM. Mail is not
+       * unique in either directory, and on AD one entry's mail can be
+       * another's UPN — so an account an administrator created for somebody
+       * by that address could otherwise be linked to whoever carrying it signs
+       * in first. Before ADR-0031 that address was searched for and refused
+       * when it matched two entries; it still is, here: it must find exactly
+       * THIS entry through the configured search. Simple bind has no account
+       * to search with, so there only what the bind proved can link.
+       */
+      if (
+        address !== found.vouchedIdentifier &&
+        !(await this.namesOnly(address, entry, config, directory))
+      ) {
+        log.warn(
+          `LDAP login for ${identifier}: the account ${address} carries an address of ` +
+            `${entry.dn}, but that address does not identify only that entry through the ` +
+            `search (${searchedAttributes(config.searchFilter)}), so it is not used to link ` +
+            'the account. Sign in with that address itself, or make it unique in the directory.',
+        );
+        continue;
+      }
+
+      const existingLink = account.directoryId ?? null;
+      if (existingLink !== null && existingLink !== directoryId) {
+        log.warn(
+          `LDAP login for ${identifier}: the account ${address} is linked to a different ` +
+            `directory entry (${existingLink}, not ${directoryId ?? 'unknown'}), and is never ` +
+            're-linked. Not used. If the person really is the same, move the account to local ' +
+            'and back to ldap to clear the link.',
+        );
+        continue;
+      }
+
+      // Nothing to link with, nothing to link through, or an account that
+      // would only be refused: use it as it is.
+      if (directoryId === null || accounts === null || !account.isActive) {
+        if (directoryId === null) {
+          log.log(
+            `LDAP login for ${identifier}: the directory did not return a stable id ` +
+              `(${config.attributes.directoryId}) for ${entry.dn}, so the account ${address} is ` +
+              'used without being linked. Give the reader access to that attribute.',
+          );
+        }
+        return account;
+      }
+
+      return accounts.link(account.userId, directoryId);
+    }
+
+    // 3. Created.
+    if (accounts !== null && config.autoCreateAccounts) {
+      if (directoryId === null) {
+        log.warn(
+          `LDAP login refused for ${identifier}: authenticated as ${entry.dn}, but the directory ` +
+            `did not return its stable id (${config.attributes.directoryId}) — no account ` +
+            'created, because one could not be linked to the person. Give the reader access ' +
+            'to that attribute.',
+        );
+        return null;
+      }
+
+      const email = [entry.email, entry.upn, entry.username]
+        .map((value) => (value ?? '').trim().toLowerCase())
+        .find((value) => accountEmailSchema.safeParse(value).success);
+      if (email === undefined) {
+        log.warn(
+          `LDAP login refused for ${identifier}: authenticated as ${entry.dn}, but the entry has ` +
+            'no email address (mail or userPrincipalName) to key an account by — no account ' +
+            'created.',
+        );
+        return null;
+      }
+
+      return accounts.create({
+        email,
+        displayName: firstSignInDisplayName(entry.displayName, email),
+        role,
+        directoryId,
+      });
+    }
+
+    log.log(
+      `LDAP login refused for ${identifier}: authenticated as ${entry.dn}, but no NexusPuppet ` +
+        'account is linked to that entry or carries one of its addresses ' +
+        `(${addresses.join(', ') || 'none'}). Create an account with authSource "ldap" and one ` +
+        'of those emails, or turn on automatic account creation.',
+    );
+    return null;
+  }
+
+  /**
+   * Whether `address`, searched for as a sign-in name, finds exactly `entry`
+   * and nothing else. False for no match, a different entry, two entries,
+   * Simple bind (nothing to search with), or a directory that would not say.
+   */
+  private async namesOnly(
+    address: string,
+    entry: LdapEntry,
+    config: LdapConfig,
+    directory: LdapDirectory,
+  ): Promise<boolean> {
+    if (config.bindType === 'simple') return false;
+    try {
+      const found = await directory.findEntry(buildFilter(config.searchFilter, address));
+      return found !== null && normalizeDn(found.dn) === normalizeDn(entry.dn);
+    } catch {
+      // Two entries (findEntry refuses a second) or the directory failing:
+      // either way, not proof.
+      return false;
     }
   }
 
@@ -651,6 +924,7 @@ export class LdapAuthProvider implements IAuthProvider {
     directory: LdapDirectory,
     identifier: string,
     password: string,
+    log: ProviderLogger,
   ): Promise<DirectoryMatch | null> {
     const filter = buildFilter(config.searchFilter, identifier);
     const entry = await directory.findEntry(filter);
@@ -662,25 +936,22 @@ export class LdapAuthProvider implements IAuthProvider {
      * both used to be silent. "User not found" from an AD whose mail differs
      * from its UPN looked, in the log, like nothing at all.
      *
-     * Only an address that already has an LDAP account reaches here (the
-     * resolver refuses every other address first), and the login limiter
-     * bounds the attempts per address, so a stranger cannot drive these. The
-     * address is the stored account's, normalised, so it is safe to print.
-     * The password is never part of either line.
+     * Sign-in is directory-first (ADR-0031), so anything typed can reach
+     * here; for an identifier no account has, `log` is the throttled logger.
+     * The identifier is normalised; the password is never part of either line.
      */
     if (entry === null || entry.dn === '') {
-      this.logger.warn(
+      log.warn(
         `LDAP login refused for ${identifier}: no directory entry matched under ` +
           `${config.searchBase} (searched ${searchedAttributes(config.searchFilter)}). ` +
-          'The NexusPuppet account’s email must equal one of those on the person’s directory ' +
-          'entry — on Active Directory, their mail or their UPN.',
+          'Sign in with one of those — on Active Directory the username, the UPN or the mail.',
       );
       return null;
     }
 
     const bound = await directory.verifyCredentials(entry.dn, password);
     if (!bound) {
-      this.logger.log(rejectedPassword(identifier, entry.dn));
+      log.log(rejectedPassword(identifier, entry.dn));
       return null;
     }
 
@@ -691,15 +962,10 @@ export class LdapAuthProvider implements IAuthProvider {
     const groupDns = config.nestedGroups
       ? await this.resolveNestedGroups(entry, directory)
       : entry.groupDns;
-    // The account is the one that was TYPED, never the entry's `mail`. The
-    // resolver already found the NexusPuppet account by this address, and the
-    // search matched this entry by the same address (as UPN, mail or
-    // sAMAccountName), so they are the same person. Using `mail` instead
-    // refused anyone whose account was created with their AD UPN while their
-    // mail differs — "authenticated, but no NexusPuppet account exists" for an
-    // account that exists — and opened a DIFFERENT account for anyone who had
-    // one under each address. Simple bind already does this.
-    return { entry, groupDns, accountEmail: identifier };
+    // The search matched THIS entry by what was typed, so the directory
+    // vouches for it as one of the entry's names: it may link an account that
+    // carries it (ADR-0031).
+    return { entry, groupDns, vouchedIdentifier: identifier };
   }
 
   /**
@@ -717,6 +983,7 @@ export class LdapAuthProvider implements IAuthProvider {
     directory: LdapDirectory,
     identifier: string,
     password: string,
+    log: ProviderLogger,
   ): Promise<DirectoryMatch | null> {
     const pattern = config.userDnPattern ?? '';
 
@@ -725,7 +992,7 @@ export class LdapAuthProvider implements IAuthProvider {
       identity = buildBindIdentity(pattern, identifier);
     } catch (error) {
       if (error instanceof InvalidUsernameError) {
-        this.logger.warn(
+        log.warn(
           `LDAP login refused for ${identifier}: the address cannot be used with the User DN ` +
             `pattern ${pattern} (${error.message}). Nothing was sent to the directory.`,
         );
@@ -749,12 +1016,12 @@ export class LdapAuthProvider implements IAuthProvider {
       // "no such person" and "wrong password" are one answer from the
       // directory, and this line says both. With {email} on AD the bind works
       // only when the address IS the person's UPN — see sign-in.md.
-      this.logger.log(rejectedPassword(identifier, identity, { simple: true }));
+      log.log(rejectedPassword(identifier, identity, { simple: true }));
       return null;
     }
 
     if (result.entry === null || result.entry.dn === '') {
-      this.logger.warn(
+      log.warn(
         `LDAP login refused for ${identifier}: the directory accepted the password, but the ` +
           'account could not read its own entry, so its groups are unknown. Grant users read ' +
           'access to their own entry, or use Regular bind with a service account.',
@@ -764,23 +1031,24 @@ export class LdapAuthProvider implements IAuthProvider {
 
     /*
      * {username} DROPS THE DOMAIN, so two addresses can reach one entry:
-     * alice@x.example and alice@y.example both bind as uid=alice. Whoever
-     * holds that entry's password must not thereby sign in as an account that
-     * is not theirs. When the entry says whose it is — a `mail` — it has to be
-     * the address that was typed. ({email} needs no check: the identity bound
-     * IS the address typed.)
+     * alice@x.example and alice@y.example both bind as uid=alice. Typing a
+     * bare `alice` is what {username} is for. But somebody who typed an
+     * ADDRESS that is not the entry's own is refused rather than signed in as
+     * a person they did not name — and an address the bind did not prove is
+     * never used to link an account (ADR-0031). ({email} needs neither: the
+     * identity bound IS the address typed.)
      */
-    const typedEmail = identifier.trim().toLowerCase();
-    if (
-      !pattern.includes(LDAP_EMAIL_PLACEHOLDER) &&
-      result.entry.email !== null &&
-      result.entry.email.trim().toLowerCase() !== typedEmail
-    ) {
-      this.logger.warn(
+    const typed = identifier.trim().toLowerCase();
+    const usesEmail = pattern.includes(LDAP_EMAIL_PLACEHOLDER);
+    const own = [result.entry.email, result.entry.upn ?? null]
+      .filter((value): value is string => value !== null)
+      .map((value) => value.trim().toLowerCase());
+    if (!usesEmail && typed.includes('@') && own.length > 0 && !own.includes(typed)) {
+      log.warn(
         `LDAP login refused for ${identifier}: the directory accepted the password for ` +
-          `${result.entry.dn}, but that entry's mail is ${result.entry.email}, not the address ` +
-          'signed in with. With {username} the domain is not part of the bind, so the mail must ' +
-          'match. Use {email}, or correct the account’s email.',
+          `${result.entry.dn}, but that entry's address is ${own.join(' / ')}, not the one ` +
+          'signed in with. With {username} the domain is not part of the bind, so an address ' +
+          'must be the entry’s own — or sign in with the username alone.',
       );
       return null;
     }
@@ -797,10 +1065,10 @@ export class LdapAuthProvider implements IAuthProvider {
       result.nestedGroups === null
         ? result.entry.groupDns
         : [...new Set([...result.entry.groupDns, ...result.nestedGroups])];
-    // The account the resolver chose — the one typed — and no other. On AD the
-    // entry's mail may differ from the UPN signed in with, and that must not
-    // move the session to a different account.
-    return { entry: result.entry, groupDns, accountEmail: typedEmail };
+    // What the bind proved: with {email}, the whole address; with {username},
+    // an address only when it is the entry's own (checked above).
+    const vouched = usesEmail || own.includes(typed) ? typed : null;
+    return { entry: result.entry, groupDns, vouchedIdentifier: vouched };
   }
 
   /**
@@ -944,6 +1212,17 @@ function describeTls(config: LdapConfig, inherited = false): string {
   return inherited
     ? `enforced (CA bundle ${config.caPath}, from this deployment)`
     : `enforced (CA bundle ${config.caPath})`;
+}
+
+/**
+ * The display name of an account created at first sign-in: the directory's,
+ * else the address. Trimmed to what an account may hold — a longer name in the
+ * directory must not be the reason somebody cannot get in — and each later
+ * sign-in's `recordLogin` keeps it current, as for every directory user.
+ */
+function firstSignInDisplayName(fromDirectory: string | null, email: string): string {
+  const name = (fromDirectory ?? '').trim();
+  return (name === '' ? email : name).slice(0, ACCOUNT_DISPLAY_NAME_MAX);
 }
 
 function describeError(error: unknown): string {

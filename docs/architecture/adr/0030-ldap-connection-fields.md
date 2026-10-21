@@ -29,6 +29,17 @@
 >    which the console shows as a warning. Saving is still never refused for
 >    a failing check.
 
+> **Amended 2026-10-21 ([ADR-0031](./0031-standard-directory-sign-in.md)).**
+> §3's premise — "people always sign in with their account's email", found
+> before any directory is asked — no longer holds for LDAP. People type their
+> username, UPN or email; the directory is asked first; the login field says
+> **Username or email** (**Email** for a Simple `{email}` pattern). With
+> `{username}`, a bare username is accepted; someone who types an *address*
+> must type one of their entry's own (mail or UPN), which replaces "an entry
+> that has a `mail` must carry the address signed in with". The OpenLDAP
+> default filter gains `uid`. The bind types, escaping, STARTTLS and detection
+> are unchanged.
+
 ## Context
 
 ADR-0029 put the directory in the console. The form it shipped asked for a **Server URL** — `ldaps://dc01.example.com:636` — a **Directory type** (Active Directory or OpenLDAP), a **Bind DN** and a **Bind password**.

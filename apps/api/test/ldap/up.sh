@@ -164,13 +164,14 @@ EOF
 echo "=== letting an anonymous reader search people (for the Anonymous bind type) ==="
 # The Anonymous bind type (ADR-0030) searches with no service account, so the
 # directory has to let nobody-in-particular find a person: their DN, mail,
-# display name and groups. Never userPassword — that rule comes later and still
-# says `by anonymous auth`. Inserted at {1}, after the service account's rule.
+# display name and groups — and entryUUID, the stable id an account is linked
+# by (ADR-0031). Never userPassword — that rule comes later and still says
+# `by anonymous auth`. Inserted at {1}, after the service account's rule.
 docker exec -i "$CONTAINER" ldapmodify -c -Y EXTERNAL -H ldapi:/// <<EOF 2>&1 | sed 's/^/  /' || true
 dn: ${DB_DN}
 changetype: modify
 add: olcAccess
-olcAccess: {1}to dn.subtree="ou=people,${BASE_DN}" attrs=entry,objectClass,uid,cn,sn,mail,displayName,memberOf by anonymous read by * break
+olcAccess: {1}to dn.subtree="ou=people,${BASE_DN}" attrs=entry,objectClass,uid,cn,sn,mail,displayName,memberOf,entryUUID by anonymous read by * break
 EOF
 
 echo "=== allowing unauthenticated bind (to prove the guard is load-bearing) ==="
@@ -217,8 +218,8 @@ readable=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
   -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
   | grep -c '^dn:' || true)
 
-if [ "${readable:-0}" -lt 7 ]; then
-  echo "::error:: the service account sees ${readable} of 7 people. The ACL did not apply," >&2
+if [ "${readable:-0}" -lt 8 ]; then
+  echo "::error:: the service account sees ${readable} of 8 people. The ACL did not apply," >&2
   echo "          so every login would fail with PROVIDER_ERROR." >&2
   exit 1
 fi
@@ -259,8 +260,8 @@ echo "=== verifying an anonymous reader can find people ==="
 anonymous=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
   -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
   | grep -c '^dn:' || true)
-if [ "${anonymous:-0}" -lt 7 ]; then
-  echo "::error:: an anonymous search sees ${anonymous} of 7 people; the Anonymous bind tests would fail." >&2
+if [ "${anonymous:-0}" -lt 8 ]; then
+  echo "::error:: an anonymous search sees ${anonymous} of 8 people; the Anonymous bind tests would fail." >&2
   exit 1
 fi
 echo "  anonymous search sees ${anonymous} people"

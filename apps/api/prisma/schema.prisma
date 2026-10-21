@@ -84,6 +84,14 @@ model User {
   isActive            Boolean   @default(true)
   /// Identifier of the auth provider that owns this account.
   authSource          String    @default("local")
+  /// The directory entry this account is linked to (ADR-0031): Active
+  /// Directory's objectGUID or OpenLDAP's entryUUID, as a canonical lower-case
+  /// UUID. How a directory sign-in finds its account whatever the person typed
+  /// — username, UPN or email — and however their mail or UPN changes later.
+  ///
+  /// Null until the account's first directory sign-in links it; never set on a
+  /// local account. Unique, so one entry can never open two accounts.
+  directoryId         String?   @unique
   lastLoginAt         DateTime?
   /// Consecutive failed password attempts. Reset to zero on success.
   ///

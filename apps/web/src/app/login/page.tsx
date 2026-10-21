@@ -53,10 +53,10 @@ export default function LoginPage() {
    * choose between. Redirect sources each need their own button, because a
    * redirect begins before anybody has named an account to dispatch on.
    *
-   * The label comes from the first credentials source. Built-in sources all say
-   * 'Email' — accounts are found by the address typed — but a provider may name
-   * its own; the directory's label wins, since a local admin already knows what
-   * to type.
+   * The label comes from the first credentials source. Local says 'Email'; LDAP
+   * says 'Username or email', because it asks the directory first (ADR-0031).
+   * The directory's label wins, since a local admin already knows what to type
+   * — and the field is plain text then, so `jdoe` is not refused as no email.
    */
   const credentialSource =
     sources.find((entry) => entry.mode === 'credentials' && entry.source !== 'local') ??

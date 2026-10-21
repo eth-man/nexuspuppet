@@ -515,9 +515,16 @@ export class UsersService {
        */
       const passwordHash = toLocal ? await hashPassword(input.password ?? '') : null;
 
+      /*
+       * The directory link goes too (ADR-0031). It says which directory entry
+       * this account belongs to; after a move it belongs to no entry until a
+       * directory sign-in links it again. This is also the documented way to
+       * re-link an account whose person has a new entry — moved to a new
+       * directory, say — because a sign-in never re-links on its own.
+       */
       const after = await tx.user.update({
         where: { id },
-        data: { authSource: target, passwordHash },
+        data: { authSource: target, passwordHash, directoryId: null },
       });
 
       await this.record(
@@ -526,8 +533,8 @@ export class UsersService {
         context,
         'user.auth-source.move',
         id,
-        { email: before.email, authSource: before.authSource },
-        { email: after.email, authSource: after.authSource },
+        { email: before.email, authSource: before.authSource, directoryId: before.directoryId },
+        { email: after.email, authSource: after.authSource, directoryId: after.directoryId },
       );
 
       return after;

@@ -111,7 +111,8 @@ export async function login(page: Page): Promise<void> {
    * whether the field says Email or Username — so waiting for the input to be
    * EDITABLE, not merely present, is what makes this stable.
    */
-  const identifier = page.getByLabel(/^(Email|Username)$/);
+  // "Username or email" wherever LDAP is configured (ADR-0031).
+  const identifier = page.getByLabel(/^(Email|Username|Username or email)$/);
   await identifier.waitFor({ state: 'visible' });
   await identifier.fill(ADMIN_EMAIL);
   await page.getByLabel('Password').fill(ADMIN_PASSWORD);

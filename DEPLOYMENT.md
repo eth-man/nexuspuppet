@@ -257,14 +257,17 @@ pins it. So `admin@example.com` signs in after the switch exactly as before.
 
 What is still true, and still catches people:
 
-- **There is no auto-provisioning, and the refusal looks like a wrong password.**
-  A directory user with no row in `users` is rejected — the resolver looks the
-  account up before choosing a provider, so a missing account and a wrong
-  password are indistinguishable from the outside. The API log says which it
-  was. This is deliberate
-  (ADR-0015 §2: dispatch must not become a user-enumeration oracle), and it is
-  the single most common cause of "LDAP is configured correctly and nobody can
-  log in".
+- **Accounts are created automatically only if you tick it, and a refusal
+  looks like a wrong password.** LDAP sign-in is directory-first (ADR-0031):
+  people type their username, UPN or email, the directory authenticates them,
+  and the account is the one linked to their entry — or one whose email is the
+  entry's mail or UPN, which is then linked. With **Create accounts
+  automatically for people in a mapped group** ticked (or
+  `LDAP_AUTO_CREATE_ACCOUNTS=true`), anyone in a mapped group gets an account
+  at first sign-in; without it, an authenticated person with no account is
+  refused. A missing account and a wrong password are indistinguishable from
+  the outside — deliberately (ADR-0015 §2: dispatch must not become a
+  user-enumeration oracle) — and the API log says which it was.
 
 So the ordering below is about your **directory users** being able to sign in,
 not about you being able to. Getting it wrong is an inconvenience you fix from a
@@ -590,12 +593,14 @@ against a live Windows Server 2025 DC.
   no `inetOrgPerson`, so every login fails while the URL and base DN look
   correct. The `ad` dialect supplies its own filter, which finds a person by
   `mail`, `userPrincipalName` or `sAMAccountName`.
-- **Create each account with the person's `mail` or UPN.** People sign in with
-  their account's email, and in most ADs the work email (`mail`,
-  `alice@example.com`) is not the UPN (`alice@corp.local`). Either works with
-  Regular and Anonymous bind. Simple bind with `{email}` binds *as* the address,
-  so there only the UPN works — use `{username}@corp.local` or Regular when they
-  differ. A refused sign-in logs why: `docker compose logs api | grep -i "login refused"`.
+- **People sign in with their AD username** (`jdoe`), their UPN or their mail
+  (ADR-0031). The account is linked to their entry's `objectGUID` at first
+  sign-in, so it does not matter that the UPN suffix is `.local` while the
+  email is `.com`, or that `mail` is empty. Tick automatic account creation,
+  or create each account with the person's `mail` or UPN so it can be linked.
+  Simple bind with `{email}` binds *as* the address, so there only the UPN
+  works — use `{username}@corp.local` and people type `jdoe`. A refused sign-in
+  logs why: `docker compose logs api | grep -i "login refused\|login for"`.
 - **`.env` is a fallback, not a merge.** Once anything is saved through the
   console, `provider_settings` holds a row, the database wins, and every
   directory value in `.env` goes inert (ADR-0015 §4). `GET /settings/auth/ldap`
@@ -618,23 +623,25 @@ environment keeps its URL and gains the same choices:
 | Bind type Simple, User DN pattern | `LDAP_BIND_TYPE=simple`, `LDAP_USER_DN_PATTERN={email}` (AD) or `uid={username},ou=people,dc=…` |
 | Bind type Anonymous | `LDAP_BIND_TYPE=anonymous` (default without `LDAP_BIND_DN`) |
 | Directory type (detected) | `LDAP_DIALECT=ad` or `openldap` (default) — the environment does not detect |
+| Create accounts automatically for people in a mapped group | `LDAP_AUTO_CREATE_ACCOUNTS=true` (default `false`; anything but `true`/`false` refuses to boot) |
 
 A contradictory or malformed combination — `LDAP_STARTTLS=true` with `ldaps://`,
 Simple with a bind DN, a pattern without exactly one `{email}` or `{username}` —
 refuses to boot with a message naming the variable, as every other malformed
 `LDAP_*` value does.
 
-**Simple bind patterns.** People always sign in with their account's email
-address — the console finds the account by it before any directory is asked —
-so a pattern is built from that address: `{email}` is the whole of it
-(normalised as the account lookup does: trimmed, lower-cased), `{username}` the
-part before the last `@`. Valid patterns are a DN with either one as a whole
-attribute value (`uid={username},ou=people,dc=example,dc=com`,
-`cn={email},ou=people,…`; the value is DN-escaped per RFC 4514), exactly
-`{email}`, or `{username}@<domain>`. On Active Directory use `{email}`: the
-address is the UPN. Because `{username}` drops the domain, an entry with a
-`mail` attribute must carry the address signed in with, or the sign-in is
-refused.
+**Simple bind patterns.** A pattern is built from what the person types
+(trimmed, lower-cased): `{email}` is the whole of it, `{username}` the part
+before the last `@` — or all of it, for a bare username. Valid patterns are a
+DN with either one as a whole attribute value
+(`uid={username},ou=people,dc=example,dc=com`, `cn={email},ou=people,…`; the
+value is DN-escaped per RFC 4514), exactly `{email}`, or `{username}@<domain>`.
+On Active Directory use `{username}@<UPN suffix>` and people type their
+username, or `{email}` when everyone types their UPN. Because `{username}` drops
+the domain, someone who types an *address* must type one of their entry's own
+(mail or UPN), or the sign-in is refused. Simple bind has no service account to
+prove an address with, so an account created by hand is linked the first time
+its owner signs in with that address.
 
 STARTTLS upgrades every connection before its first bind. If the server
 refuses or the handshake fails, the operation stops there: nothing, not even the
@@ -680,9 +687,9 @@ limit — or set `OIDC_DEFAULT_ROLE` to admit everyone at a floor role.
 The refusal says so explicitly, naming the endpoint it was referred to, so it
 does not read as a role-mapping problem.
 
-**There is no auto-provisioning** (ADR-0015 §5): a directory user with no
-NexusPuppet account is refused before the directory is ever asked. Create the
-account first, with `authSource` set to the directory.
+**Single sign-on does not create accounts** (ADR-0015 §5; ADR-0031 amends it
+for LDAP only): an OIDC user with no NexusPuppet account is refused. Create the
+account first, with `authSource` `oidc`.
 
 ---
 

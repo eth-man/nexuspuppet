@@ -206,7 +206,8 @@ nothing on screen explains.
 ### 7. What does not change
 
 - **No auto-provisioning.** A directory user without an account is still refused
-  (ADR-0015 §5).
+  (ADR-0015 §5). *Amended 2026-10-21 by [ADR-0031](./0031-standard-directory-sign-in.md):
+  opt-in for LDAP, which also links accounts to directory entries.*
 - **The timing floor still belongs to the resolver.** With more sources there are
   more latencies to flatten, and the same enumeration oracle to close
   (ADR-0015 §2).

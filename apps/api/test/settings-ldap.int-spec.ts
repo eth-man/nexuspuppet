@@ -40,6 +40,7 @@ const SETTINGS: LdapSettings = {
   bindPassword: 'a-bind-secret',
   searchBase: 'ou=people,dc=example,dc=test',
   nestedGroups: false,
+  autoCreateAccounts: false,
   roleMappings: [{ groupDn: 'cn=ops,dc=example,dc=test', role: 'OPERATOR' }],
   timeoutMs: 10_000,
   tlsRejectUnauthorized: true,

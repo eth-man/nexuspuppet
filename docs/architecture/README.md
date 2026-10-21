@@ -120,7 +120,7 @@ Status as each ADR records it. ADRs are not edited once accepted (ADR-0000), so 
 | [0012](./adr/0012-gitops-classification-mirror.md) | GitOps mode: classification mirrored to Git — **Deferred** |
 | [0013](./adr/0013-console-tls-private-ca.md) | TLS for the console, from a private CA |
 | [0014](./adr/0014-enterprise-licensing.md) | Enterprise licensing: signed offline claim, degrading to core — **Rejected**, never ratified; the product went fully open source |
-| [0015](./adr/0015-hybrid-authentication.md) | Hybrid authentication: local and directory accounts together — **Accepted** |
+| [0015](./adr/0015-hybrid-authentication.md) | Hybrid authentication: local and directory accounts together — **Accepted**; §1 and §5 amended by 0031 |
 | [0016](./adr/0016-settings-store-and-audit-forwarding.md) | Settings store, syslog forwarding, and audit retention — **Accepted**; §4 amended by 0029 |
 | [0017](./adr/0017-console-certificate-management.md) | Installing a console certificate from the console — **Accepted** |
 | [0018](./adr/0018-custom-roles.md) | Custom roles with granular permissions — **Accepted** |
@@ -135,7 +135,8 @@ Status as each ADR records it. ADRs are not edited once accepted (ADR-0000), so 
 | [0027](./adr/0027-one-product.md) | One product: the enterprise seam is removed — **Accepted**; supersedes 0002 |
 | [0028](./adr/0028-support-bundle.md) | The support bundle, and the API's own log history — **Accepted** |
 | [0029](./adr/0029-directory-from-the-console.md) | A directory is enabled from the console — **Accepted**; amends 0016 §4 and 0027 §5; form amended by 0030 |
-| [0030](./adr/0030-ldap-connection-fields.md) | LDAP connection fields an operator recognises: server, port, LDAPS/STARTTLS, bind types, detected directory type — **Accepted**; amended: AD filter matches `mail`, Save reports its connection check |
+| [0030](./adr/0030-ldap-connection-fields.md) | LDAP connection fields an operator recognises: server, port, LDAPS/STARTTLS, bind types, detected directory type — **Accepted**; amended: AD filter matches `mail`, Save reports its connection check; §3 amended by 0031 |
+| [0031](./adr/0031-standard-directory-sign-in.md) | Standard directory sign-in: username, linked accounts, created on first sign-in — **Accepted**; amends 0015 §1 and §5, 0030 §3 |
 
 ## 11. Open questions
 

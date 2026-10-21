@@ -223,7 +223,7 @@ describe('a stored row from before ADR-0030', () => {
       bindDn: 'cn=svc,dc=example,dc=com',
       bindPassword: 'svc-secret',
       dialect: 'ad',
-      identifierLabel: 'Email',
+      identifierLabel: 'Username or email',
     });
     // The AD filter it always had, because the dialect is what it chose.
     expect(config.searchFilter).toContain('sAMAccountName');
@@ -299,17 +299,19 @@ describe('a configuration saved after ADR-0030', () => {
     expect(config.url).toBe('ldap://dc01.example.com:389');
   });
 
-  it('labels the login field Email for Simple bind, whatever the directory', () => {
-    // People type the account's address; the pattern takes {email} or the
-    // {username} before its @ from it.
-    for (const [dialect, pattern] of [
-      ['openldap', 'uid={username},dc=x'],
-      ['ad', '{email}'],
+  it('labels the login field for what a Simple pattern can take, whatever the directory', () => {
+    // {email} binds as the whole address; {username} takes a bare username, or
+    // the part of an address before its @ (ADR-0031).
+    for (const [dialect, pattern, label] of [
+      ['openldap', 'uid={username},dc=x', 'Username or email'],
+      ['ad', '{username}@corp.local', 'Username or email'],
+      ['ad', '{email}', 'Email'],
+      ['openldap', 'cn={email},dc=x', 'Email'],
     ]) {
       expect(
         ldapConfigSchema.parse({ ...saved, detectedDialect: dialect, userDnPattern: pattern })
           .identifierLabel,
-      ).toBe('Email');
+      ).toBe(label);
     }
   });
 

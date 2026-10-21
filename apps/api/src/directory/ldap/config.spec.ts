@@ -320,3 +320,61 @@ describe('resolveRoles: ordering for built-ins, union for custom', () => {
     expect(resolveRoles(['cn=nobody,dc=x'], config)).toBeNull();
   });
 });
+
+/** ADR-0031: whether a directory creates accounts at first sign-in. */
+describe('LDAP_AUTO_CREATE_ACCOUNTS', () => {
+  it('is off when unset — every existing deployment behaves as it did', () => {
+    expect(ldapConfigFromEnv(BASE).autoCreateAccounts).toBe(false);
+  });
+
+  it('reads true and false', () => {
+    expect(
+      ldapConfigFromEnv({ ...BASE, LDAP_AUTO_CREATE_ACCOUNTS: 'true' }).autoCreateAccounts,
+    ).toBe(true);
+    expect(
+      ldapConfigFromEnv({ ...BASE, LDAP_AUTO_CREATE_ACCOUNTS: 'false' }).autoCreateAccounts,
+    ).toBe(false);
+  });
+
+  it.each(['yes', 'TRUE', '1', ''])('refuses to boot on %p — it decides who gets in', (value) => {
+    expect(() => ldapConfigFromEnv({ ...BASE, LDAP_AUTO_CREATE_ACCOUNTS: value })).toThrow(
+      /LDAP_AUTO_CREATE_ACCOUNTS: must be true or false/,
+    );
+  });
+
+  it('is off for a stored configuration saved before it existed', () => {
+    expect(
+      ldapConfigSchema.parse({
+        host: 'dc01.corp.local',
+        port: 636,
+        protocol: 'ldaps',
+        bindType: 'anonymous',
+        searchBase: 'dc=corp,dc=local',
+      }).autoCreateAccounts,
+    ).toBe(false);
+  });
+});
+
+/** ADR-0031: OpenLDAP people sign in by uid as readily as by mail. */
+describe('the OpenLDAP default filter', () => {
+  it('reads the former mail-only default, carried into a saved row, as the default', () => {
+    expect(
+      ldapConfigSchema.parse({
+        url: 'ldaps://ldap.example.com',
+        searchBase: 'dc=example,dc=com',
+        searchFilter: '(&(objectClass=person)(mail={{input}}))',
+      }).searchFilter,
+    ).toBe('(&(objectClass=person)(|(uid={{input}})(mail={{input}})))');
+  });
+
+  it('keeps a mail-only filter on AD, where it can only have been chosen', () => {
+    expect(
+      ldapConfigSchema.parse({
+        url: 'ldaps://dc.example.com',
+        searchBase: 'dc=example,dc=com',
+        dialect: 'ad',
+        searchFilter: '(&(objectClass=person)(mail={{input}}))',
+      }).searchFilter,
+    ).toBe('(&(objectClass=person)(mail={{input}}))');
+  });
+});

@@ -90,6 +90,7 @@ const PEOPLE: Record<string, StoredIdentity> = {
 const identities: LdapIdentityStore = {
   findByEmail: async (email) => PEOPLE[email.toLowerCase()] ?? null,
   findById: async (id) => Object.values(PEOPLE).find((p) => p.userId === id) ?? null,
+  findByDirectoryId: async () => null,
   recordLogin: async () => {},
 };
 
@@ -126,10 +127,10 @@ describe.each([
 
   it('Simple: dave binds directly with the pattern and reads his own groups, ADMIN', async () => {
     const p = provider(config(transport, SIMPLE));
-    expect(p.identifierLabel).toBe('Email');
+    // A {username} pattern takes a username, or an address's part before the @
+    // (ADR-0031). (resolver-login.spec.ts runs this through the resolver.)
+    expect(p.identifierLabel).toBe('Username or email');
 
-    // What a person types is their account's address; {username} is the part
-    // before the @. (resolver-login.spec.ts runs this through the resolver.)
     const result = await p.authenticate({
       email: 'dave@nexuspuppet.test',
       password: 'dave-password',

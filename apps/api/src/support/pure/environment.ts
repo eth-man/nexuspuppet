@@ -94,6 +94,7 @@ export const ENVIRONMENT_TREATMENT: Readonly<Record<string, EnvTreatment>> = {
 
   // --- Directory and audit export (packages/enterprise) ---------------------
   LDAP_URL: 'value',
+  LDAP_AUTO_CREATE_ACCOUNTS: 'value',
   LDAP_BIND_DN: 'value',
   LDAP_BIND_PASSWORD: 'presence',
   LDAP_CA_PATH: 'value',

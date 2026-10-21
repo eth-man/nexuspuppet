@@ -386,7 +386,13 @@ export function UsersPanel() {
               ? 'Local account. The user can change their own password after signing in.'
               : chosenDormant
                 ? `Authenticated by ${authSource}, which is not configured yet. The account can be created now; it cannot sign in until ${authSource} is configured under Directory / Auth.`
-                : `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.`
+                : // The LDAP sentence is conditional because this dialog cannot
+                  // see the setting — it needs settings:manage to read (ADR-0031).
+                  `Authenticated by ${authSource}. No password is held here — the directory decides whether they may sign in, and their group membership sets their role at each login.${
+                    authSource === 'ldap'
+                      ? ' Use the email on their directory entry (mail or UPN): it is linked to them at their first sign-in, whatever they type. If LDAP creates accounts automatically, people in a mapped group need not be added here.'
+                      : ''
+                  }`
         }
         footer={
           <>

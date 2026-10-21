@@ -2,6 +2,28 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Directory sign-in the way every other product does it** ([ADR-0031](docs/architecture/adr/0031-standard-directory-sign-in.md)). Two operator reports, reproduced against a real Active Directory: a person in the group mapped to ADMIN was refused because nobody had created their account; and once an account was created by hand with their email, they were still refused — *no directory entry matched* — because in that AD the UPN ends in `.local`, the email in `.com`, and `mail` is empty. People now sign in with their AD username, the directory is asked first, and the account is linked to their directory entry. **One migration**, which `deploy.sh` applies.
+
+### Added
+
+**Accounts created automatically for people in a mapped group — if you tick it.** **Settings → Directory / Auth → Role mappings** has **Create accounts automatically for people in a mapped group** (`autoCreateAccounts` in `PUT /settings/auth/ldap`; `LDAP_AUTO_CREATE_ACCOUNTS=true` in the environment, where anything but `true`/`false` refuses to boot). Someone with no account who signs in, authenticates against the directory and is in a mapped group gets an account: keyed by their entry's `mail` (else UPN), with the role their group maps to, linked to their entry, and recorded as `user.create` by `directory:ldap` in the same transaction. Off by default: saved and environment configurations behave as before until you tick it. **With it on, the role mappings are your access list — map specific groups, never `Domain Users`.** OIDC does not create accounts (a follow-up).
+
+**Accounts are linked to their directory entry.** The first time an `ldap` account's owner signs in, it is linked to their entry's stable id — `objectGUID` on AD (decoded to the GUID AD's tools show), `entryUUID` on OpenLDAP — stored in the new `users.directoryId` and recorded as `user.directory.link`. From then on the link finds the account, whatever they type and however their mail or UPN changes. An account is linked when its email is what they typed (and the directory matched it), or their entry's mail or UPN — the latter only when that address belongs to no other entry. A local account is never linked, and an account linked to one entry is never re-linked to another: move it to local and back to clear the link.
+
+### Changed
+
+**People sign in with their username, UPN or email.** The login field says **Username or email** wherever LDAP is configured (**Email** for a Simple `{email}` pattern). The directory is asked first, so `jdoe` works, and an account's email no longer has to be what they type. Local accounts sign in by their email exactly as before, and are never reached with a directory password. The OpenLDAP default search filter matches `uid` as well as `mail`; a stored filter equal to the old `mail`-only default is read as the new default.
+
+**Simple bind with `{username}` takes a bare username.** Someone who types an address must type one of their entry's own (mail or UPN), which replaces the rule that the entry's mail must equal the address typed.
+
+**A refused directory sign-in says why in new words** — *no NexusPuppet account is linked to that entry or carries one of its addresses (…)*, *is a "local" account, which is never linked*, *linked to a different directory entry*, *did not return its stable id* and others; see the troubleshooting guide. Refusals of names nobody has an account for are throttled to ten log lines a minute. The caller's answer and timing are unchanged.
+
+### Upgrading
+
+Re-run `sudo ./scripts/deploy.sh`: it applies the migration that adds `users.directoryId` (nullable, no backfill — existing directory accounts are linked at their next sign-in). Nothing to reconfigure. If the directory's ACLs hide `objectGUID`/`entryUUID` from the account that searches, accounts keep signing in unlinked and the log says which attribute to grant.
+
 ## [1.13.1] — 2026-10-21
 
 **Active Directory sign-in when the email is not the UPN.** An operator reported users who could not sign in through AD — "user not found". Reproduced against a real Active Directory and fixed. **No migration.**

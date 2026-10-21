@@ -1,8 +1,10 @@
 # Directory authentication — LDAP/AD and OIDC
 
 These providers are contributed **alongside** core's local provider, never
-instead of it (ADR-0015). A login is dispatched by the account's `authSource`;
-local accounts keep working whatever happens here.
+instead of it (ADR-0015). A login whose typed address is a local (or OIDC)
+account is dispatched by that account's `authSource`, and nothing else; every
+other login, with LDAP configured, is **directory-first** (ADR-0031) — see
+below. Local accounts keep working whatever happens here.
 
 Both are registered on every deployment (ADR-0029). Each resolves its
 configuration per sign-in: a row saved in the console, else its environment
@@ -31,8 +33,24 @@ person binds as it and their own entry is read, as them, on the same
 connection. With STARTTLS, every connection is upgraded before its first bind,
 and a refused or failed upgrade ends the operation with nothing sent.
 
-Then group membership decides the role, and the account is looked up in
-NexusPuppet to obtain a stable `userId`.
+Then group membership decides the role, and the NexusPuppet account is found
+(ADR-0031), in order:
+
+1. **linked** — the account whose `directoryId` is the entry's `objectGUID`
+   (AD, 16 bytes, decoded to the GUID string AD's tools print) or `entryUUID`
+   (OpenLDAP);
+2. **linkable** — an `ldap` account with no link whose email is what was typed
+   (when the search or bind proved it is this entry's), or the entry's `mail`
+   or UPN — those only when that address, searched for, finds this entry and
+   no other. It is linked in one transaction with a `user.directory.link`
+   audit row. Never a `local` account; never one linked to another entry;
+3. **created** — with `autoCreateAccounts` (`LDAP_AUTO_CREATE_ACCOUNTS`), an
+   account keyed by the entry's `mail` (else UPN), with the mapped role and the
+   link, in one transaction with a `user.create` audit row by `directory:ldap`.
+
+`DirectoryAccountWriter` (`src/auth/directory-accounts.ts`) does both writes;
+the provider decides. Concurrent first sign-ins meet the unique `email` and
+`directoryId` and re-read rather than fail.
 
 ### Configuration
 
@@ -42,17 +60,18 @@ NexusPuppet to obtain a stable `userId`.
 | `LDAP_URL` | yes | `ldaps://host[:port]`, or `ldap://host[:port]` with `LDAP_STARTTLS=true`. Plain `ldap://` alone still works and warns — binds are cleartext |
 | `LDAP_STARTTLS` | no | `true` upgrades an `ldap://` URL with STARTTLS before any bind; refused with `ldaps://` (ADR-0030) |
 | `LDAP_BIND_TYPE` | no | `regular`, `simple` or `anonymous`. Default: `regular` with `LDAP_BIND_DN`, else `anonymous` |
-| `LDAP_USER_DN_PATTERN` | with `simple` | One of `{email}` (the sign-in address) or `{username}` (before its `@`): `{email}` for AD, `uid={username},ou=people,dc=…` for OpenLDAP, or `{username}@corp.local` |
+| `LDAP_USER_DN_PATTERN` | with `simple` | One of `{username}` (what is typed, before any `@`) or `{email}` (a whole address): `{username}@corp.local` for AD, `uid={username},ou=people,dc=…` for OpenLDAP, or `{email}` where everyone types their UPN |
 | `LDAP_SEARCH_BASE` | yes | e.g. `ou=people,dc=example,dc=com` |
 | `LDAP_BIND_DN` | no | Service account for the search (Regular). Anonymous if unset |
 | `LDAP_BIND_PASSWORD` | with `LDAP_BIND_DN` | Set together or not at all |
-| `LDAP_SEARCH_FILTER` | no | Must contain `{{input}}`. Default matches `mail` |
+| `LDAP_SEARCH_FILTER` | no | Must contain `{{input}}`. Default matches `uid` or `mail` (OpenLDAP), `sAMAccountName`, UPN or `mail` (AD) |
 | `LDAP_ROLE_MAPPINGS` | effectively yes | `<groupDn>=<ROLE>;…`. No mappings ⇒ every login refused |
 | `LDAP_TIMEOUT_MS` | no | Default 10000 |
 | `LDAP_CA_PATH` | no | PEM bundle signing the directory's certificate. Needed for an internal CA |
 | `LDAP_NESTED_GROUPS` | no | AD only. Resolve transitive membership via `LDAP_MATCHING_RULE_IN_CHAIN` |
 | `LDAP_GROUP_SEARCH_BASE` | no | Where nested-group search runs. Defaults to `LDAP_SEARCH_BASE` |
 | `LDAP_TLS_REJECT_UNAUTHORIZED` | no | Default true. `false` disables certificate verification |
+| `LDAP_AUTO_CREATE_ACCOUNTS` | no | `true` creates an account at first sign-in for anyone in a mapped group (ADR-0031). Default `false`; anything but `true`/`false` refuses to boot |
 
 ```bash
 LDAP_ROLE_MAPPINGS="cn=puppet-admins,ou=groups,dc=example,dc=com=ADMIN;cn=ops,ou=groups,dc=example,dc=com=OPERATOR"
@@ -66,20 +85,19 @@ Split on the **last** `=` in each pair, because DNs contain `=` themselves.
 
 | | OpenLDAP | Active Directory |
 |---|---|---|
-| Search filter | `(&(objectClass=person)(mail={{input}}))` | `(&(objectClass=user)(objectCategory=person)(\|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))` |
-| Login label | Email | Email |
+| Search filter | `(&(objectClass=person)(\|(uid={{input}})(mail={{input}})))` | `(&(objectClass=user)(objectCategory=person)(\|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))` |
+| Login label | Username or email | Username or email |
+| Directory id | `entryUUID` (text) | `objectGUID` (16 bytes) |
 | Nested groups | unavailable | available, off by default |
 
-**Users sign in with their email address — for AD, their `mail` or their
-UPN.** The NexusPuppet account is found by the address typed before any
-directory is asked (ADR-0015), so a bare `sAMAccountName` (`jdoe`) is refused
-before the search runs, and the login field is labelled *Email* for that
-reason. In most corporate ADs the work email is `mail` and is not the UPN
-(`alice@example.com` vs `alice@corp.local`); up to 1.13.0 the filter had no
-`mail` arm, and such a person was refused like a wrong password with nothing
-logged. A stored or environment filter exactly equal to that old default is
-read as the default, so it picks up `mail` too; any other explicit filter is
-used as written.
+**Users sign in with their username, UPN or email** (ADR-0031). The directory
+is asked first, so `jdoe` finds the person, and the login field says *Username
+or email*. Up to 1.13.1 the account was found by the address typed before any
+directory was asked, so a bare username was refused, and the address also had
+to be the entry's `mail` or UPN — in real ADs the UPN suffix is often `.local`
+while email is `.com`, and `mail` is often empty. A stored or environment
+filter exactly equal to an old default (AD without `mail`, OpenLDAP `mail`
+only) is read as the default; any other explicit filter is used as written.
 
 **An address two entries answer to is refused.** The user search asks for at
 most two entries and refuses a second (`More than one directory entry carries
@@ -87,9 +105,11 @@ this sign-in name`), so one person's `mail` that is another's UPN can never
 bind against whichever entry the server happens to list first.
 
 **Why a sign-in was refused is logged** (never told to the caller): *no
-directory entry matched under `<base>` (searched `<attributes>`)* at WARN, and
-*the directory rejected the password for `<DN>`* at LOG. Neither line contains
-the password.
+directory entry matched under `<base>` (searched `<attributes>`)* at WARN,
+*the directory rejected the password for `<DN>`* at LOG, *no NexusPuppet
+account is linked to that entry or carries one of its addresses* at LOG, and
+the linking refusals at WARN. For an identifier no account has, these are
+throttled to ten a minute with a suppressed count. None contains the password.
 
 **`objectCategory=person` is not decoration.** Computer accounts are
 `objectClass=user` in AD; without it a machine account could match the search

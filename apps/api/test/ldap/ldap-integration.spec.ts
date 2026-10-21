@@ -53,6 +53,7 @@ function identityStore(seed: Record<string, StoredIdentity>): LdapIdentityStore 
     recorded,
     findByEmail: async (email) => seed[email.toLowerCase()] ?? null,
     findById: async (id) => Object.values(seed).find((u) => u.userId === id) ?? null,
+    findByDirectoryId: async () => null,
     recordLogin: async (userId, update) => {
       recorded.push({ userId, ...update });
     },
@@ -452,9 +453,8 @@ describe('signing in by mail when it is not the other sign-in name', () => {
     expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
     expect(refusals(lines.warn)).toEqual([
       'LDAP login refused for frank@nexuspuppet.test: no directory entry matched under ' +
-        `ou=people,${BASE_DN} (searched uid, cn). The NexusPuppet account’s email must equal ` +
-        'one of those on the person’s directory entry — on Active Directory, their mail or ' +
-        'their UPN.',
+        `ou=people,${BASE_DN} (searched uid, cn). Sign in with one of those — on Active ` +
+        'Directory the username, the UPN or the mail.',
     ]);
   });
 

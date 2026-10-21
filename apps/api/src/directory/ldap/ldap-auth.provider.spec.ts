@@ -61,6 +61,7 @@ function identities(overrides: Partial<LdapIdentityStore> = {}): LdapIdentitySto
   return {
     findByEmail: async () => IDENTITY,
     findById: async () => IDENTITY,
+    findByDirectoryId: async () => null,
     recordLogin: async () => {},
     ...overrides,
   };
@@ -286,12 +287,13 @@ describe('LdapAuthProvider with no environment baseline', () => {
     const { state, settings } = store();
     const p = provider({ config: null, settings });
 
+    // Dormant: nothing to type a username for.
     expect(p.identifierLabel).toBe('Email');
 
     state.row = { ...stored, dialect: 'ad' };
     await p.isConfigured();
 
-    expect(p.identifierLabel).toBe('Email');
+    expect(p.identifierLabel).toBe('Username or email');
   });
 
   it('counts an unreadable store as configured, so the login fails loudly instead', async () => {
@@ -901,12 +903,15 @@ describe('AD dialect defaults', () => {
     ).toContain('objectCategory=person');
   });
 
-  it('labels the login field Email for AD as well as OpenLDAP', () => {
-    // Accounts are found by the email typed, so "Username" invited `jdoe`, which
-    // can never match and was refused as if the password were wrong.
+  it('labels the login field "Username or email" for AD as well as OpenLDAP', () => {
+    // ADR-0031: the directory is asked first, so `jdoe` finds the person. (It
+    // said "Email" while accounts were found by the address typed, when `jdoe`
+    // could never match.)
     const base = { url: 'ldaps://dc.corp:636', searchBase: 'dc=corp' };
-    expect(ldapConfigSchema.parse({ ...base, dialect: 'ad' }).identifierLabel).toBe('Email');
-    expect(ldapConfigSchema.parse(base).identifierLabel).toBe('Email');
+    expect(ldapConfigSchema.parse({ ...base, dialect: 'ad' }).identifierLabel).toBe(
+      'Username or email',
+    );
+    expect(ldapConfigSchema.parse(base).identifierLabel).toBe('Username or email');
   });
 
   it('keeps an explicit search filter instead of the dialect default', () => {
