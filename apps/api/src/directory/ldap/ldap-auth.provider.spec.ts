@@ -549,6 +549,23 @@ describe('LdapAuthProvider', () => {
     expect(result.ok && result.principal.displayName).toBe('Alice (stale)');
   });
 
+  it('opens the account that was typed, not the one named by the entry mail', async () => {
+    // Active Directory: the account was created with the UPN, and the entry's
+    // mail is a different address. Keying on mail refused this person ("no
+    // NexusPuppet account exists") and, where both accounts existed, opened
+    // the other one.
+    const findByEmail = jest.fn(async () => IDENTITY);
+    await provider({
+      directory: directory({
+        findEntry: async () => ({ ...ENTRY, email: 'alice.ng@company.example' }),
+      }),
+      identities: identities({ findByEmail }),
+    }).authenticate(CREDS);
+
+    expect(findByEmail).toHaveBeenCalledWith('alice@example.com');
+    expect(findByEmail).not.toHaveBeenCalledWith('alice.ng@company.example');
+  });
+
   it('falls back to the submitted address when the entry carries no mail attribute', async () => {
     const findByEmail = jest.fn(async () => IDENTITY);
     await provider({

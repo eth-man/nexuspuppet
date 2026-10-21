@@ -691,7 +691,15 @@ export class LdapAuthProvider implements IAuthProvider {
     const groupDns = config.nestedGroups
       ? await this.resolveNestedGroups(entry, directory)
       : entry.groupDns;
-    return { entry, groupDns, accountEmail: entry.email ?? identifier };
+    // The account is the one that was TYPED, never the entry's `mail`. The
+    // resolver already found the NexusPuppet account by this address, and the
+    // search matched this entry by the same address (as UPN, mail or
+    // sAMAccountName), so they are the same person. Using `mail` instead
+    // refused anyone whose account was created with their AD UPN while their
+    // mail differs — "authenticated, but no NexusPuppet account exists" for an
+    // account that exists — and opened a DIFFERENT account for anyone who had
+    // one under each address. Simple bind already does this.
+    return { entry, groupDns, accountEmail: identifier };
   }
 
   /**
