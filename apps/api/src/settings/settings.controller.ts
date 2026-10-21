@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   type DirectorySettingsView,
+  type LdapSaveResult,
   type LdapSettings,
   type LdapSettingsView,
   type LdapVerification,
@@ -70,7 +71,7 @@ export class SettingsController {
   async writeLdap(
     @Body(new ZodValidationPipe(ldapSettingsSchema)) body: LdapSettings,
     @Req() request: AuthenticatedRequest,
-  ): Promise<LdapSettingsView> {
+  ): Promise<LdapSaveResult> {
     return this.settings.saveLdap(body, request);
   }
 

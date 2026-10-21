@@ -343,6 +343,54 @@ test.describe('primitives', () => {
     await expect(region.getByRole('button', { name: /Test connection/i })).toBeVisible();
   });
 
+  /**
+   * Saving settings the API cannot connect with is not silent.
+   *
+   * Reproduced on staging against a real AD: with no CA pasted, Test
+   * connection said the certificate was not trusted, but Save succeeded
+   * without a word and every directory user then got the generic 401. Save
+   * still saves — a directory can be briefly down — and now says so, in the
+   * check's own words. `directory.e2e.invalid` cannot resolve, by RFC 2606.
+   */
+  test('a save that cannot connect says so, and is still saved', async ({ page }) => {
+    await login(page);
+
+    await withStoredDirectory(page, async () => {
+      const resaved = await page.request.put('/api/settings/auth/ldap', {
+        data: {
+          host: 'directory.e2e.invalid',
+          protocol: 'ldaps',
+          bindType: 'anonymous',
+          searchBase: 'ou=people,dc=e2e,dc=invalid',
+          roleMappings: [],
+        },
+      });
+      expect(resaved.status()).toBe(200);
+      const body = (await resaved.json()) as {
+        source: string;
+        connectionCheck: { ok: boolean; message: string } | null;
+      };
+      expect(body.source).toBe('database');
+      expect(body.connectionCheck?.ok).toBe(false);
+      expect(body.connectionCheck?.message).toMatch(/directory\.e2e\.invalid/);
+
+      await openDirectoryForm(page, { editing: true });
+      const region = ldap(page);
+      await region.getByRole('button', { name: 'Save' }).click();
+
+      const banner = region.getByRole('alert').filter({ hasText: /^Saved, but/ });
+      await expect(banner).toBeVisible();
+      await expect(banner).toContainText(
+        'Saved, but NexusPuppet cannot connect with these settings:',
+      );
+      await expect(banner).toContainText('directory.e2e.invalid');
+      await expect(banner).toContainText('Directory users cannot sign in until this is fixed.');
+      // Saved: the form is locked again and says where its settings come from.
+      await expect(region.getByRole('button', { name: 'Edit settings' })).toBeVisible();
+      await expect(region.getByText('Saved in the console', { exact: true })).toBeVisible();
+    });
+  });
+
   const PEM_DASHES = '-----';
 
   /**

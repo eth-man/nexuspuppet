@@ -148,6 +148,14 @@ export function isAnonymousRefusal(error: unknown): boolean {
   return /anonymous[^.]*(disallowed|not allowed|denied)/i.test(message);
 }
 
+/**
+ * Two directory entries answer to one sign-in address. Refused rather than
+ * guessed, wherever an entry is looked up by what somebody typed: either
+ * choice could hand one person another's account or groups.
+ */
+export const AMBIGUOUS_SIGN_IN_NAME =
+  'More than one directory entry carries this sign-in name; refusing to guess which.';
+
 /** The part of `ldapts`' Client this package uses. A seam for tests. */
 export interface LdapClientLike {
   startTLS(options?: ConnectionOptions): Promise<void>;
@@ -375,14 +383,37 @@ export class LdaptsDirectory implements LdapDirectory {
     return this.session('LDAP search failed', async (client) => {
       await this.bindServiceAccount(client);
 
-      const result = await client.search(this.config.searchBase, {
-        filter,
-        scope: 'sub',
-        attributes: this.entryAttributes,
-      });
+      /*
+       * AT MOST ONE PERSON, or nobody.
+       *
+       * This used to take the first entry of however many matched. The AD
+       * filter matches an address against sAMAccountName, userPrincipalName
+       * AND mail, and one person's mail can be another's UPN: taking "the
+       * first" would bind against whichever the server happened to list, and
+       * a person who knew that entry's password would be signed in to the
+       * account the address names, with that entry's groups. Two are asked
+       * for, so a second is seen, and refused as readOwnEntry refuses it.
+       */
+      let result: SearchResult;
+      try {
+        result = await client.search(this.config.searchBase, {
+          filter,
+          scope: 'sub',
+          sizeLimit: 2,
+          attributes: this.entryAttributes,
+        });
+      } catch (error) {
+        if (codeOf(error) === SIZE_LIMIT_EXCEEDED_CODE) {
+          throw new LdapUnavailableError(AMBIGUOUS_SIGN_IN_NAME, { cause: error });
+        }
+        throw error;
+      }
 
       this.reportReferrals(result.searchReferences, 'user search');
 
+      if (result.searchEntries.length > 1) {
+        throw new LdapUnavailableError(AMBIGUOUS_SIGN_IN_NAME);
+      }
       const entry = result.searchEntries[0];
       return entry === undefined ? null : this.toEntry(entry);
     });
@@ -528,19 +559,14 @@ export class LdaptsDirectory implements LdapDirectory {
       this.reportReferrals(result.searchReferences, 'own-entry read');
 
       if (result.searchEntries.length > 1) {
-        throw new LdapUnavailableError(
-          'More than one directory entry carries this sign-in name; refusing to guess which.',
-        );
+        throw new LdapUnavailableError(AMBIGUOUS_SIGN_IN_NAME);
       }
       const entry = result.searchEntries[0];
       return entry === undefined ? null : this.toEntry(entry);
     } catch (error) {
       if (codeOf(error) === NO_SUCH_OBJECT_CODE) return null;
       if (codeOf(error) === SIZE_LIMIT_EXCEEDED_CODE) {
-        throw new LdapUnavailableError(
-          'More than one directory entry carries this sign-in name; refusing to guess which.',
-          { cause: error },
-        );
+        throw new LdapUnavailableError(AMBIGUOUS_SIGN_IN_NAME, { cause: error });
       }
       throw error;
     }

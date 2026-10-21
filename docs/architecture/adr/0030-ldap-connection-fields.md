@@ -4,6 +4,31 @@
 - **Deciders:** Project owner, architect
 - **Related:** [ADR-0015](./0015-hybrid-authentication.md), [ADR-0016](./0016-settings-store-and-audit-forwarding.md), [ADR-0029](./0029-directory-from-the-console.md)
 
+> **Amended 2026-10-21 (after 1.13.0), from a user report reproduced against a
+> real Windows Server 2025 AD.** The decisions stand; three things follow
+> from them.
+>
+> 1. **The AD filter also matches `mail`.** An account's email is usually the
+>    entry's `mail`, not its UPN (`alice@example.com` vs `alice@corp.local`),
+>    and the filter the Context below describes — `sAMAccountName` and
+>    `userPrincipalName` only — refused such a person like a wrong password,
+>    logging nothing.
+>    Saved rows store no filter, so the new default needs no migration; one
+>    exactly equal to the old default (carried in by saving a form opened on
+>    the environment, which reported the resolved default as chosen) is read
+>    as the default. The user search now asks for at most two entries and
+>    refuses a second, as §3 already did for Simple bind: one entry's `mail`
+>    can be another's UPN.
+> 2. **A refused directory sign-in is logged with its reason** — no entry
+>    matched (WARN, naming the base and the attributes searched) or the
+>    directory rejected the password (LOG). The caller's answer is unchanged
+>    (ADR-0015 §2).
+> 3. **Save reports the connection check (§4, Consequences).** Save already
+>    contacted the directory without depending on it; it now runs Test
+>    connection on what it stores and returns `connectionCheck: { ok, message }`,
+>    which the console shows as a warning. Saving is still never refused for
+>    a failing check.
+
 ## Context
 
 ADR-0029 put the directory in the console. The form it shipped asked for a **Server URL** — `ldaps://dc01.example.com:636` — a **Directory type** (Active Directory or OpenLDAP), a **Bind DN** and a **Bind password**.

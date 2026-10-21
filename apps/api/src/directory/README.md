@@ -66,15 +66,30 @@ Split on the **last** `=` in each pair, because DNs contain `=` themselves.
 
 | | OpenLDAP | Active Directory |
 |---|---|---|
-| Search filter | `(&(objectClass=person)(mail={{input}}))` | `(&(objectClass=user)(objectCategory=person)(\|(sAMAccountName={{input}})(userPrincipalName={{input}})))` |
+| Search filter | `(&(objectClass=person)(mail={{input}}))` | `(&(objectClass=user)(objectCategory=person)(\|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))` |
 | Login label | Email | Email |
 | Nested groups | unavailable | available, off by default |
 
-**Users sign in with their email address — for AD, the UPN.** The NexusPuppet
-account is found by the address typed before any directory is asked (ADR-0015),
-so a bare `sAMAccountName` (`jdoe`) is refused before the search runs, and the
-login field is labelled *Email* for that reason. The default filter still
-accepts either form; only the UPN reaches it in practice.
+**Users sign in with their email address — for AD, their `mail` or their
+UPN.** The NexusPuppet account is found by the address typed before any
+directory is asked (ADR-0015), so a bare `sAMAccountName` (`jdoe`) is refused
+before the search runs, and the login field is labelled *Email* for that
+reason. In most corporate ADs the work email is `mail` and is not the UPN
+(`alice@example.com` vs `alice@corp.local`); up to 1.13.0 the filter had no
+`mail` arm, and such a person was refused like a wrong password with nothing
+logged. A stored or environment filter exactly equal to that old default is
+read as the default, so it picks up `mail` too; any other explicit filter is
+used as written.
+
+**An address two entries answer to is refused.** The user search asks for at
+most two entries and refuses a second (`More than one directory entry carries
+this sign-in name`), so one person's `mail` that is another's UPN can never
+bind against whichever entry the server happens to list first.
+
+**Why a sign-in was refused is logged** (never told to the caller): *no
+directory entry matched under `<base>` (searched `<attributes>`)* at WARN, and
+*the directory rejected the password for `<DN>`* at LOG. Neither line contains
+the password.
 
 **`objectCategory=person` is not decoration.** Computer accounts are
 `objectClass=user` in AD; without it a machine account could match the search

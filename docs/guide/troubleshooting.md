@@ -55,17 +55,22 @@ That is expected until each node's next Puppet run. On the node's page, the **Ma
 
 If the page says *Saving a bind password needs CONFIG_ENCRYPTION_KEY*, run `./scripts/deploy.sh` once — it adds the key.
 
+If **Save** says *Saved, but NexusPuppet cannot connect with these settings*, the settings were stored but nobody can sign in through the directory yet. The message after the colon is the same as **Test connection** would show — fix it with the table above, then save again.
+
 ### Someone cannot sign in
 
 A refused sign-in always shows the same message, whatever the cause, so that nobody can use the login page to find out which accounts exist. The API log says the real reason:
 
 ```bash
-docker compose logs api | grep -i "login refused\|not configured"
+docker compose logs api | grep -i "login refused\|not configured\|more than one directory entry"
 ```
 
 | The log says | Fix |
 |---|---|
 | *no NexusPuppet account exists* | Create their account in **Settings → Users & Roles**, with **Authentication** set to `ldap` (or `oidc`), and the email that is in their directory entry. NexusPuppet never creates accounts automatically. |
+| *no directory entry matched under … (searched …)* | The directory has nobody whose attributes in brackets equal the account's email. On Active Directory the account's email must be the person's `mail` or their UPN. (1.13.0 and earlier matched only the UPN and logged nothing, so a person whose email differs from their UPN — `alice@example.com` vs `alice@corp.local` — was refused without a reason.) Otherwise check the account's email and **Search base**. |
+| *the directory rejected the password* | The directory said no: a wrong password, or the account is locked or disabled in the directory. Nothing to fix in NexusPuppet. With **Simple** bind it can also mean no account has that name — with `{email}` on AD, the address must be the UPN. |
+| *More than one directory entry carries this sign-in name* | Two entries answer to the address — say one person's `mail` is another's UPN. NexusPuppet refuses rather than guess. Correct the directory so the address belongs to one person. |
 | *member of no mapped group* | Their password is fine, but none of their groups is under **Role mappings**. Add the group, or add them to a mapped group. |
 | *LDAP sign-in is not configured* | The directory has not been saved. Finish [Connect LDAP or Active Directory](sign-in.md#connect-ldap-or-active-directory). |
 

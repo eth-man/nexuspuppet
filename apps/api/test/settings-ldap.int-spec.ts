@@ -3,6 +3,7 @@ import type {
   IAuditSink,
   LdapDialectName,
   LdapSettings,
+  LdapVerification,
   ProviderVerification,
 } from '@nexuspuppet/contracts';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -78,7 +79,10 @@ describe('LDAP settings API (integration)', () => {
   const service = (
     _resolver: AuthProviderResolver = resolverWith(),
     key: string | null = KEY,
-    /** What the directory's RootDSE says at Save (ADR-0030 §4). */
+    /**
+     * What the directory's RootDSE says at Save (ADR-0030 §4). Null stands for
+     * a directory that could not be reached, which is a failed check.
+     */
     detect?: (candidate: LdapSettings) => Promise<LdapDialectName | null>,
   ) =>
     new SettingsService(
@@ -90,7 +94,25 @@ describe('LDAP settings API (integration)', () => {
       () => null,
       // No OIDC in these tests: this suite is about the LDAP kind.
       () => null,
-      detect,
+      detect === undefined
+        ? undefined
+        : async (candidate): Promise<LdapVerification> => {
+            const detectedDialect = await detect(candidate);
+            return detectedDialect === null
+              ? { ok: false, message: 'Nothing is accepting connections.', detectedDialect }
+              : { ok: true, message: 'Connected.', detectedDialect };
+          },
+    );
+
+  /** The save's check, given outright. */
+  const checkedBy = (check: (candidate: LdapSettings) => Promise<LdapVerification>) =>
+    new SettingsService(
+      new SettingsStore(prisma, KEY, 'db'),
+      prisma,
+      audit,
+      () => null,
+      () => null,
+      check,
     );
 
   beforeAll(async () => {
@@ -334,6 +356,63 @@ describe('LDAP settings API (integration)', () => {
       );
 
       expect((await service().describeLdap()).config).not.toHaveProperty('detectedDialect');
+    });
+
+    /*
+     * Save runs Test connection on what it stores and says how it went. A CA
+     * the API does not trust used to save without a word, and then every
+     * directory user got the generic 401 with the reason only in the log.
+     */
+    it('answers with the connection check when it passes', async () => {
+      const saved = await service(resolverWith(), KEY, async () => 'ad').saveLdap(
+        SETTINGS,
+        request(),
+      );
+
+      expect(saved.connectionCheck).toEqual({ ok: true, message: 'Connected.' });
+      expect(saved.source).toBe('database');
+    });
+
+    it('still saves when the check fails, and says why', async () => {
+      const untrusted =
+        'The server’s certificate is not trusted: the CA that signed it is not one this ' +
+        'console trusts. Paste that CA under CA certificate (PEM). (Error: unable to verify)';
+      const saved = await checkedBy(async () => ({
+        ok: false,
+        message: untrusted,
+        detectedDialect: null,
+      })).saveLdap(SETTINGS, request());
+
+      expect(saved.connectionCheck).toEqual({ ok: false, message: untrusted });
+      // Saved regardless: a directory can be briefly unreachable.
+      expect((await service().describeLdap()).source).toBe('database');
+      // The check's details stay off the save's answer; the message is enough.
+      expect(saved.connectionCheck).not.toHaveProperty('details');
+    });
+
+    it('reports a check that throws as a failed check, not a failed save', async () => {
+      const saved = await checkedBy(async () => {
+        throw new Error('boom');
+      }).saveLdap(SETTINGS, request());
+
+      expect(saved.connectionCheck).toEqual({
+        ok: false,
+        message: 'The directory could not be checked. See the server log.',
+      });
+      expect((await service().describeLdap()).source).toBe('database');
+    });
+
+    it('reports no check when there is nothing to check with', async () => {
+      const saved = await service().saveLdap(SETTINGS, request());
+      expect(saved.connectionCheck).toBeNull();
+    });
+
+    it('never puts the bind password in the save’s answer', async () => {
+      const saved = await service(resolverWith(), KEY, async () => 'ad').saveLdap(
+        SETTINGS,
+        request(),
+      );
+      expect(JSON.stringify(saved)).not.toContain('a-bind-secret');
     });
 
     it('detects with the STORED password when the body omits it', async () => {

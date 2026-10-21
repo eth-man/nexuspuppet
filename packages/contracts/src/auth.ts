@@ -1333,6 +1333,28 @@ export interface LdapSettingsView extends DirectorySettingsView<LdapSettings> {
 }
 
 /**
+ * Whether the API could connect with a configuration it has just saved — the
+ * same check Test connection runs.
+ *
+ * A save is never refused for failing it: a directory can be briefly
+ * unreachable, and refusing would block fixing a configuration by halves. But
+ * it must not succeed SILENTLY either. A CA that is not trusted used to save
+ * without a word and then refuse every directory sign-in with the generic
+ * answer, the reason only in the API log.
+ */
+export interface LdapConnectionCheck {
+  ok: boolean;
+  /** One line an operator can act on: Test connection's message. */
+  message: string;
+}
+
+/** What saving LDAP settings answers: the view, plus how the connection check went. */
+export interface LdapSaveResult extends LdapSettingsView {
+  /** Null only when this API has no way to check (never in a running deployment). */
+  connectionCheck: LdapConnectionCheck | null;
+}
+
+/**
  * Audit forwarding to a collector (ADR-0016 §5).
  *
  * Two transports, ONE active at a time: `AUDIT_TRANSPORT` is a single token

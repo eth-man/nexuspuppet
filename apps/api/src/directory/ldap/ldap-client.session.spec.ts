@@ -374,6 +374,68 @@ describe('LdaptsDirectory never sends an empty password', () => {
   }
 });
 
+/**
+ * The user search refuses to choose between two people. The AD filter matches
+ * an address against sAMAccountName, userPrincipalName and mail, and one
+ * person's mail can be another's UPN — "the first entry" would then be
+ * whichever the server listed first, bound with whatever password was typed.
+ */
+describe('LdaptsDirectory user search', () => {
+  it('asks for at most two entries', async () => {
+    const seen: Array<SearchOptions | undefined> = [];
+    const wire = recording({
+      search: async (_base, options) => {
+        seen.push(options);
+        return EMPTY;
+      },
+    });
+
+    await new LdaptsDirectory(config(), silent, wire.factory).findEntry('(mail=a@example.com)');
+    expect(seen[0]).toMatchObject({ sizeLimit: 2, filter: '(mail=a@example.com)' });
+  });
+
+  it('refuses two entries rather than taking the first', async () => {
+    const wire = recording({
+      search: async () => ({
+        searchEntries: [{ dn: 'cn=a,dc=corp' }, { dn: 'cn=b,dc=corp' }],
+        searchReferences: [],
+      }),
+    });
+
+    await expect(
+      new LdaptsDirectory(config(), silent, wire.factory).findEntry('(mail=a@example.com)'),
+    ).rejects.toThrow(/More than one directory entry carries this sign-in name/);
+  });
+
+  it('refuses a server that says the size limit was exceeded', async () => {
+    const wire = recording({
+      search: async () => {
+        throw ldapResult(4, 'sizeLimitExceeded');
+      },
+    });
+
+    await expect(
+      new LdaptsDirectory(config(), silent, wire.factory).findEntry('(mail=a@example.com)'),
+    ).rejects.toThrow(/More than one directory entry carries this sign-in name/);
+  });
+
+  it('answers one entry as that entry, and none as null', async () => {
+    const one = recording({
+      search: async () => ({
+        searchEntries: [{ dn: 'cn=a,dc=corp', mail: 'a@example.com' }],
+        searchReferences: [],
+      }),
+    });
+    await expect(
+      new LdaptsDirectory(config(), silent, one.factory).findEntry('(mail=a@example.com)'),
+    ).resolves.toMatchObject({ dn: 'cn=a,dc=corp', email: 'a@example.com' });
+
+    await expect(
+      new LdaptsDirectory(config(), silent, recording().factory).findEntry('(mail=x)'),
+    ).resolves.toBeNull();
+  });
+});
+
 describe('LdaptsDirectory Simple bind', () => {
   const simple = config({
     bindType: 'simple',

@@ -109,6 +109,16 @@ export function LdapSettingsPanel() {
   const [portTouched, setPortTouched] = useState(false);
   const [result, setResult] = useState<LdapVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Why the configuration just saved cannot connect, or null.
+   *
+   * Save runs the same check as Test connection and saves either way — a
+   * directory can be briefly down — but a failing one must not look like
+   * success. It used to: an untrusted CA saved without a word, and then every
+   * directory user got "Invalid email or password." Held until the next save
+   * or discard, because it describes what is stored, not what is typed.
+   */
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   /** Set by the empty state's CTA. */
   const [revealed, setRevealed] = useState(false);
   /**
@@ -295,6 +305,8 @@ export function LdapSettingsPanel() {
      * form the way a hand-maintained list would.
      */
     <div className="space-y-4">
+      {saveWarning !== null && <SavedButCannotConnect message={saveWarning} />}
+
       <fieldset disabled={!editing} className="min-w-0 space-y-4">
         <StatusNotices
           source={view?.source}
@@ -791,12 +803,16 @@ export function LdapSettingsPanel() {
             }}
             onSave={() => {
               setError(null);
+              setSaveWarning(null);
               save.mutate(submission(), {
                 // Clear the field on success: the value is now stored, and leaving
                 // it on screen implies it is still pending.
-                onSuccess: () => {
+                onSuccess: (saved) => {
                   setPassword('');
                   setEditing(false);
+                  if (saved.connectionCheck?.ok === false) {
+                    setSaveWarning(saved.connectionCheck.message);
+                  }
                 },
                 onError: fail,
               });
@@ -805,6 +821,7 @@ export function LdapSettingsPanel() {
               view?.source === 'database'
                 ? () => {
                     setError(null);
+                    setSaveWarning(null);
                     clear.mutate(undefined, { onError: fail });
                   }
                 : undefined
@@ -1030,6 +1047,32 @@ function ActionBar({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The configuration was saved, and the API cannot connect with it.
+ *
+ * Above everything else on the panel, and an alert rather than a status: the
+ * save itself succeeded, which is exactly why this has to be impossible to
+ * miss. The message is the check's own — the same words Test connection
+ * would have shown, naming the certificate, the port or the bind.
+ */
+function SavedButCannotConnect({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded border border-state-pending/40 bg-state-pending/10 px-3 py-2"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-state-pending" aria-hidden />
+      <p className="min-w-0 break-words text-xs text-state-pending">
+        <span className="font-semibold">
+          Saved, but NexusPuppet cannot connect with these settings:
+        </span>{' '}
+        {/[.!?]$/.test(message.trim()) ? message : `${message}.`} Directory users cannot sign in
+        until this is fixed.
+      </p>
     </div>
   );
 }

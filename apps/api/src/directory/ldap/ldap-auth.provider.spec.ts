@@ -549,6 +549,23 @@ describe('LdapAuthProvider', () => {
     expect(result.ok && result.principal.displayName).toBe('Alice (stale)');
   });
 
+  it('opens the account that was typed, not the one named by the entry mail', async () => {
+    // Active Directory: the account was created with the UPN, and the entry's
+    // mail is a different address. Keying on mail refused this person ("no
+    // NexusPuppet account exists") and, where both accounts existed, opened
+    // the other one.
+    const findByEmail = jest.fn(async () => IDENTITY);
+    await provider({
+      directory: directory({
+        findEntry: async () => ({ ...ENTRY, email: 'alice.ng@company.example' }),
+      }),
+      identities: identities({ findByEmail }),
+    }).authenticate(CREDS);
+
+    expect(findByEmail).toHaveBeenCalledWith('alice@example.com');
+    expect(findByEmail).not.toHaveBeenCalledWith('alice.ng@company.example');
+  });
+
   it('falls back to the submitted address when the entry carries no mail attribute', async () => {
     const findByEmail = jest.fn(async () => IDENTITY);
     await provider({
@@ -859,7 +876,7 @@ describe('LdapAuthProvider with AD nested groups', () => {
 });
 
 describe('AD dialect defaults', () => {
-  it('accepts either a sAMAccountName or a userPrincipalName', () => {
+  it('accepts a sAMAccountName, a userPrincipalName or a mail address', () => {
     const filter = ldapConfigSchema.parse({
       url: 'ldaps://dc.corp:636',
       searchBase: 'dc=corp',
@@ -868,6 +885,9 @@ describe('AD dialect defaults', () => {
 
     expect(filter).toContain('sAMAccountName={{input}}');
     expect(filter).toContain('userPrincipalName={{input}}');
+    // The account's email is usually the entry's mail, not its UPN — see
+    // ad-sign-in-by-mail.spec.ts.
+    expect(filter).toContain('mail={{input}}');
   });
 
   /**

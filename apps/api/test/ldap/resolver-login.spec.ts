@@ -155,7 +155,7 @@ describe('directory sign-in through the real resolver', () => {
       new PrismaAuditSink(prisma),
       () => null,
       () => null,
-      (candidate) => ldap.detectDialect(candidate),
+      (candidate) => ldap.verifyConfiguration(candidate),
     );
   });
 
@@ -317,6 +317,42 @@ describe('directory sign-in through the real resolver', () => {
     expect(result.details).toContainEqual({
       label: 'Directory said',
       value: expect.stringMatching(/authentication required/),
+    });
+  });
+
+  /*
+   * Reproduced on staging against a real AD: with verification on and no CA
+   * pasted, Test connection said "certificate not trusted … paste that CA",
+   * but Save succeeded silently, and every directory user then got the
+   * generic 401. Save still succeeds — a directory may be briefly down — but
+   * now answers with the same check.
+   */
+  describe.each(TRANSPORTS)('Save says whether it can connect, over %s', (_name, transport) => {
+    const body = (extra: Record<string, unknown>) =>
+      ldapSettingsSchema.parse({
+        ...transport,
+        bindType: 'regular',
+        bindDn: `cn=svc-nexuspuppet,${BASE_DN}`,
+        bindPassword: 'svc-password',
+        searchBase: `ou=people,${BASE_DN}`,
+        roleMappings: MAPPINGS,
+        timeoutMs: 5000,
+        ...extra,
+      }) as LdapSettings;
+
+    it('ok, with the CA that signed the directory', async () => {
+      const saved = await settings.saveLdap(body({ caPem: CA_PEM }), request());
+      expect(saved.connectionCheck?.ok).toBe(true);
+      expect(saved.config?.detectedDialect).toBe('openldap');
+    });
+
+    it('not ok without it — saved anyway, and the reason is the certificate', async () => {
+      const saved = await settings.saveLdap(body({}), request());
+
+      expect(saved.connectionCheck?.ok).toBe(false);
+      expect(saved.connectionCheck?.message).toMatch(/certificate is not trusted/);
+      expect(saved.source).toBe('database');
+      expect(JSON.stringify(saved)).not.toContain('svc-password');
     });
   });
 });

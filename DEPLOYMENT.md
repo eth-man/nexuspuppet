@@ -572,7 +572,7 @@ ownership problem described above, and only the containerised run will show it.
 
 ### Pointing at Active Directory
 
-Four things that look like something else when they are wrong. All measured
+Five things that look like something else when they are wrong. All measured
 against a live Windows Server 2025 DC.
 
 - **Use the hostname, not the IP.** A DC certificate carries
@@ -588,7 +588,14 @@ against a live Windows Server 2025 DC.
   embedded DNS still resolves compose service names and forwards the rest.
 - **Delete `LDAP_SEARCH_FILTER`** if it came from an OpenLDAP example. AD has
   no `inetOrgPerson`, so every login fails while the URL and base DN look
-  correct. The `ad` dialect supplies its own filter.
+  correct. The `ad` dialect supplies its own filter, which finds a person by
+  `mail`, `userPrincipalName` or `sAMAccountName`.
+- **Create each account with the person's `mail` or UPN.** People sign in with
+  their account's email, and in most ADs the work email (`mail`,
+  `alice@example.com`) is not the UPN (`alice@corp.local`). Either works with
+  Regular and Anonymous bind. Simple bind with `{email}` binds *as* the address,
+  so there only the UPN works — use `{username}@corp.local` or Regular when they
+  differ. A refused sign-in logs why: `docker compose logs api | grep -i "login refused"`.
 - **`.env` is a fallback, not a merge.** Once anything is saved through the
   console, `provider_settings` holds a row, the database wins, and every
   directory value in `.env` goes inert (ADR-0015 §4). `GET /settings/auth/ldap`

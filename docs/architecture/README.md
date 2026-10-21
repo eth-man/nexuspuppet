@@ -135,7 +135,7 @@ Status as each ADR records it. ADRs are not edited once accepted (ADR-0000), so 
 | [0027](./adr/0027-one-product.md) | One product: the enterprise seam is removed — **Accepted**; supersedes 0002 |
 | [0028](./adr/0028-support-bundle.md) | The support bundle, and the API's own log history — **Accepted** |
 | [0029](./adr/0029-directory-from-the-console.md) | A directory is enabled from the console — **Accepted**; amends 0016 §4 and 0027 §5; form amended by 0030 |
-| [0030](./adr/0030-ldap-connection-fields.md) | LDAP connection fields an operator recognises: server, port, LDAPS/STARTTLS, bind types, detected directory type — **Accepted** |
+| [0030](./adr/0030-ldap-connection-fields.md) | LDAP connection fields an operator recognises: server, port, LDAPS/STARTTLS, bind types, detected directory type — **Accepted**; amended: AD filter matches `mail`, Save reports its connection check |
 
 ## 11. Open questions
 

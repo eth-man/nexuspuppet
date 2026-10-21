@@ -244,13 +244,15 @@ export class AppModule {
             () => ldapEnvBaseline(resolver),
             // Same route, same reason, for OIDC_*.
             () => oidcEnvBaseline(resolver),
-            // The directory type is read from the server at Save (ADR-0030 §4),
-            // by the provider that will bind to it.
+            // Save runs Test connection on what it stores, by the provider that
+            // will bind to it: the directory type is read from the server
+            // (ADR-0030 §4), and a configuration it cannot connect with is
+            // saved but reported, not saved silently.
             async (candidate) => {
               const provider = resolver.forSource('ldap');
               return provider instanceof LdapAuthProvider
-                ? provider.detectDialect(candidate)
-                : null;
+                ? provider.verifyConfiguration(candidate)
+                : { ok: false, message: 'No LDAP provider is registered in this build.' };
             },
           ),
       },

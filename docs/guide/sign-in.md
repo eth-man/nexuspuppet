@@ -62,7 +62,7 @@ Everything happens in the console. There is no file to edit and nothing to resta
     - **Bind type** — how NexusPuppet finds people:
         - **Regular** (default): a service account finds each person, who then signs in as themselves. Fill in **User DN** — the service account, such as `cn=nexuspuppet-svc,ou=Service Accounts,dc=example,dc=com` — and its **Password**.
         - **Simple**: no service account; each person signs in directly. Fill in **User DN pattern**. People sign in with their email address, and the pattern says how to turn it into the identity the directory checks: `{email}` is the whole address, `{username}` the part before the `@`.
-            - **Active Directory:** `{email}` — the address *is* the user's UPN (`alice@corp.example.com`). If people's email domain differs from the UPN suffix, use `{username}@corp.local`.
+            - **Active Directory:** `{email}` binds as the address typed, so it only works when that address **is** the person's UPN (`alice@corp.example.com`). If people's email domain differs from the UPN suffix — `alice@example.com` in email, `alice@corp.local` in AD — use `{username}@corp.local`, or choose **Regular**, which finds people by their email, UPN or account name.
             - **OpenLDAP:** `uid={username},ou=People,dc=example,dc=com` (or `cn={email},…` if entries are named by address).
 
             People must be allowed to read their own entry. With `{username}`, an entry that has a `mail` attribute must carry the address signed in with, so `alice@one.example` cannot use the entry of `alice@two.example`.
@@ -73,9 +73,11 @@ Everything happens in the console. There is no file to edit and nothing to resta
 4. Fill in **Search base** — where your users are, such as `dc=example,dc=com`. **Group search base** is optional.
 5. Under **Role mappings**, map at least one directory group to a role, for example `cn=puppet-admins,ou=Groups,dc=example,dc=com` → `ADMIN`. **A user in none of the mapped groups is refused.** There is no default role for LDAP.
 6. Click **Test connection**. It connects, reads what kind of directory this is, and binds and searches with what you typed, without saving. (With **Simple** there is no service account to search with, so the test stops at connecting.) Fix anything it reports — see [When the test fails](troubleshooting.md#the-directory-test-fails).
-7. Click **Save**. It applies from the next sign-in; the badge changes to **Saved in the console**, and **Directory type** shows what was detected.
-8. **Create the accounts.** In **Settings → Users & Roles → New user**, enter each person's email — it must match their `mail` attribute in the directory — and set **Authentication** to `ldap`. No password. The role you pick is replaced at each sign-in by what their groups map to.
-9. **Sign in.** Everyone types the email address of their NexusPuppet account — the one you entered in step 8. On Active Directory that is usually their UPN (`jdoe@example.com`). A bare username such as `jdoe` is not an account, so it is refused.
+7. Click **Save**. It applies from the next sign-in; the badge changes to **Saved in the console**, and **Directory type** shows what was detected. Save runs the same check as **Test connection**: if NexusPuppet cannot connect with what you saved, the settings are kept but a warning says *Saved, but NexusPuppet cannot connect with these settings: …* and why. Directory users cannot sign in until you fix it.
+8. **Create the accounts.** In **Settings → Users & Roles → New user**, enter each person's email and set **Authentication** to `ldap`. No password. The role you pick is replaced at each sign-in by what their groups map to. The email must be one the directory can find them by:
+    - **OpenLDAP:** their `mail`.
+    - **Active Directory:** their `mail` (usually their work email, `alice@example.com`) **or** their UPN (`alice@corp.local`). Either works with **Regular** and **Anonymous**. With **Simple** and `{email}`, only the UPN works — see step 3.
+9. **Sign in.** Everyone types the email address of their NexusPuppet account — the one you entered in step 8. A bare username such as `jdoe` is not an account, so it is refused.
 
 ![The LDAP form, filled in with example values](../images/directory-ldap-form.png)
 

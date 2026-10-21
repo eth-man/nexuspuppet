@@ -2,6 +2,20 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**Active Directory users whose email is not their UPN could not sign in, and nothing said why.** In most corporate ADs the work email (`mail`, `alice@example.com`) differs from the UPN (`alice@corp.local`). The account is created with the work email, but the AD default search filter matched only `sAMAccountName` and `userPrincipalName`, so the directory found nobody and the person got *Invalid email or password.* with nothing in the log. Reproduced against Windows Server 2025. The AD default filter now also matches `mail`: `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))`. **No migration:** saved configurations do not store a filter, so the new default applies to them and to `LDAP_*` configurations at the next sign-in. A stored or `LDAP_SEARCH_FILTER` filter exactly equal to the old AD default is read as the default too; any other explicit filter is unchanged. The OpenLDAP default (`mail`) is unchanged. Simple bind with `{email}` still binds as the address typed, so on AD it needs the address to be the UPN.
+
+**An address that two directory entries answer to is refused, not guessed.** The user search took the first of however many entries matched. With `mail` in the filter, one person's `mail` can be another's UPN, so it now asks for at most two and refuses a second (*More than one directory entry carries this sign-in name*), as Simple bind already did.
+
+**A refused directory sign-in says why in the API log.** The caller still gets the same answer, with the same timing, for every cause. The log now says *LDAP login refused for … : no directory entry matched under `<search base>` (searched sAMAccountName, userPrincipalName, mail)* (WARN) or *… the directory rejected the password for `<DN>` (wrong password, or the account is locked or disabled in the directory)* (LOG). Neither contains the password.
+
+**Saving LDAP settings that cannot connect no longer looks like success.** Test connection said *certificate not trusted … paste that CA*, but Save succeeded silently and every directory user then got the generic 401. Save now runs the same check: the settings are still saved (a directory can be briefly down), and the console shows *Saved, but NexusPuppet cannot connect with these settings: … Directory users cannot sign in until this is fixed.* `PUT /settings/auth/ldap` answers with `connectionCheck: { ok, message }`.
+
+**Saving a form opened on the `LDAP_*` environment no longer freezes the default search filter** into the stored row, where a later, better default could not reach it.
+
 ## [1.13.0] — 2026-10-05
 
 **LDAP connection fields an operator recognises** ([ADR-0030](docs/architecture/adr/0030-ldap-connection-fields.md)). An operator configuring LDAPS against a real Active Directory asked for the form every other LDAP client has — server name, port, bind type, User DN, password, protocol — instead of typing `ldaps://url:port` and choosing a directory type. That is the form now, STARTTLS is new, and the directory type is detected. **No migration.**

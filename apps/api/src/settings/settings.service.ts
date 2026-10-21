@@ -4,6 +4,7 @@ import {
   type DirectorySettingsView,
   type IAuditSink,
   type LdapDialectName,
+  type LdapSaveResult,
   type LdapSettings,
   type LdapSettingsView,
   type LdapVerification,
@@ -65,13 +66,13 @@ export class SettingsService {
     /** The OIDC baseline, by the same route and for the same reason as LDAP's. */
     private readonly oidcFromEnv: () => OidcSettings | null,
     /**
-     * Read the directory type from a candidate's RootDSE at Save (ADR-0030 §4).
-     * Null when it cannot tell. Absent — in tests that are not about it — the
-     * save keeps whatever was known before.
+     * Check a candidate at Save exactly as Test connection does: read the
+     * directory type from its RootDSE (ADR-0030 §4), bind and search. The
+     * verdict goes back to the operator with the saved view; the detected
+     * type is stored. Absent — in tests that are not about it — the save
+     * keeps whatever type was known before and reports no check.
      */
-    private readonly detectLdapDialect?: (
-      candidate: LdapSettings,
-    ) => Promise<LdapDialectName | null>,
+    private readonly checkLdap?: (candidate: LdapSettings) => Promise<LdapVerification>,
   ) {}
 
   async describeLdap(): Promise<LdapSettingsView> {
@@ -181,8 +182,13 @@ export class SettingsService {
   /**
    * Replace the stored LDAP configuration. Takes effect at the next sign-in,
    * including on a deployment that never set LDAP_URL (ADR-0029).
+   *
+   * The answer says whether the API can connect with what was saved. A
+   * failing check does not stop the save — a directory can be briefly down —
+   * but it is reported, to the operator and to the log, rather than left to
+   * surface as every directory user's generic "invalid email or password".
    */
-  async saveLdap(config: LdapSettings, request: AuthenticatedRequest): Promise<LdapSettingsView> {
+  async saveLdap(config: LdapSettings, request: AuthenticatedRequest): Promise<LdapSaveResult> {
     // The controller's schema already refuses this; a direct caller is held to
     // the same rule (ADR-0030 §1).
     if (config.protocol === 'ldap') {
@@ -203,7 +209,8 @@ export class SettingsService {
       await this.requireBindPassword(submitted);
     }
 
-    const detectedDialect = await this.dialectFor(submitted);
+    const check = await this.checkForSave(submitted);
+    const detectedDialect = await this.dialectFor(submitted, check);
     const toStore: LdapSettings = {
       ...submitted,
       ...(detectedDialect === null ? {} : { detectedDialect }),
@@ -220,7 +227,29 @@ export class SettingsService {
       request,
       drop,
     );
-    return this.describeLdap();
+
+    const connectionCheck = check === null ? null : { ok: check.ok, message: check.message };
+    if (connectionCheck !== null && !connectionCheck.ok) {
+      this.logger.warn(
+        'LDAP settings saved, but NexusPuppet cannot connect with them: ' +
+          `${asSentence(connectionCheck.message)} Directory users cannot sign in until this is fixed.`,
+      );
+    }
+    return { ...(await this.describeLdap()), connectionCheck };
+  }
+
+  /**
+   * Test connection, run on what is being saved. Never throws: a check that
+   * cannot run is a failed check, not a failed save.
+   */
+  private async checkForSave(candidate: LdapSettings): Promise<LdapVerification | null> {
+    if (this.checkLdap === undefined) return null;
+    try {
+      return await this.checkLdap(await this.fillSecrets(candidate));
+    } catch (error) {
+      this.logger.error(`LDAP connection check threw while saving: ${describe(error)}`);
+      return { ok: false, message: 'The directory could not be checked. See the server log.' };
+    }
   }
 
   /**
@@ -248,10 +277,11 @@ export class SettingsService {
    * not quietly turn an Active Directory into an OpenLDAP. Otherwise nothing
    * is stored, which means OpenLDAP, and the form says it was not detected.
    */
-  private async dialectFor(candidate: LdapSettings): Promise<LdapDialectName | null> {
-    const withSecret = await this.fillSecrets(candidate);
-    const detected =
-      this.detectLdapDialect === undefined ? null : await this.detectLdapDialect(withSecret);
+  private async dialectFor(
+    candidate: LdapSettings,
+    check: LdapVerification | null,
+  ): Promise<LdapDialectName | null> {
+    const detected = check?.detectedDialect ?? null;
     if (detected !== null) return detected;
 
     const stored = await this.store.describe<unknown>('auth.ldap', () => null);
@@ -510,6 +540,11 @@ function redacted(config: object, secretFields: readonly string[]): Record<strin
 function headerOf(request: AuthenticatedRequest, name: string): string | null {
   const value = request.headers[name];
   return typeof value === 'string' ? value.slice(0, 500) : null;
+}
+
+/** A message that may end in a parenthesis, ended as a sentence. */
+function asSentence(message: string): string {
+  return /[.!?]$/.test(message.trim()) ? message : `${message}.`;
 }
 
 function describe(error: unknown): string {
