@@ -12,6 +12,7 @@ import type {
 } from '@nexuspuppet/contracts';
 import { LDAP_EMAIL_PLACEHOLDER } from '@nexuspuppet/contracts';
 import { type LdapConfig, ldapConfigSchema } from './config';
+import { dialectDefaults } from './dialect';
 import { InvalidUsernameError, buildBindIdentity, isDnPattern } from './dn';
 import { buildFilter, escapeFilterValue } from './filter';
 import {
@@ -261,7 +262,17 @@ export class LdapAuthProvider implements IAuthProvider {
       detectedDialect: config.dialect,
       searchBase: config.searchBase,
       groupSearchBase: config.groupSearchBase,
-      searchFilter: config.searchFilter,
+      /*
+       * Only a filter somebody CHOSE. The parsed configuration carries the
+       * dialect's default as if it had been set, and reporting that froze it:
+       * saving a form opened on this baseline stored the default as an
+       * explicit filter, so a later, better default never reached that
+       * deployment — which is how the AD filter without `mail` would have
+       * outlived its fix.
+       */
+      ...(config.searchFilter === dialectDefaults(config.dialect).searchFilter
+        ? {}
+        : { searchFilter: config.searchFilter }),
       nestedGroups: config.nestedGroups,
       roleMappings: config.roleMappings.map((mapping) => ({
         groupDn: mapping.groupDn,
@@ -433,30 +444,9 @@ export class LdapAuthProvider implements IAuthProvider {
   }
 
   /**
-   * Detect the directory type of a configuration about to be SAVED (ADR-0030 §4).
-   *
-   * Never throws, and never blocks a save: a directory unreachable at the
-   * moment of saving is an ordinary state, and the caller keeps what it knew
-   * before. Null means "could not tell".
-   */
-  async detectDialect(candidate: unknown): Promise<LdapDialectName | null> {
-    const parsed = ldapConfigSchema.safeParse(candidate);
-    if (!parsed.success) return null;
-    try {
-      const { config } = this.withInheritedCa(parsed.data);
-      return (await this.directoryFor(config).detectDialect()).dialect;
-    } catch (error) {
-      this.logger.warn(
-        `Could not detect the LDAP directory type while saving: ${describeError(error)}`,
-      );
-      return null;
-    }
-  }
-
-  /**
    * THE CANDIDATE INHERITS THE DEPLOYMENT'S CA — see the note at the top of
-   * verifyConfiguration. Shared with detectDialect so a save detects through
-   * the same trust a test does.
+   * verifyConfiguration. A save runs verifyConfiguration too, so it detects
+   * and checks through the same trust a test does.
    */
   private withInheritedCa(parsed: LdapConfig): { config: LdapConfig; inheritedCa: boolean } {
     const bootCaPath = this.config?.caPath;
@@ -664,10 +654,35 @@ export class LdapAuthProvider implements IAuthProvider {
   ): Promise<DirectoryMatch | null> {
     const filter = buildFilter(config.searchFilter, identifier);
     const entry = await directory.findEntry(filter);
-    if (entry === null || entry.dn === '') return null;
+
+    /*
+     * The two refusals below answer the caller exactly as a wrong password
+     * does — the caller sees INVALID_CREDENTIALS inside the resolver's timing
+     * floor either way — but they are NOT the same thing to an operator, and
+     * both used to be silent. "User not found" from an AD whose mail differs
+     * from its UPN looked, in the log, like nothing at all.
+     *
+     * Only an address that already has an LDAP account reaches here (the
+     * resolver refuses every other address first), and the login limiter
+     * bounds the attempts per address, so a stranger cannot drive these. The
+     * address is the stored account's, normalised, so it is safe to print.
+     * The password is never part of either line.
+     */
+    if (entry === null || entry.dn === '') {
+      this.logger.warn(
+        `LDAP login refused for ${identifier}: no directory entry matched under ` +
+          `${config.searchBase} (searched ${searchedAttributes(config.searchFilter)}). ` +
+          'The NexusPuppet account’s email must equal one of those on the person’s directory ' +
+          'entry — on Active Directory, their mail or their UPN.',
+      );
+      return null;
+    }
 
     const bound = await directory.verifyCredentials(entry.dn, password);
-    if (!bound) return null;
+    if (!bound) {
+      this.logger.log(rejectedPassword(identifier, entry.dn));
+      return null;
+    }
 
     // Direct membership from the entry, plus transitive membership when the
     // directory can compute it. Resolved AFTER the bind: this is an extra
@@ -701,7 +716,13 @@ export class LdapAuthProvider implements IAuthProvider {
     try {
       identity = buildBindIdentity(pattern, identifier);
     } catch (error) {
-      if (error instanceof InvalidUsernameError) return null;
+      if (error instanceof InvalidUsernameError) {
+        this.logger.warn(
+          `LDAP login refused for ${identifier}: the address cannot be used with the User DN ` +
+            `pattern ${pattern} (${error.message}). Nothing was sent to the directory.`,
+        );
+        return null;
+      }
       throw error;
     }
 
@@ -715,7 +736,14 @@ export class LdapAuthProvider implements IAuthProvider {
     const result = await directory.bindAndRead(identity, password, lookup, {
       nestedGroups: config.nestedGroups,
     });
-    if (!result.bound) return null;
+    if (!result.bound) {
+      // There is no search to miss in Simple bind: the identity is built, so
+      // "no such person" and "wrong password" are one answer from the
+      // directory, and this line says both. With {email} on AD the bind works
+      // only when the address IS the person's UPN — see sign-in.md.
+      this.logger.log(rejectedPassword(identifier, identity, { simple: true }));
+      return null;
+    }
 
     if (result.entry === null || result.entry.dn === '') {
       this.logger.warn(
@@ -912,6 +940,38 @@ function describeTls(config: LdapConfig, inherited = false): string {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The attributes a search filter template matches the sign-in address against
+ * — `(mail={{input}})` contributes `mail` — for a log line an operator can act
+ * on. Falls back to the template itself when it has no such clause.
+ */
+export function searchedAttributes(template: string): string {
+  const names = [...template.matchAll(/\(([A-Za-z][A-Za-z0-9;.-]*)=\{\{input\}\}\)/g)].map(
+    (match) => match[1] ?? '',
+  );
+  const unique = [...new Set(names.filter((name) => name !== ''))];
+  return unique.length > 0 ? unique.join(', ') : `the filter ${template}`;
+}
+
+/**
+ * The directory said no to a bind as the person. Logged at LOG, not WARN: a
+ * mistyped password is the most ordinary event there is. Names who was bound
+ * as, never what with.
+ */
+function rejectedPassword(
+  identifier: string,
+  boundAs: string,
+  { simple = false }: { simple?: boolean } = {},
+): string {
+  return (
+    `LDAP login refused for ${identifier}: the directory rejected the password for ${boundAs} ` +
+    (simple
+      ? '(wrong password, the account is locked or disabled in the directory, or no account ' +
+        'has that name — Simple bind cannot tell these apart).'
+      : '(wrong password, or the account is locked or disabled in the directory).')
+  );
 }
 
 /** The details, plus the directory's raw words when the message paraphrased them. */

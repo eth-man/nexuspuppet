@@ -60,6 +60,23 @@ export function dialectFromRootDse(attributes: Record<string, string[]>): LdapDi
   return answered ? 'openldap' : null;
 }
 
+/** Active Directory's default user search: by sAMAccountName, UPN or mail. */
+export const AD_SEARCH_FILTER =
+  '(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})(mail={{input}})))';
+
+/**
+ * The AD default up to v1.13.0, which did not match `mail`.
+ *
+ * Read as "the default" wherever it appears (see `prepare` in config.ts). The
+ * console has no search-filter field, so a saved row carrying exactly this
+ * string got it from a form opened on the environment baseline, which used to
+ * report the resolved default as though somebody had chosen it. Left in place,
+ * it would keep the defect on exactly the deployments that adopted their
+ * environment configuration into the console.
+ */
+export const AD_SEARCH_FILTER_WITHOUT_MAIL =
+  '(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})))';
+
 const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
   openldap: {
     searchFilter: '(&(objectClass=person)(mail={{input}}))',
@@ -69,18 +86,32 @@ const DEFAULTS: Record<LdapDialect, DialectDefaults> = {
   },
   ad: {
     /*
-     * Matches either form, but in practice only the UPN arrives here: sign-in
-     * finds the NexusPuppet account by the EMAIL typed before any directory is
-     * asked (ADR-0015), so a bare `jdoe` is refused before this filter runs.
-     * The sAMAccountName arm is kept because it is harmless and a stored or
-     * environment filter may rely on the same shape.
+     * The address a person signs in with is the EMAIL on their NexusPuppet
+     * account — the resolver finds the account by it before any directory is
+     * asked (ADR-0015), so a bare `jdoe` never gets here — and this filter has
+     * to find their entry by that address.
+     *
+     * In most corporate ADs the address is the entry's `mail`, and it is NOT
+     * the UPN: mail alice@example.com, UPN alice@corp.local, because the email
+     * domain is not the AD domain. Matching only sAMAccountName and
+     * userPrincipalName found nobody for such a person and refused them like a
+     * wrong password (reproduced against Windows Server 2025). So:
+     *
+     * - `mail`, the usual case;
+     * - `userPrincipalName`, where the account was created with the UPN, or
+     *   the UPN is the email;
+     * - `sAMAccountName`, harmless, and kept because a stored or environment
+     *   filter may rely on the same shape.
+     *
+     * An address that is one entry's mail and another's UPN matches both, and
+     * is refused rather than guessed: the search asks for at most two entries
+     * and refuses a second (LdaptsDirectory.findEntry).
      *
      * objectCategory=person alongside objectClass=user excludes computer
      * accounts, which are also objectClass=user in AD — without it, a machine
      * account could match and be bound against.
      */
-    searchFilter:
-      '(&(objectClass=user)(objectCategory=person)(|(sAMAccountName={{input}})(userPrincipalName={{input}})))',
+    searchFilter: AD_SEARCH_FILTER,
     attributes: { email: 'mail', displayName: 'displayName', memberOf: 'memberOf' },
     // 'Email', not 'Username': accounts are found by the address typed, so
     // inviting `jdoe` produced a refusal that read as a wrong password.

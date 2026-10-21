@@ -1,13 +1,15 @@
 # Test directory tree for validating LdapAuthProvider.
 #
 # Deliberately shaped to exercise the decisions that matter, not just a happy
-# path. Five accounts:
+# path. Seven accounts:
 #
 #   alice   in ops              -> OPERATOR
 #   bob     in viewers          -> VIEWER
 #   dave    in ops AND admins   -> ADMIN   (highest role wins, not first match)
 #   carol   in no mapped group  -> REFUSED (no default role)
 #   erin    in viewers          -> VIEWER  (her DN is cn=<her email>, for {email} patterns)
+#   frank   in ops              -> OPERATOR (signs in by mail, which is not his "UPN")
+#   grace   in ops              -> her mail is frank's "UPN": that address is ambiguous
 #
 # Passwords are the plaintext below; slapd hashes them on write. They are known
 # test values in a throwaway container bound to loopback.
@@ -81,6 +83,32 @@ displayName: Erin Varga
 mail: erin@nexuspuppet.test
 userPassword: erin-password
 
+# Frank's sign-in address is his MAIL, and it is not his other sign-in name —
+# the shape of a corporate Active Directory, where mail is frank@<email domain>
+# and the UPN is frank@<AD domain>. OpenLDAP has no userPrincipalName, so his
+# cn plays it: an AD-shaped filter matching uid, cn and mail stands in for
+# AD's sAMAccountName, userPrincipalName and mail.
+dn: uid=frank,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: frank
+cn: frank@corp.local
+sn: Hale
+displayName: Frank Hale
+mail: frank@nexuspuppet.test
+userPassword: frank-password
+
+# Grace's MAIL is Frank's "UPN". An address that is one entry's mail and
+# another's UPN must be refused, not resolved to whichever the server lists
+# first — that would be a password for one person opening another's account.
+dn: uid=grace,ou=people,dc=nexuspuppet,dc=test
+objectClass: inetOrgPerson
+uid: grace
+cn: Grace Moss
+sn: Moss
+displayName: Grace Moss
+mail: frank@corp.local
+userPassword: grace-password
+
 # --- groups ----------------------------------------------------------------
 # groupOfNames requires at least one member, which is why each lists its people
 # inline rather than being created empty and populated later.
@@ -91,6 +119,8 @@ cn: ops
 description: Day-to-day operators
 member: uid=alice,ou=people,dc=nexuspuppet,dc=test
 member: uid=dave,ou=people,dc=nexuspuppet,dc=test
+member: uid=frank,ou=people,dc=nexuspuppet,dc=test
+member: uid=grace,ou=people,dc=nexuspuppet,dc=test
 
 dn: cn=viewers,ou=groups,dc=nexuspuppet,dc=test
 objectClass: groupOfNames

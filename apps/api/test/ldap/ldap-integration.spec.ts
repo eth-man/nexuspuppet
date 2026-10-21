@@ -379,3 +379,115 @@ describe('LdapAuthProvider over ldaps:// with an internal CA', () => {
     });
   });
 });
+
+/**
+ * A sign-in address that is the person's MAIL and not their other sign-in
+ * name — the corporate-AD shape that produced "user not found" (reproduced on
+ * staging against Windows Server 2025, where mail was alice@example.com and
+ * the UPN alice@corp.local).
+ *
+ * OpenLDAP has no userPrincipalName, so the fixture's frank carries his "UPN"
+ * in cn, and an AD-shaped filter matches uid, cn and mail the way AD's default
+ * matches sAMAccountName, userPrincipalName and mail. What a real slapd adds
+ * over the unit tests: the filter it is sent is evaluated for real, and the
+ * size limit on the user search is enforced by the server.
+ */
+describe('signing in by mail when it is not the other sign-in name', () => {
+  const AD_SHAPED =
+    '(&(objectClass=inetOrgPerson)(|(uid={{input}})(cn={{input}})(mail={{input}})))';
+  const WITHOUT_MAIL = '(&(objectClass=inetOrgPerson)(|(uid={{input}})(cn={{input}})))';
+
+  const FRANK: StoredIdentity = {
+    userId: '66666666-6666-4666-8666-666666666666',
+    email: 'frank@nexuspuppet.test',
+    displayName: 'Frank (stored)',
+    role: 'VIEWER',
+    isActive: true,
+    authSource: 'ldap',
+  };
+  const accounts = identityStore({
+    'frank@nexuspuppet.test': FRANK,
+    'frank@corp.local': { ...FRANK, email: 'frank@corp.local' },
+  });
+
+  /** The sign-in refusals, without the fixture's own cleartext-ldap:// warning. */
+  const refusals = (lines: string[]) => lines.filter((line) => line.startsWith('LDAP login'));
+
+  function spying(searchFilter: string) {
+    const lines = { log: [] as string[], warn: [] as string[], error: [] as string[] };
+    const logger = {
+      log: (m: string) => lines.log.push(m),
+      warn: (m: string) => lines.warn.push(m),
+      error: (m: string) => lines.error.push(m),
+    };
+    const cfg = config({ searchFilter });
+    const p = new LdapAuthProvider({
+      config: cfg,
+      directory: new LdaptsDirectory(cfg, logger),
+      identities: accounts,
+      logger,
+    });
+    return { p, lines };
+  }
+
+  it('finds frank by his mail and signs him in', async () => {
+    const { p } = spying(AD_SHAPED);
+    const result = await p.authenticate({
+      email: 'frank@nexuspuppet.test',
+      password: 'frank-password',
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      principal: { email: 'frank@nexuspuppet.test', role: 'OPERATOR' },
+    });
+  });
+
+  it('without mail in the filter finds nobody — and now says so, at WARN', async () => {
+    const { p, lines } = spying(WITHOUT_MAIL);
+    const result = await p.authenticate({
+      email: 'frank@nexuspuppet.test',
+      password: 'frank-password',
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
+    expect(refusals(lines.warn)).toEqual([
+      'LDAP login refused for frank@nexuspuppet.test: no directory entry matched under ' +
+        `ou=people,${BASE_DN} (searched uid, cn). The NexusPuppet account’s email must equal ` +
+        'one of those on the person’s directory entry — on Active Directory, their mail or ' +
+        'their UPN.',
+    ]);
+  });
+
+  it('logs a password the directory rejected at LOG, without the password', async () => {
+    const { p, lines } = spying(AD_SHAPED);
+    const result = await p.authenticate({
+      email: 'frank@nexuspuppet.test',
+      password: 'not-franks-password',
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'INVALID_CREDENTIALS' });
+    expect(refusals(lines.warn)).toEqual([]);
+    expect(lines.log).toEqual([
+      'LDAP login refused for frank@nexuspuppet.test: the directory rejected the password for ' +
+        `uid=frank,ou=people,${BASE_DN} (wrong password, or the account is locked or disabled ` +
+        'in the directory).',
+    ]);
+    expect(JSON.stringify(lines)).not.toContain('not-franks-password');
+  });
+
+  /*
+   * frank@corp.local is frank's "UPN" and grace's mail. Grace knows her own
+   * password; whichever entry slapd lists first, the answer must be a refusal,
+   * never a session in frank@corp.local's account.
+   */
+  it('refuses an address that is one entry’s "UPN" and another’s mail', async () => {
+    const { p, lines } = spying(AD_SHAPED);
+    for (const password of ['grace-password', 'frank-password']) {
+      await expect(p.authenticate({ email: 'frank@corp.local', password })).resolves.toEqual({
+        ok: false,
+        reason: 'PROVIDER_ERROR',
+      });
+    }
+    expect(lines.error.join('\n')).toContain('More than one directory entry carries this');
+  });
+});

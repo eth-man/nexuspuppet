@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type {
   DirectorySettingsView,
-  LdapSettingsView,
+  LdapSaveResult,
   LogLevelSetting,
   NotificationEmailSettings,
   NotificationWebhookSettings,
@@ -284,10 +284,10 @@ export function useDeleteUser(): UseMutationResult<void, Error, string> {
  * it cannot send it back, and treating absence as "clear it" would wipe the
  * credential every time somebody corrected a search base.
  */
-export function useSaveLdapSettings(): UseMutationResult<LdapSettingsView, Error, LdapSettings> {
+export function useSaveLdapSettings(): UseMutationResult<LdapSaveResult, Error, LdapSettings> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input) => api.put<LdapSettingsView>('/settings/auth/ldap', input),
+    mutationFn: (input) => api.put<LdapSaveResult>('/settings/auth/ldap', input),
     onSuccess: () => invalidateDirectory(client, 'auth.ldap'),
   });
 }

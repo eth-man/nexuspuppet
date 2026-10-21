@@ -859,7 +859,7 @@ describe('LdapAuthProvider with AD nested groups', () => {
 });
 
 describe('AD dialect defaults', () => {
-  it('accepts either a sAMAccountName or a userPrincipalName', () => {
+  it('accepts a sAMAccountName, a userPrincipalName or a mail address', () => {
     const filter = ldapConfigSchema.parse({
       url: 'ldaps://dc.corp:636',
       searchBase: 'dc=corp',
@@ -868,6 +868,9 @@ describe('AD dialect defaults', () => {
 
     expect(filter).toContain('sAMAccountName={{input}}');
     expect(filter).toContain('userPrincipalName={{input}}');
+    // The account's email is usually the entry's mail, not its UPN — see
+    // ad-sign-in-by-mail.spec.ts.
+    expect(filter).toContain('mail={{input}}');
   });
 
   /**

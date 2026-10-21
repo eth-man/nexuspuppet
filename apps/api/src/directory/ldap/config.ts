@@ -10,7 +10,7 @@ import {
 } from '@nexuspuppet/contracts';
 import { z } from 'zod';
 import { CaPemError, parseCaPem } from './ca-pem';
-import { dialectDefaults } from './dialect';
+import { AD_SEARCH_FILTER_WITHOUT_MAIL, dialectDefaults } from './dialect';
 
 /**
  * LDAP configuration, validated at boot.
@@ -210,6 +210,12 @@ function prepare(raw: unknown): unknown {
   const input = upgraded as Record<string, unknown>;
   if (input['dialect'] === undefined && input['detectedDialect'] !== undefined) {
     input['dialect'] = input['detectedDialect'];
+  }
+  // The AD default before it matched `mail`, carried into a saved row by a
+  // form opened on the environment baseline (see AD_SEARCH_FILTER_WITHOUT_MAIL),
+  // is read as the default it was — so the current one applies.
+  if (input['dialect'] === 'ad' && input['searchFilter'] === AD_SEARCH_FILTER_WITHOUT_MAIL) {
+    delete input['searchFilter'];
   }
   return input;
 }

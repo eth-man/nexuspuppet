@@ -568,39 +568,41 @@ describe('verifyConfiguration detects the directory type (ADR-0030 §4)', () => 
   });
 });
 
-describe('detectDialect, for a save', () => {
+/**
+ * Save runs Test connection on what it stores (the settings service calls
+ * verifyConfiguration): the detected type is kept, and the verdict goes back
+ * to the operator. So verifyConfiguration must answer, never throw.
+ */
+describe('verifyConfiguration, as the check a save runs', () => {
+  const candidate = {
+    host: 'dc01.example.com',
+    protocol: 'ldaps',
+    bindType: 'anonymous',
+    searchBase: 'dc=example',
+  };
+
   it('answers what the RootDSE said', async () => {
     const directory = recordingDirectory({
       detectDialect: async () => ({ dialect: 'ad', readAs: 'anonymous' }),
     });
-    await expect(
-      provider(REGULAR, directory).detectDialect({
-        host: 'dc01.example.com',
-        protocol: 'ldaps',
-        bindType: 'anonymous',
-        searchBase: 'dc=example',
-      }),
-    ).resolves.toBe('ad');
+    const result = await provider(REGULAR, directory).verifyConfiguration(candidate);
+    expect(result.detectedDialect).toBe('ad');
   });
 
-  it('never throws: an unreachable directory is null, and the save goes ahead', async () => {
+  it('never throws: an unreachable directory is a failed check with no type', async () => {
     const directory = recordingDirectory({
       detectDialect: async () => {
         throw new LdapUnavailableError('ECONNREFUSED');
       },
     });
-    await expect(
-      provider(REGULAR, directory).detectDialect({
-        host: 'dc01.example.com',
-        protocol: 'ldaps',
-        bindType: 'anonymous',
-        searchBase: 'dc=example',
-      }),
-    ).resolves.toBeNull();
+    const result = await provider(REGULAR, directory).verifyConfiguration(candidate);
+    expect(result).toMatchObject({ ok: false, detectedDialect: null });
+    expect(result.message).toContain('ECONNREFUSED');
   });
 
-  it('is null for something that is not a configuration', async () => {
-    await expect(provider(REGULAR, recordingDirectory()).detectDialect({})).resolves.toBeNull();
+  it('is a failed check for something that is not a configuration', async () => {
+    const result = await provider(REGULAR, recordingDirectory()).verifyConfiguration({});
+    expect(result.ok).toBe(false);
   });
 
   it('uses the capability OID the RootDSE carries — a constant, not a guess', () => {

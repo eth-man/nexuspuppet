@@ -217,8 +217,8 @@ readable=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
   -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
   | grep -c '^dn:' || true)
 
-if [ "${readable:-0}" -lt 5 ]; then
-  echo "::error:: the service account sees ${readable} of 5 people. The ACL did not apply," >&2
+if [ "${readable:-0}" -lt 7 ]; then
+  echo "::error:: the service account sees ${readable} of 7 people. The ACL did not apply," >&2
   echo "          so every login would fail with PROVIDER_ERROR." >&2
   exit 1
 fi
@@ -259,8 +259,8 @@ echo "=== verifying an anonymous reader can find people ==="
 anonymous=$(docker exec "$CONTAINER" ldapsearch -x -H ldap://localhost:389 \
   -b "ou=people,${BASE_DN}" "(objectClass=inetOrgPerson)" dn 2>/dev/null \
   | grep -c '^dn:' || true)
-if [ "${anonymous:-0}" -lt 5 ]; then
-  echo "::error:: an anonymous search sees ${anonymous} of 5 people; the Anonymous bind tests would fail." >&2
+if [ "${anonymous:-0}" -lt 7 ]; then
+  echo "::error:: an anonymous search sees ${anonymous} of 7 people; the Anonymous bind tests would fail." >&2
   exit 1
 fi
 echo "  anonymous search sees ${anonymous} people"
