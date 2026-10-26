@@ -2,6 +2,16 @@
 
 Notable changes to NexusPuppet. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+**Upgrades never picked up security fixes in the base images.** `scripts/deploy.sh` rebuilt the images from whatever copy of `node:22-alpine` Docker had cached at the first install, so a runtime fix never reached a deployment however often it was upgraded. The eMudhra certificate-authority compromise (October 2026) made it concrete: Node 22.23.4 stopped trusting the affected roots, and deployments kept running 22.23.2 or 22.23.3. Every build now pulls fresh base images (`docker compose build --pull`) and the image-only services (the database, and the TLS proxy where it is used). A host that cannot reach the registry builds from its cached images and says so, rather than failing the deployment.
+
+### Upgrading
+
+Re-run `sudo ./scripts/deploy.sh`. The first deployment after this pulls current base images, so expect a slower build, and the database container is recreated when a newer `postgres:16-alpine` patch release is available — a restart of a few seconds, with the data volume untouched. The major version stays pinned.
+
 ## [1.14.0] — 2026-10-21
 
 **Directory sign-in the way every other product does it** ([ADR-0031](docs/architecture/adr/0031-standard-directory-sign-in.md)). Two operator reports, reproduced against a real Active Directory: a person in the group mapped to ADMIN was refused because nobody had created their account; and once an account was created by hand with their email, they were still refused — *no directory entry matched* — because in that AD the UPN ends in `.local`, the email in `.com`, and `mail` is empty. People now sign in with their AD username, the directory is asked first, and the account is linked to their directory entry. **One migration**, which `deploy.sh` applies.

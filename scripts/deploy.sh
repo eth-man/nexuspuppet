@@ -691,7 +691,7 @@ if [ -n "$TLS_HOSTNAME" ]; then
     echo "    ${TLS_HOSTNAME} must resolve to this host from wherever you browse"
 fi
 
-step "Building images"
+step "Building images (pulling fresh base images)"
 
 # What this build IS, rather than which release it descends from.
 #
@@ -726,7 +726,25 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
     [ -n "$BUILD_REF" ] && echo "    building as ${BUILD_REF}"
 fi
 
-docker compose build || die "docker compose build"
+# Base images are pulled on every build, not only the first. The Dockerfiles
+# name floating tags (node:22-alpine), and Docker otherwise reuses whatever copy
+# it cached on the first install — so a runtime fix such as Node 22.23.4, which
+# dropped the roots of a compromised certificate authority, never reached a
+# deployment however often it was upgraded. db (and the TLS proxy, below) are
+# image-only services; pulling them takes their patch releases within the
+# pinned major (postgres:16-alpine stays on 16).
+#
+# An air-gapped host, or a registry that is down, must not fail a deployment:
+# it builds from the cached images and says so.
+if docker compose build --pull; then
+    docker compose pull --quiet db \
+        || echo "    could not pull the database image; using the cached one"
+else
+    echo "    could not pull fresh base images (offline, or the registry is"
+    echo "    unreachable); building from the cached ones. Security fixes in the"
+    echo "    base images will arrive with the next deployment that can pull."
+    docker compose build || die "docker compose build"
+fi
 
 step "Starting the database"
 docker compose up -d db || die "docker compose up -d db"
@@ -745,6 +763,8 @@ if [ -n "$TLS_HOSTNAME" ] || grep -qE '^CADDY_CONFIG=.*Caddyfile\.internal' .env
     step "Starting the TLS proxy"
     # Only `proxy`. cert-helper belongs to the supplied-certificate flow and has
     # nothing to adopt here.
+    docker compose --profile tls pull --quiet proxy \
+        || echo "    could not pull the proxy image; using the cached one"
     docker compose --profile tls up -d proxy || die "docker compose --profile tls up -d proxy"
 fi
 
