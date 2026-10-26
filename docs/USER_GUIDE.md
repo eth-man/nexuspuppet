@@ -40,7 +40,7 @@ If you only remember one thing: **eventual consistency is deliberate here, and i
 
 ![Sign in](images/login.png)
 
-Sign in with your **email address** and password. Directory accounts sign in the same way: for Active Directory that is the user's UPN (`jdoe@corp.example.com`), not the bare username, because NexusPuppet finds the account by the address typed before it asks the directory.
+Sign in with your **email address** and password. Directory accounts sign in with their directory **username** (`jdoe`), their UPN or their email: once a directory is configured the field says **Username or email**, and NexusPuppet asks the directory who that is before it opens the account linked to them (see [Directory sign-in](#directory-sign-in)).
 
 The first administrator is seeded from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` the first time the API starts against an empty database; those variables do nothing afterwards and should be removed from the environment.
 
@@ -344,7 +344,7 @@ The LDAP form asks for what any LDAP client asks for ([ADR-0030](architecture/ad
 | **Server name or IP** | The server's name as on its certificate, e.g. `dc01.example.com`. No scheme, no port. |
 | **Port** | Follows the protocol — 636 for LDAPS, 389 for STARTTLS — until you type another (3269/3268 for an AD Global Catalog). |
 | **Protocol** | **LDAPS** (TLS from the first byte) or **STARTTLS** (upgrades the plain port before anything is sent; if the upgrade fails, nothing is sent). There is no unencrypted option. |
-| **Bind type** | **Regular** (default): a service account — **User DN** and **Password** — finds each person. **Simple**: no service account; people bind directly through a **User DN pattern** made from the email they sign in with — `{email}` is the whole address, `{username}` the part before the `@`: `{email}` for AD (the address is the UPN), `uid={username},ou=People,dc=example,dc=com` for OpenLDAP. **Anonymous**: people are found by an anonymous search. |
+| **Bind type** | **Regular** (default): a service account — **User DN** and **Password** — finds each person. **Simple**: no service account; people bind directly through a **User DN pattern** made from what they type — `{username}` is what they type, or the part of an address before the `@`; `{email}` is a whole address: `{username}@corp.local` for AD (people type `jdoe`), `uid={username},ou=People,dc=example,dc=com` for OpenLDAP. With `{email}` they must type an address that **is** their UPN, and the field says **Email**. **Anonymous**: people are found by an anonymous search. |
 | **Directory type** | Not chosen: read from the server's RootDSE (*Detected: Active Directory* / *OpenLDAP*) when you test or save. |
 
 A configuration saved before 1.13 as a URL opens in these fields unchanged. One saved as unencrypted `ldap://` keeps working and is shown as *Unencrypted (legacy)*; saving any change to it requires choosing LDAPS or STARTTLS.
